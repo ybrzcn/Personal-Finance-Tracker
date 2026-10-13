@@ -1,0 +1,343 @@
+# Finans — Personal Finance Tracker
+
+**English:** Finans is an open-source personal finance app for tracking bank accounts, credit cards, loans, budgets, a payment calendar and a debt payoff plan. It imports bank and card statements (Excel, PDF, CSV), runs as a desktop app (macOS, Windows, Linux) that keeps data on your computer, or as a web app on your own server (Docker), with optional accounts to move your data between them. The interface is in Turkish.
+
+- **Download:** [latest release](https://github.com/ybrzcn/Personal-Finance-Tracker/releases/latest) — macOS (Universal), Windows (x64 / x86 / ARM64, installer or portable), Linux (AppImage, .deb, .rpm, tarball; x86_64 / ARM64). Builds are not code-signed yet: on macOS right-click → Open on first launch; on Windows choose "More info → Run anyway".
+- **Self-host:** see [Self-host](#self-host) below.
+- **Build from source:** Node 20+, Rust (stable), then `npm ci && npm run tauri build`.
+- **License:** [MIT](LICENSE). Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md); security issues: [SECURITY.md](SECURITY.md).
+
+### Self-host
+
+```bash
+# docker-compose.yml from this repo
+docker compose pull && docker compose up -d     # ghcr.io/ybrzcn/personal-finance-tracker, listens on 127.0.0.1:8787
+```
+
+Put it behind HTTPS (Cloudflare Tunnel, Caddy, nginx). The server serves the web app and `/api`; the landing page offers the desktop downloads. Configuration (environment variables) is documented in the Turkish section [Sunucu (self-host)](#sunucu-self-host).
+
+---
+
+**Türkçe:** Banka hesapları, kredi kartları, krediler, bütçe, ödeme takvimi ve borç planı için açık kaynak kişisel finans uygulaması. Masaüstünde (macOS, Windows, Linux) veriler yalnız bilgisayarında kalır; istersen kendi sunucunda web uygulaması olarak da çalışır ve hesabınla verini taşıyabilirsin.
+
+**Teknolojiler:** Tauri 2 (Rust) · React 18 · Vite · TypeScript · Tailwind CSS · Lucide · Recharts · SQLite (rusqlite, gömülü) · axum (sunucu)
+
+---
+
+## Özellikler
+
+- **Dashboard:** Toplam Gelir / Gider / Net Bakiye kartları (Bu Ay · Son 30 Gün · Tümü), bu ayın kategori bazlı harcama halkası, son 30 günün kategori çubuk grafiği, son 6 ayın gelir-gider karşılaştırması, son 10 işlem, yaklaşan kart ödemeleri (30 gün).
+- **Hesaplar:** Vadesiz hesap (isteğe bağlı KMH limiti ve faiz oranı), nakit ve kredi kartları. Kartlarda kesim / son ödeme günü, limit, aylık akdi faiz, asgari ödeme oranı; ekstre borcu, son ödeme tarihi, asgari tutar ve ödeme durumu işlemlerden otomatik hesaplanır. Taksitli harcamalar ekstrelere bölünür. Kart tanımlanırken yalnızca "son ekstre ödendi mi?" sorulur; borç, karta girilen harcamalardan hesaplanır. Eski taksitli alışverişler alış tarihi ve toplam taksit sayısıyla girilir, takip başlangıcından önceki ekstrelere düşen taksitler ödenmiş sayılır. Kart ödemesi ve hesaplar arası para aktarımı **transfer** olarak girilir (gider sayılmaz).
+- **Krediler:** Kalan anapara, aylık faiz, KKDF+BSMV, kalan vade ve sonraki taksit tarihiyle ödeme planı; "Taksit öde" anaparayı krediye transfer, faizi "Faiz ve Masraflar" gideri olarak kaydeder.
+- **Bütçe:** Gider kategorilerine aylık limit (ilerleme çubuğu, aşım uyarısı), düzenli gelirler (maaş günü) ve düzenli giderler (kira, fatura, abonelik).
+- **Ödeme Takvimi:** Önümüzdeki 1/3/6 ayın kart ekstreleri (kesilmemişler tahmini), kredi taksitleri ve düzenli giderleri; her ödeme son ödeme tarihinden önce yatan son gelire yazılır (hesap bazında elle seçilebilir), gelir başına "kalan" gösterilir.
+- **Analiz:** Abonelikler kategorisinden otomatik bulunan aboneliklerin aylık / yıllık maliyeti (ad, sıklık, iptal düzeltilebilir) ve seçili değişken gider kategorileri (varsayılan Eğlence, Restoran, Kafe, Market) için aylık / yıllık harcama tahmini ve ay sonu beklentisi.
+- **Borç Planı:** Aylık ayrılabilecek tutara göre Çığ / Kartopu / kendi sıranız / yalnız asgari stratejilerinin simülasyonu; toplam faiz, kapanma tarihi ve aylık ödeme tablosu.
+- **Ekstre içe aktarma:** Bankadan indirilen Excel (XLSX/XLS/ODS), PDF veya CSV/TXT hesap hareketi ya da kart ekstresi (PDF'te tarihle başlayan satırlar okunur; şifreli ve taranmış PDF desteklenmez); sütunlar otomatik tanınır, kategoriler geçmiş işlemlere ve bilinen işyerlerine göre önerilir, mükerrer kayıtlar ve kart ödemeleri işaretlenir.
+- **İşlemler:** Ekleme / düzenleme / silme; açıklama-kategori-tutar araması, tür, kategori ve tarih aralığı filtreleri (hazır aralıklar dahil), tarih/tutar sıralama, filtrelenmiş sonucu CSV'ye aktarma.
+- **Kategoriler:** Varsayılan gelir/gider kategorileri, renk seçimli ekleme / düzenleme / silme. Silinen kategorinin işlemleri silinmez, "Kategorisiz" kalır.
+- **Yedekleme:** JSON yedek alma ve geri yükleme (atomik — hata olursa hiçbir veri değişmez), CSV dışa / içe aktarma (Excel uyumlu `;` ayırıcı, UTF-8 BOM). Eski (v1) yedekler geri yüklenince tüm işlemler "Genel Hesap"a atanır.
+- **Masaüstü deneyimi:** Sistem temasını otomatik algılama + Açık/Koyu tema, macOS'ta modern overlay başlık çubuğu, Windows'ta native pencere kontrolleri, `⌘/Ctrl + N` yeni işlem, `⌘/Ctrl + 1-9` sayfa geçişi, macOS'ta standart `⌘Q` / `⌘W` menüsü.
+
+## Verilerin saklandığı yer
+
+| Platform | Konum |
+| --- | --- |
+| macOS | `~/Library/Application Support/com.ybrzcn.finans/finans.db` |
+| Windows | `%APPDATA%\com.ybrzcn.finans\finans.db` |
+| Linux | `~/.local/share/com.ybrzcn.finans/finans.db` |
+
+Konum uygulama içinde **Ayarlar → Veri Konumu** bölümünde de görünür ve klasör tek tıkla açılabilir.
+
+---
+
+## Mac'te hızlı başlangıç
+
+```bash
+xcode-select --install                                            # C/C++ derleyici (bir kez)
+brew install node                                                 # veya nodejs.org'dan .pkg kurulumu
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh    # Rust (Enter → varsayılan kurulum)
+source "$HOME/.cargo/env"                                         # ya da terminali yeniden açın
+
+cd finans
+npm install           # bağımlılıklar + ikonlar
+npm run tauri dev     # uygulamayı geliştirme modunda açar (ilk derleme birkaç dk)
+npm run build:mac     # .app + .dmg → src-tauri/target/release/bundle/
+```
+
+### Test kontrol listesi
+
+- [ ] Uygulama açılınca giriş ekranı olmadan doğrudan Genel Bakış geliyor
+- [ ] Gelir / gider ekle, düzenle (çift tık veya kalem), sil
+- [ ] İşlemler sayfasında arama, tür, kategori, tarih aralığı filtreleri
+- [ ] Kategori ekle / düzenle / sil (silinen kategorinin işlemleri "Kategorisiz" kalır)
+- [ ] Dashboard kartları ve grafikler eklenen verilerle güncelleniyor
+- [ ] Ayarlar → JSON yedek al → bir işlem sil → yedeği geri yükle → işlem geri geldi
+- [ ] CSV dışa aktar → Numbers / Excel'de Türkçe karakterler doğru görünüyor → CSV içe aktar
+- [ ] Tema: Sistem / Açık / Koyu; macOS görünümü değiştirince "Sistem" modu otomatik uyuyor
+- [ ] Hesaplar → kredi kartı ekle (ör. kesim 23, son ödeme 3) → önizleme "son ödeme" tarihini ertesi ayın 3'ü gösteriyor
+- [ ] Kartı ekle → "Harcama" ile 5 ay önceki 12 taksitli alışverişi gir → form "5/12 taksit ödenmiş sayılır" diyor, kalan 7 taksit Ödeme Takvimi'nde aylara dağılıyor
+- [ ] Karta 3 taksitli harcama gir → İşlemler'de "3 taksit" rozeti, kart kartında dönem içi harcama taksit tutarı kadar
+- [ ] Kartta "Ödeme yap" → vadesiz hesaptan transfer; Genel Bakış'taki gider toplamı değişmiyor, kart durumu "Ödendi"
+- [ ] Eski sürümden gelen veriler "Genel Hesap" altında görünüyor; `finans.db.v1.bak` dosyası oluştu
+- [ ] Bütçe → Düzenli Gelirler → Maaş (ör. her ayın 10'u) ekle → Ödeme Takvimi'nde kart/kredi ödemeleri maaş altında gruplanıyor
+- [ ] Hesaplar → Kredi ekle (kalan anapara, faiz, vade, sonraki taksit) → "Taksit öde" → kalan anapara azalıyor
+- [ ] Borç Planı → aylık tutar gir → strateji kartları ve aylık tablo güncelleniyor
+- [ ] Hesaplar → Ekstre Yükle → bankanın Excel / PDF / CSV dosyası → sütunlar ve kategoriler doğru; içe aktarınca işlemler hesaba ekleniyor
+- [ ] ⌘N yeni işlem, ⌘1-9 sayfa geçişi, ⌘Q çıkış, ⌘C/⌘V form alanlarında çalışıyor
+- [ ] Ayarlar → Veri Konumu → "Finder'da göster" `~/Library/Application Support/com.ybrzcn.finans/` açıyor
+- [ ] Uygulamayı kapatıp açınca veriler duruyor
+
+> İmzasız `.dmg` başka bir Mac'e indirildiğinde Gatekeeper uyarı verebilir. Uygulamaya sağ tık → **Aç** deyin, ya da: `xattr -cr /Applications/Finans.app`
+
+### Sürüm yayınlama
+
+`v1.2.3` biçiminde bir etiket gönderildiğinde GitHub Actions (`.github/workflows/release.yml`) macOS, Windows (x64/x86/ARM64) ve Linux (x86_64/ARM64) paketlerini derler, tanıtım sayfasının bağlandığı sabit adlarla (`scripts/release-names.json`) Release'e yükler; `docker.yml` sunucu imajını `ghcr.io`'ya gönderir. Bir derleme başarısız olursa sürüm taslak kalır.
+
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
+
+İlk yayından sonra bir kez: GitHub'da paketin (**Packages → personal-finance-tracker → Package settings**) görünürlüğünü **Public** yapın (aksi halde `docker compose pull` giriş ister) ve repo ayarlarında **Private vulnerability reporting**'i açın (SECURITY.md). `-` içeren etiketler (`v1.1.0-rc.1`) ön sürüm olarak yayınlanır; tanıtım sayfası ve Docker `latest` kararlı sürümde kalır. Compose'ta `--build` ile yerelde derlenen imaj aynı adı alır; sonraki `pull` onu hazır imajla değiştirir.
+
+## Kurulum (ilk sefer)
+
+### 1. Ön gereksinimler
+
+**Windows**
+
+```powershell
+winget install OpenJS.NodeJS.LTS
+winget install Rustlang.Rustup
+winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+```
+
+WebView2, Windows 10/11'de zaten yüklüdür. Kurulumdan sonra terminali yeniden açın.
+
+**macOS**
+
+```bash
+xcode-select --install
+brew install node
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+### 2. Bağımlılıkları yükleyin
+
+```bash
+npm install
+```
+
+> `postinstall` adımı `app-icon.png` dosyasından tüm platform ikonlarını (`src-tauri/icons/`) otomatik üretir.
+
+### 3. Geliştirme modunda çalıştırın
+
+```bash
+npm run tauri dev
+```
+
+İlk derleme Rust bağımlılıkları nedeniyle birkaç dakika sürebilir; sonrakiler hızlıdır.
+
+> Yalnızca arayüz üzerinde çalışmak için `npm run dev` ile tarayıcıda (http://localhost:1420) açabilirsiniz. Bu modda veriler SQLite yerine tarayıcının localStorage'ında tutulur.
+
+---
+
+## Paketleme (Build)
+
+| Komut | Çıktı |
+| --- | --- |
+| `npm run tauri:build` | Mevcut platform için tüm paketler |
+| `npm run build:win` | Windows `.exe` (NSIS kurulum) + `.msi` |
+| `npm run build:mac` | macOS `.app` + `.dmg` (mevcut mimari) |
+| `npm run build:mac-universal` | macOS Universal (Intel + Apple Silicon) `.app` + `.dmg` |
+
+Çıktılar: `src-tauri/target/release/bundle/` (universal için `src-tauri/target/universal-apple-darwin/release/bundle/`).
+
+> Not: Tauri çapraz derleme desteklemez; Windows paketleri Windows'ta, macOS paketleri macOS'ta üretilmelidir (ya da GitHub Actions ile her iki platformda).
+> Universal build için önce: `rustup target add aarch64-apple-darwin x86_64-apple-darwin`
+
+---
+
+## Sunucu (self-host)
+
+`crates/finans-server`, birden çok kullanıcının kendi hesabıyla kullanabileceği bir sunucudur. Her kullanıcının verisi ayrı bir SQLite dosyasında tutulur ve masaüstü uygulamasıyla aynı veri kodunu (`finans-core`) kullanır. Web arayüzü ve masaüstü/mobil "Sunucu modu" bu API'ye bağlanır.
+
+### Docker ile kurulum
+
+```bash
+docker compose pull && docker compose up -d   # hazır imaj (ghcr.io/ybrzcn/personal-finance-tracker), 127.0.0.1:8787
+# ya da kaynaktan: docker compose up -d --build
+# port: FINANS_PORT=9000 docker compose up -d
+docker compose logs -f finans
+```
+
+Veriler `finans-data` volume'ünde (`/data`) durur (bind mount kullanılırsa klasörün sahibi uid 10001 olmalı): `auth.db` (hesaplar, oturumlar) ve `users/<kullanıcı-id>.db`.
+
+| Ortam değişkeni | Varsayılan | Açıklama |
+|---|---|---|
+| `FINANS_DATA_DIR` | `/data` (Docker), `./data` | Veri klasörü |
+| `PORT` | `8080` | Dinlenen port |
+| `FINANS_REGISTRATION` | `open` | `closed` ise yeni hesap açılamaz |
+| `FINANS_SECURE_COOKIE` | `true` | Oturum çerezine `Secure` eklenir; HTTPS olmadan yalnız yerel denemede `false` |
+| `FINANS_ALLOWED_ORIGINS` | masaüstü/mobil uygulama kökenleri | CORS izinli kökenler (virgülle); `none` CORS'u kapatır (masaüstü/mobil sunucu modu çalışmaz) |
+| `FINANS_WEB_DIR` | `/app/web` (Docker) | Derlenmiş web arayüzü; boşsa yalnız API sunulur |
+| `FINANS_TRUST_PROXY` | boş (compose'da `cloudflare`) | İstemci IP'sinin kaynağı: `cloudflare` → `CF-Connecting-IP` (Cloudflare/Tunnel), `xff` → `X-Forwarded-For`'un son değeri (Caddy/nginx). Sunucu doğrudan internete açıksa boş bırakın (başlıklar sahte olabilir) |
+| `FINANS_USER_QUOTA_MB` | `100` | Kullanıcı başına veritabanı sınırı; dolunca yazma reddedilir |
+| `FINANS_MAX_USERS` | `0` (sınırsız) | En fazla hesap sayısı |
+
+### HTTPS
+
+Sunucu düz HTTP dinler; internete açarken önüne HTTPS sağlayan bir reverse proxy koyun. Caddy örneği (`Caddyfile`):
+
+```
+finans.ornek.com {
+    reverse_proxy localhost:8787
+}
+```
+
+`docker-compose.yml` portu (varsayılan 8787, `FINANS_PORT`) yalnız `127.0.0.1`'e açar; Cloudflare Tunnel'da servis adresi `http://localhost:8787` olur; dışarıdan erişim proxy üzerinden olur. Giriş denemeleri IP başına dakikada 30, e-posta başına dakikada 10 ile sınırlıdır; proxy arkasında IP'nin doğru alınması için `FINANS_TRUST_PROXY` (`cloudflare` ya da `xff`) gerekir (aksi halde tüm istemciler proxy'nin IP'sini paylaşır). Ekstre dosyaları ayrı bir alt süreçte 1 GB bellek ve 30 sn sınırıyla okunur.
+
+### Yönetim
+
+```bash
+docker compose exec finans finans-server users                       # kullanıcıları listeler
+docker compose exec finans finans-server reset-password ad@ornek.com # geçici şifre verir, oturumları kapatır
+```
+
+Kullanıcılar şifrelerini unutursa kayıtta verilen kurtarma koduyla kendileri de sıfırlayabilir. Yedek almak için `/data` klasörünün (volume) kopyası yeterlidir; tutarlı kopya için kopyalamadan önce `docker compose stop` önerilir.
+
+### Web
+
+Docker imajı web arayüzünü de içerir: sunucunun adresini (ör. `https://finans.ornek.com`) tarayıcıda açıp kayıt olun ya da giriş yapın. Kayıtta gösterilen **kurtarma kodunu** saklayın; şifre unutulursa yalnız onunla sıfırlanabilir. Web sürümü tarayıcıda veri saklamaz (yalnız oturum çerezi ve tema tercihi).
+
+Telefonda uygulama gibi kullanmak için: iOS Safari → Paylaş → **Ana Ekrana Ekle**; Android Chrome → menü → **Uygulamayı yükle**.
+
+Geliştirme:
+
+```bash
+# 1. terminal: sunucu (8080). Masaüstü geliştirme sürümü (npm run tauri dev) http://localhost:1420 kökeninden bağlanır;
+#    bu yüzden geliştirmede o köken de CORS listesine eklenir (üretimde gerekmez)
+cd crates/finans-server && FINANS_SECURE_COOKIE=false \
+  FINANS_ALLOWED_ORIGINS=tauri://localhost,http://tauri.localhost,https://tauri.localhost,http://localhost:1420 cargo run
+# 2. terminal: web arayüzü (http://localhost:1430, /api istekleri 8080'e yönlenir)
+npm run dev:web
+```
+
+`npm run build:web` web arayüzünü `dist/` klasörüne derler; sunucu `FINANS_WEB_DIR=dist` ile onu yayınlar.
+
+### Docker olmadan
+
+```bash
+cd crates/finans-server
+cargo build --release
+npm run build:web   # repo kökünde
+FINANS_DATA_DIR=/var/lib/finans FINANS_WEB_DIR=/yol/finans/dist ./target/release/finans-server
+```
+
+### API
+
+Tüm yanıtlar JSON; hata biçimi `{"error": "<mesaj>"}`. Kimlik: web'de `finans_session` çerezi, diğer istemcilerde `Authorization: Bearer <token>`.
+
+| Uç nokta | Açıklama |
+|---|---|
+| `POST /api/auth/register` `{email, password, device?}` | Hesap açar; `{token, user, recoveryCode}` |
+| `POST /api/auth/login` `{email, password, device?}` | `{token, user}` |
+| `POST /api/auth/logout` | Oturumu kapatır |
+| `POST /api/auth/change-password` `{currentPassword, newPassword}` | Diğer oturumlar kapanır |
+| `POST /api/auth/recover` `{email, recoveryCode, newPassword, device?}` | Yeni şifre + yeni kurtarma kodu |
+| `GET /api/me`, `DELETE /api/me` `{password}` | Hesap bilgisi / hesabı ve tüm veriyi silme |
+| `GET, POST /api/{categories,accounts,transactions,recurring}` | Listele / ekle |
+| `PUT, DELETE /api/{categories,accounts,transactions,recurring}/{id}` | Güncelle / sil |
+| `GET /api/budgets`, `PUT /api/budgets/{categoryId}` `{amount}` | Bütçeler (`amount: null` kaldırır) |
+| `GET /api/settings`, `PUT /api/settings/{key}` | Borç planı / analiz ayarları |
+| `POST /api/restore`, `GET /api/export` | Tüm veriyi değiştir / indir |
+| `POST /api/statements/parse?name=<dosya>` (ham bayt) | Ekstre dosyasını okur (CSV, Excel, PDF) |
+| `GET /api/health` | Sağlık kontrolü |
+
+## Masaüstü: hesap ve veri yeri
+
+İlk açılışta uygulama bir Finans sunucusunun adresini ister (resmi sunucu adresi derlemeye `VITE_DEFAULT_SERVER_URL` ile gömülebilir; boşsa kullanıcı yazar), ardından hesap açtırır ya da giriş yaptırır ve verinin nerede duracağını sorar:
+
+- **Bu cihazda**: Bugünkü gibi yerel SQLite; sunucuya veri gitmez, açılışta internet gerekmez.
+- **Sunucuda**: Web ile aynı veri; her işlem sunucuya yazılır, internet gerekir.
+
+"Şimdilik hesapsız devam et" ile hesap açmadan yalnız yerel kullanılabilir; hesap sonradan Ayarlar → Hesap'tan bağlanır.
+
+Ayarlar → Hesap:
+
+- **Verilerimi sunucuya taşı**: Yerel veri (ayarlarla) sunucudakinin yerine yazılır; yerel dosya yedek olarak kalır.
+- **Bu cihaza indir**: Yerel veritabanı önce yedeklenir (`finans.db.sifirlama-oncesi-….bak`), sonra sunucudaki veri yazılır.
+- **Çıkış yap / Hesabı sil**: Bu cihazdaki yerel veri silinmez.
+
+Sunucu adresi ve oturum token'ı uygulama veri klasöründeki `config.json`'da saklanır. Sunucu, masaüstü/mobil uygulamaların kökenlerine varsayılan olarak CORS izni verir (`FINANS_ALLOWED_ORIGINS`).
+
+
+## Proje yapısı
+
+```
+finans/
+├── app-icon.png                 # İkon kaynağı (npm run icons ile yeniden üretilir)
+├── index.html
+├── package.json                 # dev / build / paketleme komutları
+├── vite.config.ts
+├── tailwind.config.js
+├── src/                         # React arayüzü
+│   ├── main.tsx                 # Provider'lar
+│   ├── App.tsx                  # Yerleşim + global kısayollar
+│   ├── index.css                # Tailwind + tema değişkenleri
+│   ├── components/              # Sidebar, Modal, formlar, grafikler, ortak bileşenler
+│   ├── pages/                   # Dashboard, Transactions, Categories, Settings
+│   ├── state/                   # data (CRUD + uygulama ayarları), settings (tema + ayar erişimi), ui (modal/toast)
+│   └── lib/                     # api (Tauri ↔ SQLite), csv, backup, fileio, stats, format
+├── Dockerfile, docker-compose.yml # Sunucu imajı
+├── crates/finans-server/        # Sunucu (axum): hesaplar, kullanıcı başına veritabanı, REST API
+├── crates/finans-core/          # Veri katmanı (Tauri'ye bağlı değil; masaüstü ve sunucu ortak)
+│   └── src/
+│       ├── db.rs                # Şema, migration, varsayılan kategoriler
+│       ├── store.rs             # Doğrulama, CRUD, atomik geri yükleme, ayarlar
+│       └── statement.rs         # Ekstre okuma (CSV/TXT, Excel, PDF; bayt alır)
+└── src-tauri/                   # Masaüstü kabuğu (Tauri)
+    ├── Cargo.toml
+    ├── tauri.conf.json          # Pencere, paketleme, CSP
+    ├── capabilities/default.json# İzinler (en az yetki)
+    └── src/
+        ├── main.rs
+        ├── lib.rs               # Uygulama kurulumu, DB yolu, komut kaydı
+        ├── commands.rs          # finans-core'u çağıran Tauri komutları, veritabanı dosyası işlemleri
+        └── maintenance.rs       # Sürüm bilgisi, uygulamayı kaldırma
+```
+
+## Veri modeli
+
+```text
+categories   (id TEXT PK, name, type 'income'|'expense', color, created_at, UNIQUE(name, type))
+accounts     (id TEXT PK, name UNIQUE, kind 'bank'|'cash'|'credit_card'|'loan', color, opening_balance_cents,
+              opening_date, credit_limit_cents, interest_rate_bp, statement_day, due_day,
+              min_payment_rate_bp, sort_order, archived, term_months, first_due_date,
+              installment_cents, tax_rate_bp, funding_income_id, opening_period_cents,
+              opening_installments (JSON), created_at)
+recurring_items (id TEXT PK, name, type 'income'|'expense', amount_cents, day 1-31,
+              account_id → accounts, category_id → categories, active, sort_order, created_at)
+budgets      (category_id PK → categories ON DELETE CASCADE, amount_cents)
+transactions (id TEXT PK, amount_cents INTEGER > 0, type 'income'|'expense'|'transfer',
+              account_id → accounts, to_account_id → accounts (yalnız transfer),
+              category_id → categories ON DELETE SET NULL, date 'YYYY-MM-DD', description,
+              installments 1-36, budget_month, created_at)
+settings     (key TEXT PK, value JSON)   -- borç planı ve analiz ayarları (tema gibi cihaz tercihleri localStorage'da)
+```
+
+Tutarlar kayan nokta hatalarını önlemek için veritabanında **kuruş (tam sayı)** olarak saklanır. Şema sürümü `PRAGMA user_version` ile takip edilir; yeni migration'lar `crates/finans-core/src/db.rs` içindeki `migrate` fonksiyonuna eklenir.
+
+## CSV içe aktarma biçimi
+
+Başlık satırı zorunludur; ayırıcı (`;`, `,` veya sekme) otomatik algılanır. Sütun adları Türkçe veya İngilizce olabilir:
+
+```csv
+Tarih;Tür;Kategori;Tutar;Açıklama
+2026-10-01;Gelir;Maaş;45.000,00;Ekim maaşı
+05.10.2026;Gider;Market;1.250,75;Haftalık alışveriş
+```
+
+- Tarih: `YYYY-AA-GG` veya `GG.AA.YYYY`
+- Tür sütunu yoksa negatif tutarlar gider, pozitifler gelir sayılır.
+- Olmayan kategoriler otomatik oluşturulur.

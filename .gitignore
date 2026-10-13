@@ -1,0 +1,12 @@
+node_modules
+dist
+*.log
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+
+# Tauri / Rust
+src-tauri/target
+src-tauri/gen/schemas
+crates/finans-core/Cargo.lock
+crates/*/target

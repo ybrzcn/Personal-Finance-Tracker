@@ -1,0 +1,13 @@
+**/target
+node_modules
+dist
+.git
+.superpowers
+src-tauri
+docs
+data
+.env
+.env.*
+!.env.web
+*.db
+*.bak

@@ -1,0 +1,75 @@
+# v* etiketinde sunucu + web imajını amd64 ve arm64 olarak ghcr.io'ya gönderir.
+# Her mimari kendi yerel makinesinde derlenir (QEMU yok), sonra tek çok mimarili etikette birleşir.
+name: docker
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/ybrzcn/personal-finance-tracker
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { platform: linux/amd64, os: ubuntu-latest, arch: amd64 }
+          - { platform: linux/arm64, os: ubuntu-24.04-arm, arch: arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Derle ve gönder (özet ile)
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          # Paket repoya bağlansın (görünürlük ve açıklama repodan gelir)
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=MIT
+      - name: Özeti sakla
+        run: |
+          mkdir -p digests
+          echo "${{ steps.build.outputs.digest }}" > "digests/${{ matrix.arch }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.arch }}
+          path: digests/*
+
+  merge:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          merge-multiple: true
+          path: digests
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Çok mimarili etiketler
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          # Ön sürümler (v1.1.0-rc.1) "latest" etiketini almaz
+          LATEST=$([[ "$VERSION" == *-* ]] || echo "-t $IMAGE:latest")
+          docker buildx imagetools create \
+            -t "$IMAGE:$VERSION" $LATEST \
+            $(for f in digests/*; do echo "$IMAGE@$(cat "$f")"; done)

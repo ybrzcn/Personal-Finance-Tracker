@@ -1,0 +1,175 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --surface: #ffffff;
+  --chart-grid: #e4e4e7;
+  --chart-axis: #71717a;
+  --chart-cursor: rgba(113, 113, 122, 0.08);
+  --income: #10b981;
+  --expense: #f43f5e;
+}
+
+.dark {
+  color-scheme: dark;
+  --surface: #18181b;
+  --chart-grid: #27272a;
+  --chart-axis: #a1a1aa;
+  --chart-cursor: rgba(161, 161, 170, 0.08);
+  --income: #34d399;
+  --expense: #fb7185;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  @apply bg-zinc-50 font-sans text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100;
+  /* Masaüstü uygulama hissi: lastik bant kaydırmasını engelle */
+  overscroll-behavior: none;
+}
+
+/* Erişilebilir kontrast (WCAG AA ≥ 4,5:1): koyu temada ikincil gri metin, açık temada yeşil/kırmızı tutarlar
+   bir ton koyulaştırılır. Tüm sayfalarda tek yerden uygulanır. */
+.dark .text-zinc-500 {
+  color: rgb(161 161 170); /* zinc-400 */
+}
+html:not(.dark) .text-emerald-600 {
+  color: rgb(4 120 87); /* emerald-700 */
+}
+html:not(.dark) .text-rose-600 {
+  color: rgb(190 18 60); /* rose-700 */
+}
+
+/* Tek tip klavye odak halkası (kenar çubuğu, çipler, kartlar dahil) */
+:focus-visible {
+  outline: 2px solid rgb(99 102 241 / 0.7);
+  outline-offset: 2px;
+}
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: none; /* .input kendi odak halkasını çizer */
+}
+
+/* Masaüstü hissi için ince kaydırma çubukları */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(161 161 170 / 0.4) transparent;
+}
+
+@layer components {
+  .card {
+    @apply rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900;
+  }
+  .btn {
+    @apply inline-flex min-h-8 select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 disabled:pointer-events-none disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-indigo-600 text-white shadow-sm hover:bg-indigo-500 active:bg-indigo-700;
+  }
+  .btn-secondary {
+    @apply btn border border-zinc-300 bg-white text-zinc-700 shadow-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800;
+  }
+  .btn-ghost {
+    @apply btn text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800;
+  }
+  .btn-danger {
+    @apply btn bg-rose-600 text-white shadow-sm hover:bg-rose-500 active:bg-rose-700;
+  }
+  .icon-btn {
+    @apply inline-flex min-h-8 min-w-8 items-center justify-center rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100;
+  }
+  .input {
+    @apply w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:placeholder:text-zinc-500;
+  }
+  /* Seçim kutuları: macOS WebView yerel <select>'te dolguyu yok saydığı için alçak kalıyordu;
+     yerel görünüm kapatılır, yükseklik giriş kutularıyla aynı olur ve ok simgesi eklenir */
+  select.input {
+    @apply cursor-pointer appearance-none bg-no-repeat pr-9;
+    min-height: 2.375rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%2371717a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+    background-position: right 0.6rem center;
+    background-size: 1.1rem;
+  }
+  select.input.py-1,
+  select.input.py-1\.5 {
+    min-height: 2.25rem;
+  }
+  .label {
+    @apply mb-1.5 block text-xs font-medium text-zinc-500 dark:text-zinc-400;
+  }
+  .segmented {
+    @apply inline-flex rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800/80;
+  }
+  .segmented > button {
+    @apply min-h-8 rounded-md px-3 py-1.5 text-xs font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100;
+  }
+  .segmented > button[aria-pressed="true"] {
+    @apply bg-white text-zinc-900 shadow-sm dark:bg-zinc-950 dark:text-zinc-100;
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+}
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+.animate-fade-in {
+  animation: fade-in 150ms ease-out;
+}
+.animate-pop-in {
+  animation: pop-in 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.animate-slide-up {
+  animation: slide-up 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in,
+  .animate-pop-in,
+  .animate-slide-up {
+    animation: none;
+  }
+}
+
+/* Telefon: iOS giriş alanına odaklanınca sayfayı yakınlaştırmasın (16 px altı yazı yakınlaştırır); dokunma hedefleri büyür */
+@media (max-width: 767px) {
+  .input,
+  select.input,
+  textarea.input {
+    font-size: 16px;
+  }
+  .btn,
+  .icon-btn {
+    min-height: 2.5rem;
+  }
+  .icon-btn {
+    min-width: 2.5rem;
+  }
+}
+
+/* Dokunmatik cihazlarda yalnız üzerine gelince görünen düğmeler her zaman görünsün */
+@media (hover: none) {
+  .opacity-0.group-hover\:opacity-100 {
+    opacity: 1;
+  }
+}
+

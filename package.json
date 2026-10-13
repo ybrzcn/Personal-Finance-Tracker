@@ -1,0 +1,47 @@
+{
+  "name": "finans",
+  "private": true,
+  "version": "1.0.0",
+  "license": "MIT",
+  "repository": "github:ybrzcn/Personal-Finance-Tracker",
+  "type": "module",
+  "description": "Kişisel finans takibi: masaüstü, web ve kendi sunucunda (Tauri 2 + React + Rust)",
+  "scripts": {
+    "postinstall": "tauri icon app-icon.png",
+    "dev": "vite",
+    "dev:web": "vite --mode web --port 1430",
+    "build": "tsc --noEmit && vite build",
+    "build:web": "tsc --noEmit && vite build --mode web",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "build:mac": "tauri build --bundles app,dmg",
+    "build:mac-universal": "tauri build --target universal-apple-darwin --bundles app,dmg",
+    "build:win": "tauri build --bundles nsis,msi",
+    "icons": "tauri icon app-icon.png"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.1.1",
+    "@tauri-apps/plugin-dialog": "^2.0.1",
+    "@tauri-apps/plugin-fs": "~2.6.0",
+    "@tauri-apps/plugin-opener": "^2.2.0",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^2.13.3"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.1.0",
+    "@types/node": "^22.9.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.15",
+    "typescript": "~5.6.3",
+    "vite": "^5.4.11"
+  }
+}

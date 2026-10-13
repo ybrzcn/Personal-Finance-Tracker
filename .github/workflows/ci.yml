@@ -1,0 +1,35 @@
+# Her push/PR'da: tip kontrolü, arayüz derlemeleri, Rust derleme kontrolleri, indirme listesi eşleşmesi.
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Linux bağımlılıkları
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - run: npm ci --ignore-scripts
+      - run: npx tsc --noEmit
+      - run: npx vite build
+      - run: npx vite build --mode web
+      - run: node scripts/check-release-names.mjs
+      - name: Sunucu
+        working-directory: crates/finans-server
+        run: cargo clippy --locked -- -D warnings
+      - name: Masaüstü
+        working-directory: src-tauri
+        run: cargo check --locked

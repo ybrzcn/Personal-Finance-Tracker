@@ -1,0 +1,136 @@
+import { Pencil, Plus, Tags, Trash2 } from "lucide-react";
+import { useMemo } from "react";
+import { CategoryDot, EmptyState, PageHeader } from "../components/common";
+import { errorMessage } from "../lib/api";
+import { spreadInstallments } from "../lib/cards";
+import { todayISO } from "../lib/format";
+import type { Category, CategoryType } from "../lib/types";
+import { useData } from "../state/data";
+import { useSettings } from "../state/settings";
+import { useUI } from "../state/ui";
+
+interface Usage {
+  count: number;
+  total: number;
+}
+
+export function Categories() {
+  const { categories, transactions, budgets, deleteCategory } = useData();
+  const { formatMoney } = useSettings();
+  const { openCategoryForm, confirm, toast, setPage } = useUI();
+  const limitBy = useMemo(() => new Map(budgets.map((b) => [b.categoryId, b.amount])), [budgets]);
+  // Bu ayki harcama (taksitler aylara bölünmüş) — bütçe limitiyle birlikte gösterilir
+  const thisMonth = todayISO().slice(0, 7);
+  const monthSpent = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const t of spreadInstallments(transactions)) {
+      if (t.type !== "expense" || !t.categoryId || t.date.slice(0, 7) !== thisMonth) continue;
+      m.set(t.categoryId, (m.get(t.categoryId) ?? 0) + t.amount);
+    }
+    return m;
+  }, [transactions, thisMonth]);
+
+  const usage = useMemo(() => {
+    const m = new Map<string, Usage>();
+    for (const t of transactions) {
+      if (!t.categoryId) continue;
+      const u = m.get(t.categoryId) ?? { count: 0, total: 0 };
+      u.count++;
+      u.total += t.amount;
+      m.set(t.categoryId, u);
+    }
+    return m;
+  }, [transactions]);
+
+  const remove = async (c: Category) => {
+    const used = usage.get(c.id)?.count ?? 0;
+    const ok = await confirm({
+      title: "Kategoriyi sil",
+      message: (
+        <>
+          <strong>{c.name}</strong> kategorisi silinecek.
+          {used > 0 && (
+            <>
+              {" "}
+              Bu kategoriye ait <strong>{used} işlem</strong> silinmeyecek, &quot;Kategorisiz&quot; olarak kalacak.
+            </>
+          )}
+        </>
+      ),
+      confirmLabel: "Sil",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await deleteCategory(c.id);
+      toast("Kategori silindi.");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    }
+  };
+
+  const Column = ({ type, title }: { type: CategoryType; title: string }) => {
+    const list = categories.filter((c) => c.type === type);
+    return (
+      <section className="card overflow-hidden">
+        <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 dark:border-zinc-800">
+          <div className="flex items-center gap-2">
+            <span className={`h-2 w-2 rounded-full ${type === "income" ? "bg-emerald-500" : "bg-rose-500"}`} />
+            <h2 className="text-sm font-semibold">{title}</h2>
+            <span className="text-xs text-zinc-500">{list.length}</span>
+          </div>
+          <button className="btn-ghost px-2 py-1 text-xs" onClick={() => openCategoryForm(undefined, type)}>
+            <Plus size={14} /> Ekle
+          </button>
+        </div>
+        {list.length === 0 ? (
+          <EmptyState icon={Tags} title="Kategori yok" />
+        ) : (
+          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {list.map((c) => {
+              const u = usage.get(c.id);
+              return (
+                <li key={c.id} className="group flex items-center gap-3 px-5 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+                  <CategoryDot color={c.color} size={12} />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-medium">{c.name}</div>
+                    <div className="text-xs text-zinc-500">
+                      {u ? `${u.count} işlem · toplam ${formatMoney(u.total)}` : "Henüz kullanılmadı"}
+                      {type === "expense" && (monthSpent.get(c.id) || limitBy.has(c.id)) && (
+                        <>
+                          {" · "}
+                          <button className="underline-offset-2 hover:underline" onClick={() => setPage("budget")} title="Bütçe'de aç">
+                            bu ay {formatMoney(monthSpent.get(c.id) ?? 0)}
+                            {limitBy.has(c.id) ? ` / limit ${formatMoney(limitBy.get(c.id)!)}` : ""}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-0.5 opacity-40 transition group-hover:opacity-100 focus-within:opacity-100">
+                    <button className="icon-btn" title="Düzenle" aria-label={`${c.name} düzenle`} onClick={() => openCategoryForm(c)}>
+                      <Pencil size={15} />
+                    </button>
+                    <button className="icon-btn hover:!text-rose-600" title="Sil" aria-label={`${c.name} sil`} onClick={() => remove(c)}>
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    );
+  };
+
+  return (
+    <>
+      <PageHeader title="Kategoriler" subtitle="Gelir ve giderlerinizi gruplandırmak için kategorileri yönetin." />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Column type="income" title="Gelir Kategorileri" />
+        <Column type="expense" title="Gider Kategorileri" />
+      </div>
+    </>
+  );
+}

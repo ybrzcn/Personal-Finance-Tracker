@@ -1,0 +1,36 @@
+[package]
+name = "finans"
+version = "1.0.0"
+description = "Kişisel Finans Takip Masaüstü Uygulaması"
+authors = ["ybrzcn"]
+edition = "2021"
+license = "MIT"
+
+[lib]
+# Ana binary ile çakışmaması için _lib son eki kullanılıyor
+name = "finans_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+finans-core = { path = "../crates/finans-core" }
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+# Android: "Farklı kaydet" ile seçilen konuma (content:// adresi) yazmak için
+tauri-plugin-fs = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# "bundled": SQLite C kaynağı derlenip gömülür; sistemde SQLite kurulu olması gerekmez
+rusqlite = { version = "0.32", features = ["bundled"] }
+uuid = { version = "1", features = ["v4"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+# PDF ayrıştırıcısındaki olası panikleri yakalayabilmek için (catch_unwind) "abort" kullanılmaz
+panic = "unwind"
+strip = true

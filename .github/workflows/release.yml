@@ -1,0 +1,76 @@
+# v* etiketi atılınca masaüstü paketlerini derler ve GitHub Release'e sabit adlarla yükler.
+# Herhangi bir derleme başarısız olursa sürüm taslak kalır (yayınlanmaz).
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  create:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Taslak sürüm
+        # Etiket yeniden gönderilirse var olan taslak kullanılır; "-" içeren etiketler (v1.1.0-rc.1) ön sürümdür
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft --title "Finans $GITHUB_REF_NAME" --generate-notes \
+            $([[ "$GITHUB_REF_NAME" == *-* ]] && echo --prerelease)
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  build:
+    needs: create
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { id: macos-universal, os: macos-latest, target: universal-apple-darwin, rust: "aarch64-apple-darwin,x86_64-apple-darwin", bundles: "dmg" }
+          - { id: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc, rust: x86_64-pc-windows-msvc, bundles: "nsis,msi" }
+          - { id: windows-x86, os: windows-latest, target: i686-pc-windows-msvc, rust: i686-pc-windows-msvc, bundles: "nsis" }
+          - { id: windows-arm64, os: windows-latest, target: aarch64-pc-windows-msvc, rust: aarch64-pc-windows-msvc, bundles: "nsis" }
+          - { id: linux-x86_64, os: ubuntu-22.04, target: x86_64-unknown-linux-gnu, rust: x86_64-unknown-linux-gnu, bundles: "deb,rpm,appimage" }
+          - { id: linux-aarch64, os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu, rust: aarch64-unknown-linux-gnu, bundles: "deb,rpm,appimage" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust }}
+      - name: Linux bağımlılıkları
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf file
+      - run: npm ci
+      - name: Derle
+        run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+      - name: Sabit adlar
+        run: node scripts/rename-artifacts.mjs ${{ matrix.id }} release-out
+      - name: Yükle
+        shell: bash
+        run: gh release upload "$GITHUB_REF_NAME" release-out/* --repo "$GITHUB_REPOSITORY" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Yayınla
+        # Ön sürümler "latest" olmaz: tanıtım sayfasının bağlantıları kararlı sürümde kalır
+        run: |
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+          else
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}

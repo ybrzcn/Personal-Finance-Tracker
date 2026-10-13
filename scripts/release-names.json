@@ -1,0 +1,112 @@
+{
+  "repo": "ybrzcn/Personal-Finance-Tracker",
+  "platforms": {
+    "macos": {
+      "primary": {
+        "id": "macos-universal-dmg",
+        "label": "Disk görüntüsü (Universal)",
+        "description": "Apple Silicon ve Intel Mac'ler.",
+        "file": "Finans-macos-universal.dmg"
+      },
+      "others": []
+    },
+    "windows": {
+      "primary": {
+        "id": "windows-x64-setup",
+        "label": "Kurulum (64-bit)",
+        "description": "Windows 10 ve 11'li çoğu bilgisayar.",
+        "file": "Finans-windows-x64-setup.exe"
+      },
+      "others": [
+        {
+          "id": "windows-x64-portable",
+          "label": "Taşınabilir (64-bit)",
+          "description": "Zip'i aç ve çalıştır, kurulum yok.",
+          "file": "Finans-windows-x64-portable.zip"
+        },
+        {
+          "id": "windows-x64-msi",
+          "label": "MSI kurulum (64-bit)",
+          "description": "Kurumsal dağıtım (Group Policy) için.",
+          "file": "Finans-windows-x64.msi"
+        },
+        {
+          "id": "windows-x86-setup",
+          "label": "Kurulum (32-bit)",
+          "description": "Eski 32-bit Windows.",
+          "file": "Finans-windows-x86-setup.exe"
+        },
+        {
+          "id": "windows-x86-portable",
+          "label": "Taşınabilir (32-bit)",
+          "description": "32-bit Windows'ta zip'i aç ve çalıştır.",
+          "file": "Finans-windows-x86-portable.zip"
+        },
+        {
+          "id": "windows-arm64-setup",
+          "label": "Kurulum (ARM64)",
+          "description": "ARM işlemcili Windows 11 dizüstüleri.",
+          "file": "Finans-windows-arm64-setup.exe"
+        },
+        {
+          "id": "windows-arm64-portable",
+          "label": "Taşınabilir (ARM64)",
+          "description": "ARM'li Windows'ta zip'i aç ve çalıştır.",
+          "file": "Finans-windows-arm64-portable.zip"
+        }
+      ]
+    },
+    "linux": {
+      "primary": {
+        "id": "linux-x86_64-appimage",
+        "label": "AppImage (x86_64)",
+        "description": "Her dağıtımda: çalıştırılabilir yap ve aç.",
+        "file": "Finans-linux-x86_64.AppImage"
+      },
+      "others": [
+        {
+          "id": "linux-x86_64-deb",
+          "label": "Debian paketi (x86_64)",
+          "description": "Debian, Ubuntu ve türevleri.",
+          "file": "Finans-linux-x86_64.deb"
+        },
+        {
+          "id": "linux-x86_64-rpm",
+          "label": "RPM paketi (x86_64)",
+          "description": "Fedora, RHEL ve openSUSE.",
+          "file": "Finans-linux-x86_64.rpm"
+        },
+        {
+          "id": "linux-x86_64-tar",
+          "label": "Tarball (x86_64)",
+          "description": "Her yere açılabilen düz dosyalar.",
+          "file": "Finans-linux-x86_64.tar.gz"
+        },
+        {
+          "id": "linux-aarch64-appimage",
+          "label": "AppImage (ARM64)",
+          "description": "64-bit ARM'de her dağıtım.",
+          "file": "Finans-linux-aarch64.AppImage"
+        },
+        {
+          "id": "linux-aarch64-deb",
+          "label": "Debian paketi (ARM64)",
+          "description": "ARM'de Debian, Ubuntu ve türevleri.",
+          "file": "Finans-linux-aarch64.deb"
+        },
+        {
+          "id": "linux-aarch64-rpm",
+          "label": "RPM paketi (ARM64)",
+          "description": "ARM'de Fedora, RHEL ve openSUSE.",
+          "file": "Finans-linux-aarch64.rpm"
+        },
+        {
+          "id": "linux-aarch64-tar",
+          "label": "Tarball (ARM64)",
+          "description": "64-bit ARM için düz dosyalar.",
+          "file": "Finans-linux-aarch64.tar.gz"
+        }
+      ]
+    }
+  }
+}
