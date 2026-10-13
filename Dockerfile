@@ -9,6 +9,8 @@ RUN npm ci --ignore-scripts
 COPY index.html vite.config.ts tsconfig.json tailwind.config.js postcss.config.js .env.web ./
 COPY public public
 COPY src src
+# Tanıtım sayfasının indirme bağlantıları bu dosyadan okunur
+COPY scripts/release-names.json scripts/release-names.json
 RUN npm run build:web
 
 # 2) Sunucu

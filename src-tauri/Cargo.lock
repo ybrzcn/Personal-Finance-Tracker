@@ -1153,7 +1153,7 @@ dependencies = [
 
 [[package]]
 name = "finans"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "finans-core",
  "rusqlite",
@@ -1169,7 +1169,7 @@ dependencies = [
 
 [[package]]
 name = "finans-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "calamine",
  "pdf-extract",
