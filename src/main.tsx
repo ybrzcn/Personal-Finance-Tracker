@@ -7,6 +7,7 @@ import { AuthGate } from "./state/auth";
 import { DataProvider } from "./state/data";
 import { SettingsProvider } from "./state/settings";
 import { UIProvider } from "./state/ui";
+import "@fontsource-variable/onest";
 import "./index.css";
 
 // Yakalanmamış hatalar "Hata bildir" raporu için yerelde kaydedilir

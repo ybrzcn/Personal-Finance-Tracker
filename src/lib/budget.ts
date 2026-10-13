@@ -1,5 +1,5 @@
 import { installmentPostings, spreadInstallments } from "./cards";
-import { amountAt, amountForOccurrence, exceptionFor, hasStarted, occurrenceIn, shiftMonth } from "./recurring";
+import { amountAt, amountForOccurrence, exceptionFor, hasStarted, occurrenceIn, scheduledMonth, shiftMonth } from "./recurring";
 import type { Account, RecurringItem, Transaction } from "./types";
 
 /**
@@ -154,13 +154,16 @@ export function primarySalary(recurring: RecurringItem[], date: string): Recurri
 
 /** `date` tarihinden önce (veya o gün) yatan son maaşın tarihi. */
 export function salaryPaidOnOrBefore(salary: RecurringItem, date: string): string {
-  const same = occurrenceIn(salary, date.slice(0, 7));
-  return same <= date ? same : occurrenceIn(salary, shiftMonth(date.slice(0, 7), -1));
+  const month = date.slice(0, 7);
+  // Gelecek ayın maaşı hafta sonu kuralıyla bu aya kaymış olabilir (1 Kasım Pazar → 30 Ekim)
+  return [shiftMonth(month, 1), month, shiftMonth(month, -1), shiftMonth(month, -2)]
+    .map((m) => occurrenceIn(salary, m))
+    .find((d) => d <= date)!;
 }
 
 /** `date` tarihinde ödenecek bir borcu karşılayan maaşın ait olduğu ay (bütçe ayı). */
 export function salaryMonthFor(salary: RecurringItem, date: string): string {
-  const m = salaryPaidOnOrBefore(salary, date).slice(0, 7);
+  const m = scheduledMonth(salary, salaryPaidOnOrBefore(salary, date));
   return salary.type === "income" && salary.coversPreviousMonth ? shiftMonth(m, -1) : m;
 }
 

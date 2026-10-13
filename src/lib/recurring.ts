@@ -19,8 +19,23 @@ export function amountAt(item: RecurringItem, date: string): number {
  * yani Eylül maaşı). Zamlar ve "bu aya özel" istisnalar bu tarihe / aya göre girilir ve okunur.
  */
 export function coverDate(item: RecurringItem, paidDate: string): string {
-  if (!(item.type === "income" && item.coversPreviousMonth)) return paidDate;
-  return clampedDate(Number(paidDate.slice(0, 4)), Number(paidDate.slice(5, 7)) - 2, Number(paidDate.slice(8, 10)));
+  // Hafta sonu kuralıyla komşu aya kaymış yatış, asıl ayının tarihine göre okunur (1 Kasım Pazar → 30 Ekim'de yatan Kasım maaşı)
+  const month = scheduledMonth(item, paidDate);
+  const base = month === paidDate.slice(0, 7) ? paidDate : clampedDate(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, item.day);
+  if (!(item.type === "income" && item.coversPreviousMonth)) return base;
+  return clampedDate(Number(base.slice(0, 4)), Number(base.slice(5, 7)) - 2, Number(base.slice(8, 10)));
+}
+
+/**
+ * Tarihin ait olduğu plan ayı (YYYY-MM). Hafta sonu kuralı tarihi komşu aya taşıdıysa asıl ay döner
+ * (1 Kasım Pazar, "önceki Cuma" → 30 Ekim tarihi Kasım'a aittir); düzenli kaydın tarihine denk gelmeyen
+ * tarihlerde (ör. başka gün girilmiş işlem) tarihin kendi ayı.
+ */
+export function scheduledMonth(item: RecurringItem, date: string): string {
+  const own = date.slice(0, 7);
+  if (!item.weekendShift || item.weekendShift === "none" || occurrenceIn(item, own) === date) return own;
+  for (const m of [shiftMonth(own, 1), shiftMonth(own, -1)]) if (occurrenceIn(item, m) === date) return m;
+  return own;
 }
 
 /** `date` tarihindeki yatış/ödeme için tutar: karşılık geldiği aya özel istisna varsa o, yoksa geçerli tutar. */

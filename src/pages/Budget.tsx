@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronLeft, ChevronRight, Pencil, Plus, Repeat } from "lucide-react";
 import { useMemo, useState, type KeyboardEvent } from "react";
-import { CategoryDot, EmptyState, PageHeader } from "../components/common";
+import { CategoryDot, EmptyState, PageHeader, SummaryTile, type TileTone } from "../components/common";
 import { errorMessage } from "../lib/api";
 import { spreadInstallments } from "../lib/cards";
 import { budgetExpenses, monthExpenses, regularExpenseForMonth, regularIncomeForMonth, splitMonthIncome } from "../lib/budget";
@@ -241,10 +241,11 @@ export function BudgetPage() {
         } yazıldı.`
       : null;
   const tiles = [
-    { label: "Toplam bütçe", value: totalBudget, tone: "" },
-    { label: "Bütçeli harcama", value: spentBudgeted, tone: spentBudgeted > totalBudget && totalBudget > 0 ? "text-rose-600 dark:text-rose-400" : "" },
-    { label: "Kalan", value: totalBudget - spentBudgeted, tone: totalBudget - spentBudgeted < 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400" },
-    { label: "Ayın gideri (bütçe ayına göre)", value: spentAll, tone: "", hint: dateDiffHint },
+    { label: "Toplam bütçe", value: totalBudget, color: "info" as TileTone },
+    { label: "Bütçeli harcama", value: spentBudgeted, color: "expense" as TileTone },
+    // Bütçe aşılınca kalan kutusu da gider rengine döner
+    { label: "Kalan", value: totalBudget - spentBudgeted, color: (totalBudget - spentBudgeted < 0 ? "expense" : "income") as TileTone },
+    { label: "Ayın gideri (bütçe ayına göre)", value: spentAll, color: "plain" as TileTone, hint: dateDiffHint },
   ];
 
   return (
@@ -265,13 +266,9 @@ export function BudgetPage() {
         }
       />
 
-      <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {tiles.map((t) => (
-          <div key={t.label} className="card p-4">
-            <div className="text-xs text-zinc-500">{t.label}</div>
-            <div className={`mt-1 text-xl font-semibold tabular-nums ${t.tone}`}>{formatMoney(t.value)}</div>
-            {"hint" in t && t.hint && <div className="mt-1 text-xs text-zinc-500">{t.hint}</div>}
-          </div>
+          <SummaryTile key={t.label} label={t.label} value={formatMoney(t.value)} tone={t.color} hint={"hint" in t ? t.hint : undefined} />
         ))}
       </div>
 

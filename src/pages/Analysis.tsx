@@ -1,6 +1,6 @@
 import { AlertTriangle, Coffee, Pencil, Repeat, SlidersHorizontal } from "lucide-react";
 import { useMemo, useState } from "react";
-import { CategoryDot, EmptyState, PageHeader, Segmented } from "../components/common";
+import { CategoryDot, EmptyState, PageHeader, Segmented, TILE_TONES, type TileTone } from "../components/common";
 import { Modal } from "../components/Modal";
 import {
   DEFAULT_FORECAST_CATEGORIES,
@@ -127,9 +127,9 @@ function SubscriptionsCard({ items }: { items: Subscription[] }) {
           <p className="text-xs text-zinc-500">Abonelikler kategorisindeki ödemelerden bulunur; kaçanları işlemde kategorisini değiştirerek ekleyebilirsin.</p>
         </div>
         {live.length > 0 && (
-          <div className="flex gap-6">
+          <div className="flex gap-2">
             <Stat label="Aylık" value={formatMoney(monthly)} />
-            <Stat label="Yıllık" value={formatMoney(yearly)} strong />
+            <Stat label="Yıllık" value={formatMoney(yearly)} strong tone="info" />
           </div>
         )}
       </div>
@@ -310,9 +310,9 @@ function ForecastCard({ result }: { result: ReturnType<typeof forecastCategories
           <p className="text-xs text-zinc-500">{basisLabel} Harcama tarihine göre hesaplanır.</p>
         </div>
         {result.items.length > 0 && (
-          <div className="flex gap-6">
+          <div className="flex gap-2">
             <Stat label="Aylık tahmin" value={formatMoney(result.monthlyTotal)} />
-            <Stat label="Yıllık tahmin" value={formatMoney(result.yearlyTotal)} strong />
+            <Stat label="Yıllık tahmin" value={formatMoney(result.yearlyTotal)} strong tone="expense" />
           </div>
         )}
         <button className="btn-secondary" onClick={() => setChoosing(true)}>
@@ -461,11 +461,14 @@ function ForecastCategoryPicker({ onClose }: { onClose(): void }) {
   );
 }
 
-function Stat({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+function Stat({ label, value, strong, tone = "plain" }: { label: string; value: string; strong?: boolean; tone?: TileTone }) {
+  const t = TILE_TONES[tone];
+  // Düz kutu, kartın içinde zemin renginde durur
+  const box = tone === "plain" ? "bg-zinc-50 dark:bg-zinc-950" : t.box;
   return (
-    <div className="text-right">
-      <div className="text-xs text-zinc-500">{label}</div>
-      <div className={`tabular-nums ${strong ? "text-xl font-semibold" : "text-lg font-medium"}`}>{value}</div>
+    <div className={`rounded-xl px-3.5 py-2 text-right ${box}`}>
+      <div className={`text-xs font-medium ${t.label}`}>{label}</div>
+      <div className={`tabular-nums ${strong ? "text-xl font-bold" : "text-lg font-semibold"}`}>{value}</div>
     </div>
   );
 }

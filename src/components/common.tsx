@@ -17,6 +17,44 @@ export function PageHeader({ title, subtitle, actions }: { title: string; subtit
   );
 }
 
+/** Özet kutusu renkleri: net mavi, gelir/olumlu yeşil, gider/borç somon, bilgi açık mavi, düz beyaz kart */
+export type TileTone = "plain" | "net" | "income" | "expense" | "info";
+export const TILE_TONES: Record<TileTone, { box: string; label: string; hint: string }> = {
+  plain: { box: "bg-white dark:bg-zinc-900", label: "text-zinc-500", hint: "text-zinc-500" },
+  net: { box: "bg-indigo-700 text-indigo-50 dark:bg-[#35597b]", label: "text-indigo-200", hint: "text-indigo-200" },
+  income: { box: "bg-[#e1efe5] dark:bg-emerald-900", label: "text-emerald-800 dark:text-emerald-300", hint: "text-zinc-600 dark:text-zinc-400" },
+  expense: { box: "bg-[#ffe3d8] dark:bg-[#4a2327]", label: "text-[#a33a12] dark:text-[#f29a9a]", hint: "text-zinc-600 dark:text-zinc-400" },
+  info: { box: "bg-indigo-100 dark:bg-indigo-900", label: "text-indigo-700 dark:text-indigo-200", hint: "text-zinc-600 dark:text-zinc-400" },
+};
+
+/** Sayfa üstündeki küçük özet kutusu (Hesaplar, Bütçe, Ödeme Takvimi) */
+export function SummaryTile({
+  label,
+  value,
+  tone = "plain",
+  hint,
+  valueClass = "",
+}: {
+  label: string;
+  value: string;
+  tone?: TileTone;
+  hint?: string | null;
+  valueClass?: string;
+}) {
+  const t = TILE_TONES[tone];
+  return (
+    <div className={`min-w-0 rounded-2xl px-5 py-4 ${t.box}`}>
+      <div className={`truncate text-[13px] font-semibold ${t.label}`}>{label}</div>
+      <div className={`mt-1 whitespace-nowrap text-2xl font-bold tabular-nums tracking-tight ${valueClass}`}>{value}</div>
+      {hint && (
+        <div className={`mt-0.5 text-xs ${t.hint}`} title={hint}>
+          {hint}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function EmptyState({ icon: Icon, title, hint, action }: { icon: LucideIcon; title: string; hint?: string; action?: ReactNode }) {
   return (
     <div className="flex flex-col items-center justify-center px-6 py-12 text-center">

@@ -1,7 +1,7 @@
 import { AlertTriangle, CalendarClock, CalendarRange, CalendarX, CreditCard, HandCoins, Plus, Repeat, Undo2 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { paymentHints } from "../components/AccountCards";
-import { EmptyState, PageHeader, Segmented } from "../components/common";
+import { EmptyState, PageHeader, Segmented, SummaryTile, type TileTone } from "../components/common";
 import { cardSummary } from "../lib/cards";
 import { addDays, daysBetween, formatDate, formatDateShort, todayISO } from "../lib/format";
 import { errorMessage } from "../lib/api";
@@ -68,7 +68,7 @@ function ObligationList({
             </div>
             <span className="font-semibold tabular-nums">{money(ob.amountCents)}</span>
             {(ob.kind === "card" || ob.kind === "loan") && !ob.estimated && (
-              <button className="btn-secondary px-2.5 py-1 text-xs" onClick={() => onPay(ob)}>
+              <button className="btn-primary min-h-8 px-3 py-1 text-xs font-semibold" onClick={() => onPay(ob)}>
                 Öde
               </button>
             )}
@@ -142,13 +142,15 @@ export function CashPlanPage() {
   const overdueIn = (m: (typeof plan.months)[number]) => m.obligations.filter((o) => o.overdue).reduce((t, o) => t + o.amountCents, 0);
 
   const tiles = [
-    { label: "Bugünkü nakit (banka + nakit)", cents: plan.liquidCents, tone: plan.liquidCents < 0 ? "text-rose-600 dark:text-rose-400" : "" },
-    { label: "Planlanan gelir", cents: plan.totalIncomeCents, tone: "text-emerald-600 dark:text-emerald-400" },
-    { label: "Planlanan ödemeler", cents: plan.totalObligationCents, tone: "text-rose-600 dark:text-rose-400" },
+    { label: "Bugünkü nakit (banka + nakit)", cents: plan.liquidCents, color: "plain" as TileTone, tone: plan.liquidCents < 0 ? "text-rose-600 dark:text-rose-400" : "" },
+    { label: "Planlanan gelir", cents: plan.totalIncomeCents, color: "income" as TileTone, tone: "" },
+    { label: "Planlanan ödemeler", cents: plan.totalObligationCents, color: "expense" as TileTone, tone: "" },
     {
       label: "Dönem sonu tahmini",
       cents: plan.liquidCents + plan.totalIncomeCents - plan.totalObligationCents,
-      tone: plan.liquidCents + plan.totalIncomeCents - plan.totalObligationCents < 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400",
+      // Eksiye düşecekse uyarı rengi
+      color: (plan.liquidCents + plan.totalIncomeCents - plan.totalObligationCents < 0 ? "expense" : "net") as TileTone,
+      tone: "",
     },
   ];
 
@@ -172,10 +174,7 @@ export function CashPlanPage() {
 
       <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {tiles.map((t) => (
-          <div key={t.label} className="card p-4">
-            <div className="text-xs text-zinc-500">{t.label}</div>
-            <div className={`mt-1 text-xl font-semibold tabular-nums ${t.tone}`}>{money(t.cents)}</div>
-          </div>
+          <SummaryTile key={t.label} label={t.label} value={money(t.cents)} tone={t.color} valueClass={t.tone} />
         ))}
       </div>
 

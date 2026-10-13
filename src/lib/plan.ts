@@ -3,7 +3,7 @@ import { assignRegular, matchesRegular, primarySalary, salaryMonthFor } from "./
 import { cardDues, clampedDate, shiftClosing } from "./cards";
 import { addDays } from "./format";
 import { loanSummary } from "./loans";
-import { amountForOccurrence, coverMonthOf, exceptionFor, hasStarted, occurrenceIn, shiftMonth } from "./recurring";
+import { amountForOccurrence, coverMonthOf, exceptionFor, hasStarted, occurrenceIn, scheduledMonth, shiftMonth } from "./recurring";
 import type { Account, RecurringItem, Transaction } from "./types";
 
 export type ObligationKind = "card" | "loan" | "recurring" | "planned";
@@ -250,7 +250,9 @@ function withFutureIncomes(
     if (e.date < today) return e;
     const item = regular.find((r) => r.id === e.itemId);
     if (!item) return e;
-    const matched = candidates.filter((t) => t.date.slice(0, 7) === e.date.slice(0, 7) && assigned.get(t.id) === item.id);
+    // Aynı ayın maaşı: hafta sonu kuralıyla önceki aya kaymış yatış da asıl ayıyla karşılaştırılır
+    const month = scheduledMonth(item, e.date);
+    const matched = candidates.filter((t) => assigned.get(t.id) === item.id && scheduledMonth(item, t.date) === month);
     if (!matched.length) return e;
     matched.forEach((t) => used.add(t.id));
     const amountCents = matched.reduce((s, t) => s + Math.round(t.amount * 100), 0);

@@ -1,7 +1,7 @@
 import { FileUp, Landmark, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { BankAccountCard, CreditCardCard, LoanCard } from "../components/AccountCards";
-import { EmptyState, PageHeader } from "../components/common";
+import { EmptyState, PageHeader, SummaryTile, type TileTone } from "../components/common";
 import { DueIncomeBanner } from "../components/DueIncomeBanner";
 import { netPosition } from "../lib/accounts";
 import { expectedIncomeThisMonth } from "../lib/budget";
@@ -36,17 +36,17 @@ export function Accounts() {
   const hasArchived = accounts.some((a) => a.archived);
 
   const tiles = [
-    { label: "Varlıklar", cents: pos.assetsCents, tone: "", hint: "Bugüne kadarki bakiye" },
+    { label: "Varlıklar", cents: pos.assetsCents, tone: "", color: "income" as TileTone, hint: "Bugüne kadarki bakiye" },
     {
       label: `Beklenen gelir · ${monthName(today.slice(0, 7))}`,
       cents: expected.totalCents,
       tone: expected.totalCents > 0 ? POS : "",
       hint: expectedHint || "Bu ay beklenen gelir yok",
     },
-    { label: "Kart borcu", cents: pos.cardDebtCents, tone: pos.cardDebtCents > 0 ? NEG : "" },
-    { label: "Kredi borcu", cents: pos.loanDebtCents, tone: pos.loanDebtCents > 0 ? NEG : "" },
+    { label: "Kart borcu", cents: pos.cardDebtCents, tone: "", color: "expense" as TileTone },
+    { label: "Kredi borcu", cents: pos.loanDebtCents, tone: "", color: "expense" as TileTone },
     { label: "KMH kullanımı", cents: pos.overdraftCents, tone: pos.overdraftCents > 0 ? NEG : "" },
-    { label: "Net durum", cents: pos.netCents, tone: pos.netCents >= 0 ? POS : NEG },
+    { label: "Net durum", cents: pos.netCents, tone: "", color: "net" as TileTone },
   ];
 
   return (
@@ -75,11 +75,14 @@ export function Accounts() {
 
       <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-3 2xl:grid-cols-6">
         {tiles.map((t) => (
-          <div key={t.label} className="card min-w-0 p-4">
-            <div className="truncate text-xs text-zinc-500">{t.label}</div>
-            <div className={`mt-1 whitespace-nowrap text-xl font-semibold tabular-nums ${t.tone}`}>{formatMoney(t.cents / 100)}</div>
-            {"hint" in t && t.hint && <div className="mt-0.5 truncate text-xs text-zinc-500" title={t.hint}>{t.hint}</div>}
-          </div>
+          <SummaryTile
+            key={t.label}
+            label={t.label}
+            value={formatMoney(t.cents / 100)}
+            tone={"color" in t ? t.color : "plain"}
+            valueClass={t.tone}
+            hint={"hint" in t ? t.hint : undefined}
+          />
         ))}
       </div>
 

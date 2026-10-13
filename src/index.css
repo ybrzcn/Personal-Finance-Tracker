@@ -5,21 +5,21 @@
 :root {
   color-scheme: light;
   --surface: #ffffff;
-  --chart-grid: #e4e4e7;
-  --chart-axis: #71717a;
-  --chart-cursor: rgba(113, 113, 122, 0.08);
-  --income: #10b981;
-  --expense: #f43f5e;
+  --chart-grid: #e0e0db;
+  --chart-axis: #73726c;
+  --chart-cursor: rgba(115, 114, 108, 0.08);
+  --income: #3a9a5b;
+  --expense: #d64545;
 }
 
 .dark {
   color-scheme: dark;
-  --surface: #18181b;
-  --chart-grid: #27272a;
-  --chart-axis: #a1a1aa;
-  --chart-cursor: rgba(161, 161, 170, 0.08);
-  --income: #34d399;
-  --expense: #fb7185;
+  --surface: #242528;
+  --chart-grid: #313236;
+  --chart-axis: #a3a29c;
+  --chart-cursor: rgba(163, 162, 156, 0.08);
+  --income: #5bb07a;
+  --expense: #e06363;
 }
 
 html,
@@ -37,18 +37,18 @@ body {
 /* Erişilebilir kontrast (WCAG AA ≥ 4,5:1): koyu temada ikincil gri metin, açık temada yeşil/kırmızı tutarlar
    bir ton koyulaştırılır. Tüm sayfalarda tek yerden uygulanır. */
 .dark .text-zinc-500 {
-  color: rgb(161 161 170); /* zinc-400 */
+  color: #a3a29c; /* zinc-400 */
 }
 html:not(.dark) .text-emerald-600 {
-  color: rgb(4 120 87); /* emerald-700 */
+  color: #28683d; /* emerald-700 */
 }
 html:not(.dark) .text-rose-600 {
-  color: rgb(190 18 60); /* rose-700 */
+  color: #a12c2c; /* rose-700 */
 }
 
 /* Tek tip klavye odak halkası (kenar çubuğu, çipler, kartlar dahil) */
 :focus-visible {
-  outline: 2px solid rgb(99 102 241 / 0.7);
+  outline: 2px solid rgb(79 122 163 / 0.7);
   outline-offset: 2px;
 }
 input:focus-visible,
@@ -60,40 +60,40 @@ textarea:focus-visible {
 /* Masaüstü hissi için ince kaydırma çubukları */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgb(161 161 170 / 0.4) transparent;
+  scrollbar-color: rgb(163 162 156 / 0.4) transparent;
 }
 
 @layer components {
   .card {
-    @apply rounded-2xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900;
+    @apply rounded-2xl bg-white dark:bg-zinc-900;
   }
   .btn {
     @apply inline-flex min-h-8 select-none items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3.5 py-2 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 disabled:pointer-events-none disabled:opacity-50;
   }
   .btn-primary {
-    @apply btn bg-indigo-600 text-white shadow-sm hover:bg-indigo-500 active:bg-indigo-700;
+    @apply btn rounded-xl bg-indigo-600 text-white hover:bg-indigo-500 active:bg-indigo-700;
   }
   .btn-secondary {
-    @apply btn border border-zinc-300 bg-white text-zinc-700 shadow-sm hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800;
+    @apply btn rounded-xl border border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700;
   }
   .btn-ghost {
     @apply btn text-zinc-600 hover:bg-zinc-100 dark:text-zinc-300 dark:hover:bg-zinc-800;
   }
   .btn-danger {
-    @apply btn bg-rose-600 text-white shadow-sm hover:bg-rose-500 active:bg-rose-700;
+    @apply btn rounded-xl bg-rose-500 text-white hover:bg-rose-400 active:bg-rose-600;
   }
   .icon-btn {
     @apply inline-flex min-h-8 min-w-8 items-center justify-center rounded-md p-1.5 text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-100;
   }
   .input {
-    @apply w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:placeholder:text-zinc-500;
+    @apply w-full rounded-[10px] border border-zinc-200 bg-white px-3 py-2 text-sm outline-none transition placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:placeholder:text-zinc-500;
   }
   /* Seçim kutuları: macOS WebView yerel <select>'te dolguyu yok saydığı için alçak kalıyordu;
      yerel görünüm kapatılır, yükseklik giriş kutularıyla aynı olur ve ok simgesi eklenir */
   select.input {
     @apply cursor-pointer appearance-none bg-no-repeat pr-9;
     min-height: 2.375rem;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%2371717a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%2373726c' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 8l4 4 4-4'/%3E%3C/svg%3E");
     background-position: right 0.6rem center;
     background-size: 1.1rem;
   }
@@ -105,13 +105,13 @@ textarea:focus-visible {
     @apply mb-1.5 block text-xs font-medium text-zinc-500 dark:text-zinc-400;
   }
   .segmented {
-    @apply inline-flex rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800/80;
+    @apply inline-flex rounded-[10px] bg-zinc-100 p-[3px] dark:bg-zinc-950;
   }
   .segmented > button {
-    @apply min-h-8 rounded-md px-3 py-1.5 text-xs font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100;
+    @apply min-h-7 rounded-[7px] px-2.5 py-1 text-xs font-medium text-zinc-500 transition hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100;
   }
   .segmented > button[aria-pressed="true"] {
-    @apply bg-white text-zinc-900 shadow-sm dark:bg-zinc-950 dark:text-zinc-100;
+    @apply bg-white font-semibold text-zinc-900 dark:bg-zinc-700 dark:text-zinc-50;
   }
 }
 
