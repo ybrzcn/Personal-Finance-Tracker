@@ -1,11 +1,15 @@
 mod app;
 mod auth;
+mod auth_sqlite;
+mod auth_store;
 mod config;
+mod data;
+mod pg;
 mod routes_auth;
 mod routes_data;
 
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use axum::http::{header, HeaderValue, StatusCode};
 use axum::routing::{any, get};
@@ -14,7 +18,10 @@ use tower_http::services::{ServeDir, ServeFile};
 use tower_http::set_header::SetResponseHeaderLayer;
 
 use crate::app::AppState;
+use crate::auth_sqlite::SqliteAuthStore;
+use crate::auth_store::AuthStore;
 use crate::config::Config;
+use crate::data::{DataBackend, SqliteData};
 
 #[tokio::main]
 async fn main() {
@@ -25,29 +32,51 @@ async fn main() {
         // Ekstre ayrıştırma alt süreci (sunucu kendini çağırır): kötü niyetli dosya belleği/işlemciyi tüketse bile
         // yalnız bu süreç ölür. Girdi stdin, çıktı stdout'ta JSON.
         Some("parse-statement") => parse_statement_child(args.get(1).map(String::as_str).unwrap_or("")),
-        // Docker HEALTHCHECK: sunucu portu bağlantı kabul ediyorsa 0 (imaja curl girmesin)
+        // Docker HEALTHCHECK: /api/health 200 dönerse 0 (imaja curl girmesin)
         Some("health") => {
-            let ok = std::net::TcpStream::connect_timeout(
-                &SocketAddr::from(([127, 0, 0, 1], config.port)),
-                std::time::Duration::from_secs(2),
-            )
-            .is_ok();
+            use std::io::{Read, Write};
+            let ok = (|| -> std::io::Result<bool> {
+                let mut s = std::net::TcpStream::connect_timeout(
+                    &SocketAddr::from(([127, 0, 0, 1], config.port)),
+                    std::time::Duration::from_secs(2),
+                )?;
+                s.set_read_timeout(Some(std::time::Duration::from_secs(3)))?;
+                s.write_all(b"GET /api/health HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n")?;
+                let mut buf = [0u8; 16];
+                let n = s.read(&mut buf)?;
+                Ok(buf[..n].starts_with(b"HTTP/1.1 200") || buf[..n].starts_with(b"HTTP/1.0 200"))
+            })()
+            .unwrap_or(false);
             std::process::exit(if ok { 0 } else { 1 });
         }
         Some("users") => {
-            let conn = open_auth(&config);
-            auth::cli_users(&conn).expect("kullanıcılar okunamadı");
+            let (auth, data) = stores(&config).await;
+            // Postgres istemcisi async bağlamda düşürülemez: depolar iş parçacığında kullanılıp orada bırakılır
+            tokio::task::spawn_blocking(move || {
+                auth::cli_users(&*auth).expect("kullanıcılar okunamadı");
+                drop((auth, data));
+            })
+            .await
+            .unwrap();
+            std::process::exit(0);
         }
         Some("reset-password") => {
-            let Some(email) = args.get(1) else {
+            let Some(email) = args.get(1).cloned() else {
                 eprintln!("Kullanım: finans-server reset-password <eposta>");
                 std::process::exit(2);
             };
-            let conn = open_auth(&config);
-            if !auth::cli_reset_password(&conn, email).expect("şifre sıfırlanamadı") {
-                eprintln!("Kullanıcı bulunamadı: {email}");
-                std::process::exit(1);
+            let (auth, data) = stores(&config).await;
+            let found = tokio::task::spawn_blocking(move || {
+                let found = auth::cli_reset_password(&*auth, &email).expect("şifre sıfırlanamadı");
+                drop((auth, data));
+                found
+            })
+            .await
+            .unwrap();
+            if !found {
+                eprintln!("Kullanıcı bulunamadı");
             }
+            std::process::exit(if found { 0 } else { 1 });
         }
         Some(other) => {
             eprintln!("Bilinmeyen komut: {other}\nKullanım: finans-server [serve | users | reset-password <eposta> | health]");
@@ -82,33 +111,73 @@ fn parse_statement_child(name: &str) -> ! {
     std::process::exit(0);
 }
 
-fn open_auth(config: &Config) -> rusqlite::Connection {
-    std::fs::create_dir_all(&config.data_dir).expect("veri klasörü oluşturulamadı");
-    auth::open(&config.data_dir.join("auth.db")).expect("auth.db açılamadı")
+/// Hesap deposu ve veri arka ucu. Postgres istemcisi async bağlamda kullanılamadığı için `spawn_blocking` içinde çağrılır.
+fn open_stores(config: &Config) -> Result<(Box<dyn AuthStore>, DataBackend), String> {
+    if let Some(url) = &config.database_url {
+        let pool = pg::connect(url, config.db_pool)?;
+        pg::migrate(&pool)?;
+        println!("veritabanı: Postgres");
+        // SQLite'tan Postgres'e geçen kurulumda eski veri kendiliğinden taşınmaz: fark edilmeden "kaybolmuş" görünmesin
+        if config.data_dir.join("auth.db").exists() {
+            eprintln!(
+                "UYARI: {} içinde SQLite verisi (auth.db, users/) var ama Postgres modunda KULLANILMIYOR. \
+                 O veriyle devam etmek için FINANS_DATABASE_URL'i kaldırın; taşımak için kullanıcılar uygulamadan JSON yedek alıp \
+                 yeni hesaplarına geri yükleyebilir.",
+                config.data_dir.display()
+            );
+        }
+        return Ok((Box::new(pg::PgAuthStore::new(pool.clone())), DataBackend::Postgres(pg::PgData::new(pool))));
+    }
+    std::fs::create_dir_all(config.data_dir.join("users")).map_err(|e| format!("veri klasörü oluşturulamadı: {e}"))?;
+    let auth = SqliteAuthStore::open(&config.data_dir.join("auth.db")).map_err(|e| format!("auth.db açılamadı: {e}"))?;
+    println!("veritabanı: SQLite ({})", config.data_dir.display());
+    Ok((Box::new(auth), DataBackend::Sqlite(SqliteData::new(config.data_dir.join("users")))))
+}
+
+async fn stores(config: &Config) -> (Box<dyn AuthStore>, DataBackend) {
+    let c = config.clone();
+    match tokio::task::spawn_blocking(move || open_stores(&c)).await.expect("depo açılamadı") {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("{e}");
+            std::process::exit(1);
+        }
+    }
 }
 
 async fn serve(config: Config) {
-    std::fs::create_dir_all(config.data_dir.join("users")).expect("veri klasörü oluşturulamadı");
     let port = config.port;
     let cors = cors_layer(&config);
     // Olmayan e-postayla girişte kullanılan sabit hash önceden üretilir (ilk deneme daha uzun sürüp hesap varlığını ele vermesin)
     tokio::task::spawn_blocking(|| auth::dummy_verify("")).await.expect("argon2 hazırlanamadı");
-    let auth_db = open_auth(&config);
-    match auth::sweep_sessions(&auth_db) {
-        Ok(n) if n > 0 => println!("{n} süresi dolmuş oturum silindi"),
-        Err(e) => eprintln!("oturum temizliği yapılamadı: {e}"),
-        _ => {}
+    if std::env::var_os("FINANS_USER_QUOTA_MB").is_some() {
+        eprintln!("uyarı: FINANS_USER_QUOTA_MB artık kullanılmıyor (kullanıcı kotası kaldırıldı); yok sayıldı");
     }
-    let state = Arc::new(AppState { config, auth: Mutex::new(auth_db), limiter: Default::default(), user_dbs: Default::default(), open_lock: Default::default(), hash_permits: tokio::sync::Semaphore::new(4), parse_permits: tokio::sync::Semaphore::new(2) });
+    let (auth_store, data) = stores(&config).await;
+    let st = tokio::task::spawn_blocking(move || {
+        match auth::sweep_sessions(&*auth_store) {
+            Ok(n) if n > 0 => println!("{n} süresi dolmuş oturum silindi"),
+            Err(e) => eprintln!("oturum temizliği yapılamadı: {e}"),
+            _ => {}
+        }
+        auth_store
+    })
+    .await
+    .expect("oturum temizliği");
+    let state = Arc::new(AppState {
+        config,
+        auth: st,
+        data,
+        limiter: Default::default(),
+        hash_permits: tokio::sync::Semaphore::new(4),
+        parse_permits: tokio::sync::Semaphore::new(2),
+    });
     let web_dir = state.config.web_dir.clone();
     let not_found = || async { app::ApiError::new(StatusCode::NOT_FOUND, "Bulunamadı.") };
     let router = Router::new()
         .merge(routes_auth::router())
         .merge(routes_data::router())
-        .route(
-            "/api/health",
-            get(|| async { Json(serde_json::json!({ "ok": true, "version": env!("CARGO_PKG_VERSION") })) }),
-        )
+        .route("/api/health", get(health))
         // Bilinmeyen API yolları web arayüzüne düşmesin
         .route("/api/{*rest}", any(not_found));
     let router = match &web_dir {
@@ -117,7 +186,7 @@ async fn serve(config: Config) {
         None => router.fallback(not_found),
     };
     let app = router
-        .with_state(state)
+        .with_state(state.clone())
         .layer(axum::middleware::from_fn(cache_headers))
         .layer(axum::middleware::from_fn(same_origin_guard))
         .layer(SetResponseHeaderLayer::if_not_present(header::CONTENT_SECURITY_POLICY, HeaderValue::from_static(CSP)))
@@ -138,6 +207,17 @@ async fn serve(config: Config) {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("sunucu hatası");
+    // Postgres istemcileri async bağlamda düşürülemez: yönlendirici kapanırken son referans `state`'te kalır
+    // ve süreç onu düşürmeden biter (havuz kapanırken çökmesin)
+    let _keep = state;
+    std::process::exit(0);
+}
+
+/// Sağlık: hesap deposu ve veri arka ucu yanıt veriyorsa 200, yoksa 503.
+async fn health(axum::extract::State(s): axum::extract::State<Arc<AppState>>) -> (StatusCode, Json<serde_json::Value>) {
+    let ok = tokio::task::spawn_blocking(move || s.auth.ping().is_ok() && s.data.ping().is_ok()).await.unwrap_or(false);
+    let status = if ok { StatusCode::OK } else { StatusCode::SERVICE_UNAVAILABLE };
+    (status, Json(serde_json::json!({ "ok": ok, "version": env!("CARGO_PKG_VERSION") })))
 }
 
 /// Çerezle (web) gelen veri değiştiren isteklerde `Origin` aynı site olmalı (CSRF). JSON gövdeli uç noktalar zaten

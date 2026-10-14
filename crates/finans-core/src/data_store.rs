@@ -1,0 +1,55 @@
+//! Kullanıcı verisinin ilkel okuma/yazma işlemleri. Geçerlilik kararı vermez (o `store.rs`'in işi);
+//! SQLite (`sqlite.rs`) ve Postgres (finans-server) uygular. Her çağrı dizisi tek bir veritabanı işleminde çalışır.
+
+use crate::db::{Account, Budget, Category, RecurringItem, Transaction};
+use crate::rows::{AccountRow, RecurringRow, TransactionRow};
+use crate::CoreResult;
+
+pub trait DataStore {
+    fn list_categories(&mut self) -> CoreResult<Vec<Category>>;
+    fn get_category(&mut self, id: &str) -> CoreResult<Option<Category>>;
+    fn insert_category(&mut self, id: &str, name: &str, kind: &str, color: &str) -> CoreResult<()>;
+    /// Değişen satır sayısı
+    fn update_category(&mut self, id: &str, name: &str, kind: &str, color: &str) -> CoreResult<u64>;
+    /// İşlemlerin kategori alanı boşaltılır, sonra kategori silinir (bütçesi silinir, düzenli kayıtlarda boşalır).
+    fn delete_category(&mut self, id: &str) -> CoreResult<()>;
+    /// (türü `kind` olmayan işlem sayısı, türü `kind` olmayan düzenli kayıt sayısı, bütçe satırı sayısı)
+    fn category_conflicts(&mut self, id: &str, kind: &str) -> CoreResult<(i64, i64, i64)>;
+
+    fn list_accounts(&mut self) -> CoreResult<Vec<Account>>;
+    fn get_account(&mut self, id: &str) -> CoreResult<Option<Account>>;
+    /// (tür, arşivli mi)
+    fn account_meta(&mut self, id: &str) -> CoreResult<Option<(String, bool)>>;
+    /// Hesabın kaynak ya da hedef olduğu işlem sayısı
+    fn account_usage(&mut self, id: &str) -> CoreResult<i64>;
+    fn insert_account(&mut self, id: &str, row: &AccountRow) -> CoreResult<()>;
+    fn update_account(&mut self, id: &str, row: &AccountRow) -> CoreResult<u64>;
+    fn delete_account(&mut self, id: &str) -> CoreResult<()>;
+
+    fn list_transactions(&mut self) -> CoreResult<Vec<Transaction>>;
+    fn get_transaction(&mut self, id: &str) -> CoreResult<Option<Transaction>>;
+    fn insert_transaction(&mut self, row: &TransactionRow) -> CoreResult<()>;
+    fn update_transaction(&mut self, row: &TransactionRow) -> CoreResult<u64>;
+    fn delete_transaction(&mut self, id: &str) -> CoreResult<()>;
+
+    fn list_recurring(&mut self) -> CoreResult<Vec<RecurringItem>>;
+    fn get_recurring(&mut self, id: &str) -> CoreResult<Option<RecurringItem>>;
+    fn insert_recurring(&mut self, id: &str, row: &RecurringRow) -> CoreResult<()>;
+    fn update_recurring(&mut self, id: &str, row: &RecurringRow) -> CoreResult<u64>;
+    fn delete_recurring(&mut self, id: &str) -> CoreResult<()>;
+    /// Bu düzenli kayda bağlı kart/kredi finansman bağlantılarını boşaltır
+    fn clear_funding_income(&mut self, recurring_id: &str) -> CoreResult<()>;
+    /// Var olmayan ya da gelir olmayan düzenli kayda işaret eden finansman bağlantılarını boşaltır
+    fn clear_dangling_funding(&mut self) -> CoreResult<()>;
+
+    fn list_budgets(&mut self) -> CoreResult<Vec<Budget>>;
+    fn upsert_budget(&mut self, category_id: &str, amount_cents: i64) -> CoreResult<()>;
+    fn delete_budget(&mut self, category_id: &str) -> CoreResult<()>;
+
+    /// (anahtar, JSON metni)
+    fn list_settings(&mut self) -> CoreResult<Vec<(String, String)>>;
+    fn upsert_setting(&mut self, key: &str, json: &str) -> CoreResult<()>;
+
+    /// Geri yükleme öncesi: bütçeler, düzenli kayıtlar, işlemler, hesaplar ve kategoriler silinir (ayarlar kalır).
+    fn clear_all(&mut self) -> CoreResult<()>;
+}

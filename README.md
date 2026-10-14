@@ -10,9 +10,14 @@
 ### Self-host
 
 ```bash
-# docker-compose.yml from this repo
-docker compose pull && docker compose up -d     # ghcr.io/ybrzcn/personal-finance-tracker, listens on 127.0.0.1:8787
+# docker-compose.yml, .env.example and docker/postgres-init.sh from this repo
+cp .env.example .env                            # set both passwords (letters and digits only, e.g. `openssl rand -hex 24`)
+docker compose pull && docker compose up -d     # ghcr.io/ybrzcn/personal-finance-tracker + PostgreSQL 17, listens on 127.0.0.1:8787
 ```
+
+Data is stored in PostgreSQL (one schema, rows isolated per user with row-level security). To keep the simpler file-based SQLite storage, delete the `FINANS_DATABASE_URL` line and the `db` service from the compose file.
+
+**Upgrading an existing install (1.0.x):** earlier versions stored data in SQLite. Postgres is the new default and existing data is **not** migrated automatically. To keep your data, remove the `FINANS_DATABASE_URL` line and the `db` service before `docker compose up -d`. To move to Postgres, users export a JSON backup in the app first and restore it into their new account.
 
 Put it behind HTTPS (Cloudflare Tunnel, Caddy, nginx). The server serves the web app and `/api`; the landing page offers the desktop downloads. Configuration (environment variables) is documented in the Turkish section [Sunucu (self-host)](#sunucu-self-host).
 
@@ -20,7 +25,7 @@ Put it behind HTTPS (Cloudflare Tunnel, Caddy, nginx). The server serves the web
 
 **Türkçe:** Banka hesapları, kredi kartları, krediler, bütçe, ödeme takvimi ve borç planı için açık kaynak kişisel finans uygulaması. Masaüstünde (macOS, Windows, Linux) veriler yalnız bilgisayarında kalır; istersen kendi sunucunda web uygulaması olarak da çalışır ve hesabınla verini taşıyabilirsin.
 
-**Teknolojiler:** Tauri 2 (Rust) · React 18 · Vite · TypeScript · Tailwind CSS · Lucide · Recharts · SQLite (rusqlite, gömülü) · axum (sunucu)
+**Teknolojiler:** Tauri 2 (Rust) · React 18 · Vite · TypeScript · Tailwind CSS · Lucide · Recharts · SQLite (rusqlite, gömülü) · axum + PostgreSQL (sunucu)
 
 ---
 
@@ -160,18 +165,42 @@ npm run tauri dev
 
 ## Sunucu (self-host)
 
-`crates/finans-server`, birden çok kullanıcının kendi hesabıyla kullanabileceği bir sunucudur. Her kullanıcının verisi ayrı bir SQLite dosyasında tutulur ve masaüstü uygulamasıyla aynı veri kodunu (`finans-core`) kullanır. Web arayüzü ve masaüstü/mobil "Sunucu modu" bu API'ye bağlanır.
+`crates/finans-server`, birden çok kullanıcının kendi hesabıyla kullanabileceği bir sunucudur. Veri iki şekilde tutulabilir:
+
+- **PostgreSQL** (`FINANS_DATABASE_URL` verilirse; Compose'da varsayılan): tek şema, her kullanıcının satırları satır düzeyi güvenlikle (RLS) ayrılır.
+- **SQLite** (verilmezse): her kullanıcının verisi ayrı bir dosyada.
+
+İki modda da iş kuralları masaüstü uygulamasıyla aynı koddan (`finans-core`) gelir. Web arayüzü ve masaüstü/mobil "Sunucu modu" bu API'ye bağlanır.
 
 ### Docker ile kurulum
 
 ```bash
-docker compose pull && docker compose up -d   # hazır imaj (ghcr.io/ybrzcn/personal-finance-tracker), 127.0.0.1:8787
+cp .env.example .env   # iki şifreyi değiştirin (yalnız harf ve rakam; ör. openssl rand -hex 24)
+docker compose pull && docker compose up -d   # hazır imaj (ghcr.io/ybrzcn/personal-finance-tracker) + PostgreSQL 17, 127.0.0.1:8787
 # ya da kaynaktan: docker compose up -d --build
 # port: FINANS_PORT=9000 docker compose up -d
 docker compose logs -f finans
 ```
 
-Veriler `finans-data` volume'ünde (`/data`) durur (bind mount kullanılırsa klasörün sahibi uid 10001 olmalı): `auth.db` (hesaplar, oturumlar) ve `users/<kullanıcı-id>.db`.
+Compose iki servis kurar: `db` (PostgreSQL, verisi `finans-pg` volume'ünde, port dışarı açılmaz) ve `finans`. Postgres ilk açılışta `docker/postgres-init.sh` ile uygulamaya ayrı bir kullanıcı (`finans`) ve veritabanı oluşturur. Bu kullanıcının süper kullanıcı **olmaması** gerekir: süper kullanıcılar satır düzeyi güvenliği atlar, bu yüzden sunucu böyle bir kullanıcıyla açılmayı reddeder.
+
+**Kendi PostgreSQL'iniz** (en az 15) varsa `db` servisini silin, uygulama kullanıcısını kendiniz oluşturun ve adresi verin:
+
+```sql
+CREATE ROLE finans LOGIN NOSUPERUSER NOBYPASSRLS PASSWORD '…';
+CREATE DATABASE finans OWNER finans;
+```
+
+```
+FINANS_DATABASE_URL=postgres://finans:…@sunucu:5432/finans               # aynı ağda
+FINANS_DATABASE_URL=postgres://finans:…@sunucu:5432/finans?sslmode=require   # internet üzerinden (TLS)
+```
+
+Tablolar sunucu açılırken otomatik oluşturulur ve güncellenir.
+
+**Önceki sürümden (1.0.x) güncelliyorsanız:** eski sürümler veriyi SQLite'ta tutuyordu. Yeni `docker-compose.yml` varsayılan olarak Postgres kullanır ve eski veri **kendiliğinden taşınmaz**; Postgres'le açılınca boş bir sunucu görürsünüz (sunucu günlüğünde bunun için bir uyarı çıkar, eski veri `finans-data` volume'ünde durur). Verinizle devam etmek için güncellemeden önce aşağıdaki gibi SQLite'ta kalın. Postgres'e geçmek isterseniz önce her kullanıcı uygulamadan JSON yedek alır, sonra yeni sunucuda hesap açıp yedeği geri yükler.
+
+**SQLite'ta kalmak için** `docker-compose.yml`'den `FINANS_DATABASE_URL` satırını ve `db` servisini silin. Veriler `finans-data` volume'ünde (`/data`) durur (bind mount kullanılırsa klasörün sahibi uid 10001 olmalı): `auth.db` (hesaplar, oturumlar) ve `users/<kullanıcı-id>.db`.
 
 | Ortam değişkeni | Varsayılan | Açıklama |
 |---|---|---|
@@ -182,8 +211,11 @@ Veriler `finans-data` volume'ünde (`/data`) durur (bind mount kullanılırsa kl
 | `FINANS_ALLOWED_ORIGINS` | masaüstü/mobil uygulama kökenleri | CORS izinli kökenler (virgülle); `none` CORS'u kapatır (masaüstü/mobil sunucu modu çalışmaz) |
 | `FINANS_WEB_DIR` | `/app/web` (Docker) | Derlenmiş web arayüzü; boşsa yalnız API sunulur |
 | `FINANS_TRUST_PROXY` | boş (compose'da `cloudflare`) | İstemci IP'sinin kaynağı: `cloudflare` → `CF-Connecting-IP` (Cloudflare/Tunnel), `xff` → `X-Forwarded-For`'un son değeri (Caddy/nginx). Sunucu doğrudan internete açıksa boş bırakın (başlıklar sahte olabilir) |
-| `FINANS_USER_QUOTA_MB` | `100` | Kullanıcı başına veritabanı sınırı; dolunca yazma reddedilir |
+| `FINANS_DATABASE_URL` | boş (Compose'da Postgres) | Verilirse veri PostgreSQL'de tutulur; boşsa SQLite |
+| `FINANS_DB_POOL` | `8` | PostgreSQL bağlantı havuzu boyutu |
 | `FINANS_MAX_USERS` | `0` (sınırsız) | En fazla hesap sayısı |
+
+`FINANS_USER_QUOTA_MB` 1.1.0'da kaldırıldı (kullanıcı başına kota yok); verilirse yok sayılır.
 
 ### HTTPS
 
@@ -204,7 +236,16 @@ docker compose exec finans finans-server users                       # kullanıc
 docker compose exec finans finans-server reset-password ad@ornek.com # geçici şifre verir, oturumları kapatır
 ```
 
-Kullanıcılar şifrelerini unutursa kayıtta verilen kurtarma koduyla kendileri de sıfırlayabilir. Yedek almak için `/data` klasörünün (volume) kopyası yeterlidir; tutarlı kopya için kopyalamadan önce `docker compose stop` önerilir.
+Kullanıcılar şifrelerini unutursa kayıtta verilen kurtarma koduyla kendileri de sıfırlayabilir.
+
+Yedekleme (PostgreSQL):
+
+```bash
+docker compose exec db pg_dump -U postgres -d finans -Fc > finans.dump                  # yedek al
+docker compose exec -T db pg_restore -U postgres -d finans --clean < finans.dump        # geri yükle
+```
+
+SQLite modunda `/data` klasörünün (volume) kopyası yeterlidir; tutarlı kopya için kopyalamadan önce `docker compose stop` önerilir. İki modda da kullanıcılar uygulama içinden JSON yedek alabilir.
 
 ### Web
 

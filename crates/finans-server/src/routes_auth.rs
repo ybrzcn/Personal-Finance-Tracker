@@ -12,10 +12,9 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::app::{
-    blocking, clear_cookie, hashing, delete_user, lock_auth, remove_user_files, session_cookie, user_db, ApiError, AppState, AuthUser,
-};
+use crate::app::{blocking, clear_cookie, hashing, session_cookie, ApiError, AppState, AuthUser};
 use crate::auth;
+use crate::auth_store::NewUser;
 use crate::config::ProxyMode;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -90,37 +89,22 @@ async fn register(
     let st = state.clone();
     let user_email = email.clone();
     let (id, token, code) = hashing(&state, move || {
-        if st.config.max_users > 0 {
-            let count: i64 = lock_auth(&st)?
-                .query_row("SELECT COUNT(*) FROM users", [], |r| r.get(0))
-                .map_err(ApiError::internal)?;
-            if count as u64 >= st.config.max_users {
-                return Err(ApiError::new(StatusCode::FORBIDDEN, "Bu sunucuda yeni hesap açılamıyor (kullanıcı sınırına ulaşıldı)."));
-            }
+        if st.config.max_users > 0 && st.auth.count_users()? as u64 >= st.config.max_users {
+            return Err(ApiError::new(StatusCode::FORBIDDEN, "Bu sunucuda yeni hesap açılamıyor (kullanıcı sınırına ulaşıldı)."));
         }
         let password_hash = auth::hash_secret(&c.password);
         let code = auth::new_recovery_code();
         let recovery_hash = auth::hash_secret(&code);
         let id = uuid::Uuid::new_v4().to_string();
-        let conn = lock_auth(&st)?;
-        let inserted = conn.execute(
-            "INSERT INTO users (id, email, password_hash, recovery_hash, created_at) VALUES (?1, ?2, ?3, ?4, ?5)",
-            (&id, &email, &password_hash, &recovery_hash, auth::now()),
-        );
-        match inserted {
-            Err(rusqlite::Error::SqliteFailure(f, _)) if f.code == rusqlite::ErrorCode::ConstraintViolation => {
-                return Err("Bu e-posta ile kayıtlı bir hesap var.".to_string().into());
-            }
-            other => other.map_err(ApiError::internal)?,
-        };
-        let token = auth::create_session(&conn, &id, &c.device).map_err(ApiError::internal)?;
-        drop(conn);
-        // Kullanıcının veritabanı hemen oluşturulur (varsayılan kategorilerle); olmazsa yarım hesap bırakılmaz
-        if let Err(e) = user_db(&st, &id) {
-            let _ = lock_auth(&st)?.execute("DELETE FROM users WHERE id = ?1", [&id]);
-            remove_user_files(&st.config.data_dir.join("users"), &id);
+        if let NewUser::EmailTaken = st.auth.insert_user(&id, &email, &password_hash, &recovery_hash, auth::now())? {
+            return Err("Bu e-posta ile kayıtlı bir hesap var.".to_string().into());
+        }
+        // Kullanıcının verisi hemen hazırlanır (varsayılan kategoriler); olmazsa yarım hesap bırakılmaz
+        if let Err(e) = st.data.init_user(&*st.auth, &id) {
+            let _ = st.data.delete_user(&*st.auth, &id);
             return Err(e);
         }
+        let token = auth::create_session(&*st.auth, &id, &c.device)?;
         Ok((id, token, code))
     })
     .await?;
@@ -146,7 +130,7 @@ async fn login(
     limit_attempts(&state, "login", &email, &client_ip(&state, &headers, &peer))?;
     let st = state.clone();
     let (id, email, token) = hashing(&state, move || {
-        let user = auth::find_user(&*lock_auth(&st)?, &email).map_err(ApiError::internal)?;
+        let user = st.auth.find_user(&email)?;
         let bad = || ApiError::new(StatusCode::UNAUTHORIZED, BAD_LOGIN);
         let Some(user) = user else {
             auth::dummy_verify(&c.password);
@@ -155,7 +139,7 @@ async fn login(
         if !auth::verify_secret(&c.password, &user.password_hash) {
             return Err(bad());
         }
-        let token = auth::create_session(&*lock_auth(&st)?, &user.id, &c.device).map_err(ApiError::internal)?;
+        let token = auth::create_session(&*st.auth, &user.id, &c.device)?;
         Ok((user.id, user.email, token))
     })
     .await?;
@@ -164,13 +148,7 @@ async fn login(
 
 async fn logout(State(state): State<Arc<AppState>>, user: AuthUser) -> Result<Response, ApiError> {
     let st = state.clone();
-    blocking(move || {
-        lock_auth(&st)?
-            .execute("DELETE FROM sessions WHERE token_hash = ?1", [&user.token_hash])
-            .map_err(ApiError::internal)?;
-        Ok(())
-    })
-    .await?;
+    blocking(move || Ok(st.auth.delete_session(&user.token_hash)?)).await?;
     Ok((StatusCode::NO_CONTENT, [(header::SET_COOKIE, clear_cookie(&state.config))]).into_response())
 }
 
@@ -193,18 +171,12 @@ async fn change_password(State(state): State<Arc<AppState>>, user: AuthUser, Jso
     }
     let st = state.clone();
     hashing(&state, move || {
-        let current: String = lock_auth(&st)?
-            .query_row("SELECT password_hash FROM users WHERE id = ?1", [&user.id], |r| r.get(0))
-            .map_err(ApiError::internal)?;
+        let current = st.auth.password_hash(&user.id)?.ok_or_else(|| ApiError::internal("kullanıcı yok"))?;
         if !auth::verify_secret(&b.current_password, &current) {
             return Err("Mevcut şifre hatalı.".to_string().into());
         }
-        let hash = auth::hash_secret(&b.new_password);
-        let conn = lock_auth(&st)?;
-        conn.execute("UPDATE users SET password_hash = ?2 WHERE id = ?1", (&user.id, &hash))
-            .map_err(ApiError::internal)?;
-        conn.execute("DELETE FROM sessions WHERE user_id = ?1 AND token_hash <> ?2", (&user.id, &user.token_hash))
-            .map_err(ApiError::internal)?;
+        st.auth.set_password(&user.id, &auth::hash_secret(&b.new_password))?;
+        st.auth.delete_sessions(&user.id, Some(&user.token_hash))?;
         Ok(())
     })
     .await?;
@@ -238,7 +210,7 @@ async fn recover(
     let (id, email, token, code) = hashing(&state, move || {
         let bad = || ApiError::from("E-posta veya kurtarma kodu hatalı.".to_string());
         let code = auth::normalize_recovery_code(&b.recovery_code);
-        let Some(user) = auth::find_user(&*lock_auth(&st)?, &email).map_err(ApiError::internal)? else {
+        let Some(user) = st.auth.find_user(&email)? else {
             auth::dummy_verify(&code);
             return Err(bad());
         };
@@ -248,14 +220,9 @@ async fn recover(
         let password_hash = auth::hash_secret(&b.new_password);
         let new_code = auth::new_recovery_code();
         let recovery_hash = auth::hash_secret(&new_code);
-        let conn = lock_auth(&st)?;
-        conn.execute(
-            "UPDATE users SET password_hash = ?2, recovery_hash = ?3 WHERE id = ?1",
-            (&user.id, &password_hash, &recovery_hash),
-        )
-        .map_err(ApiError::internal)?;
-        conn.execute("DELETE FROM sessions WHERE user_id = ?1", [&user.id]).map_err(ApiError::internal)?;
-        let token = auth::create_session(&conn, &user.id, &b.device).map_err(ApiError::internal)?;
+        st.auth.set_password_and_recovery(&user.id, &password_hash, &recovery_hash)?;
+        st.auth.delete_sessions(&user.id, None)?;
+        let token = auth::create_session(&*st.auth, &user.id, &b.device)?;
         Ok((user.id, user.email, token, new_code))
     })
     .await?;
@@ -279,13 +246,11 @@ async fn delete_me(State(state): State<Arc<AppState>>, user: AuthUser, Json(b): 
     }
     let st = state.clone();
     hashing(&state, move || {
-        let hash: String = lock_auth(&st)?
-            .query_row("SELECT password_hash FROM users WHERE id = ?1", [&user.id], |r| r.get(0))
-            .map_err(ApiError::internal)?;
+        let hash = st.auth.password_hash(&user.id)?.ok_or_else(|| ApiError::internal("kullanıcı yok"))?;
         if !auth::verify_secret(&b.password, &hash) {
             return Err("Şifre hatalı.".to_string().into());
         }
-        delete_user(&st, &user.id)
+        st.data.delete_user(&*st.auth, &user.id)
     })
     .await?;
     Ok((StatusCode::NO_CONTENT, [(header::SET_COOKIE, clear_cookie(&state.config))]).into_response())

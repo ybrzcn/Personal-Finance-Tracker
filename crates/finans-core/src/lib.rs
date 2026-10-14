@@ -1,6 +1,9 @@
 //! Finans veri katmanı. Tauri'ye bağlı değildir; masaüstü uygulaması ve sunucu ortak kullanır.
 
+pub mod data_store;
 pub mod db;
+pub mod rows;
+pub mod sqlite;
 pub mod statement;
 pub mod store;
 

@@ -26,12 +26,14 @@ pub struct Config {
     pub secure_cookie: bool,
     /// İstemci IP'sinin kaynağı (deneme sınırları için)
     pub proxy: ProxyMode,
-    /// Kullanıcı başına veritabanı boyutu sınırı (bayt)
-    pub user_quota_bytes: u64,
     /// En fazla hesap sayısı (0 = sınırsız)
     pub max_users: u64,
     /// Derlenmiş web arayüzü (`npm run build:web` çıktısı); yoksa yalnız API sunulur
     pub web_dir: Option<PathBuf>,
+    /// Varsa Postgres modu
+    pub database_url: Option<String>,
+    /// Postgres bağlantı havuzu boyutu
+    pub db_pool: u32,
 }
 
 impl Config {
@@ -52,9 +54,10 @@ impl Config {
                 Some("true") | Some("xff") => ProxyMode::ForwardedFor,
                 _ => ProxyMode::None,
             },
-            user_quota_bytes: var("FINANS_USER_QUOTA_MB").and_then(|v| v.parse::<u64>().ok()).unwrap_or(100) * 1024 * 1024,
             max_users: var("FINANS_MAX_USERS").and_then(|v| v.parse().ok()).unwrap_or(0),
             web_dir: var("FINANS_WEB_DIR").map(PathBuf::from).filter(|p| p.join("index.html").is_file()),
+            database_url: var("FINANS_DATABASE_URL"),
+            db_pool: var("FINANS_DB_POOL").and_then(|v| v.parse().ok()).filter(|n| *n > 0).unwrap_or(8),
         }
     }
 }

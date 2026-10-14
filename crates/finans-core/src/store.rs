@@ -1,31 +1,12 @@
-//! Veri işlemleri: doğrulama, ekleme/güncelleme/silme ve geri yükleme. Hata mesajları kullanıcıya gösterilir.
+//! Veri işlemleri: doğrulama ve iş kuralları. SQL içermez; `DataStore` (SQLite ya da Postgres) üzerinden çalışır.
+//! Hata mesajları kullanıcıya gösterilir.
 
 use std::collections::HashSet;
 
-use rusqlite::{params, Connection, ErrorCode, OptionalExtension};
-
-use crate::db::{
-    self, row_to_account, row_to_category, row_to_recurring, row_to_transaction, Account,
-    AccountInput, Budget, Category, CategoryInput, RecurringItem, Transaction, TransactionInput,
-    ACCOUNT_COLUMNS, CATEGORY_COLUMNS, RECURRING_COLUMNS, TRANSACTION_COLUMNS,
-};
+use crate::data_store::DataStore;
+use crate::db::{self, Account, AccountInput, Budget, Category, CategoryInput, RecurringItem, Transaction, TransactionInput};
+use crate::rows::{AccountRow, RecurringRow, TransactionRow};
 use crate::CoreResult;
-
-pub fn db_err(e: rusqlite::Error) -> String {
-    match &e {
-        rusqlite::Error::SqliteFailure(f, msg)
-            if f.code == ErrorCode::ConstraintViolation
-                && f.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
-        {
-            if msg.as_deref().is_some_and(|m| m.contains("accounts.name")) {
-                "Bu isimde bir hesap zaten mevcut.".into()
-            } else {
-                "Bu isimde ve türde bir kategori zaten mevcut.".into()
-            }
-        }
-        _ => format!("Veritabanı hatası: {e}"),
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Doğrulama
@@ -125,43 +106,6 @@ fn clean_color(color: &str) -> String {
     }
 }
 
-/// Seçilen kategori mevcut olmalı ve işlem türüyle uyuşmalı.
-fn check_category(conn: &Connection, category_id: &Option<String>, kind: &str) -> CoreResult<()> {
-    let Some(id) = category_id else { return Ok(()) };
-    let cat_kind: Option<String> = conn
-        .query_row("SELECT type FROM categories WHERE id = ?1", [id], |r| r.get(0))
-        .optional()
-        .map_err(db_err)?;
-    match cat_kind {
-        None => Err("Seçilen kategori bulunamadı.".into()),
-        Some(k) if k != kind => Err("Kategori türü ile işlem türü uyuşmuyor.".into()),
-        Some(_) => Ok(()),
-    }
-}
-
-/// Veritabanına yazılacak, doğrulanmış hesap alanları.
-pub(crate) struct AccountRow {
-    name: String,
-    kind: String,
-    color: String,
-    opening_cents: i64,
-    opening_date: String,
-    limit_cents: Option<i64>,
-    rate_bp: Option<i64>,
-    statement_day: Option<i64>,
-    due_day: Option<i64>,
-    min_rate_bp: Option<i64>,
-    sort_order: i64,
-    archived: bool,
-    term_months: Option<i64>,
-    first_due_date: Option<String>,
-    installment_cents: Option<i64>,
-    tax_rate_bp: Option<i64>,
-    funding_income_id: Option<String>,
-    opening_period_cents: Option<i64>,
-    /// JSON dizisi
-    opening_installments: String,
-}
 
 fn day_of_month(v: Option<i64>, label: &str) -> CoreResult<i64> {
     match v {
@@ -179,7 +123,7 @@ fn rate_bp(v: Option<f64>, label: &str) -> CoreResult<Option<i64>> {
 }
 
 /// Arayüzdeki `normalizeAccount` ile aynı kurallar.
-pub(crate) fn clean_account(a: &Account) -> CoreResult<AccountRow> {
+pub fn clean_account(a: &Account) -> CoreResult<AccountRow> {
     let name = clean_name(&a.name, "Hesap adı")?;
     if !matches!(a.kind.as_str(), "bank" | "cash" | "credit_card" | "loan") {
         return Err("Geçersiz hesap türü.".into());
@@ -265,45 +209,45 @@ fn clean_opening_installments(items: &[db::OpeningInstallment]) -> CoreResult<St
     serde_json::to_string(&out).map_err(|e| e.to_string())
 }
 
-fn insert_account(conn: &Connection, id: &str, r: &AccountRow) -> rusqlite::Result<usize> {
-    conn.execute(
-        "INSERT INTO accounts (id, name, kind, color, opening_balance_cents, opening_date, credit_limit_cents,
-                               interest_rate_bp, statement_day, due_day, min_payment_rate_bp, sort_order, archived,
-                               term_months, first_due_date, installment_cents, tax_rate_bp, funding_income_id,
-                               opening_period_cents, opening_installments)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
-        params![
-            id, r.name, r.kind, r.color, r.opening_cents, r.opening_date, r.limit_cents, r.rate_bp,
-            r.statement_day, r.due_day, r.min_rate_bp, r.sort_order, r.archived, r.term_months,
-            r.first_due_date, r.installment_cents, r.tax_rate_bp, r.funding_income_id, r.opening_period_cents,
-            r.opening_installments
-        ],
-    )
+/// Seçilen kategori mevcut olmalı ve işlem türüyle uyuşmalı.
+fn check_category(s: &mut dyn DataStore, category_id: &Option<String>, kind: &str) -> CoreResult<()> {
+    let Some(id) = category_id else { return Ok(()) };
+    match s.get_category(id)? {
+        None => Err("Seçilen kategori bulunamadı.".into()),
+        Some(c) if c.kind != kind => Err("Kategori türü ile işlem türü uyuşmuyor.".into()),
+        Some(_) => Ok(()),
+    }
 }
 
 /// Hesabın türü ve arşiv durumu.
-fn account_meta(conn: &Connection, id: &str) -> CoreResult<(String, bool)> {
-    conn.query_row("SELECT kind, archived FROM accounts WHERE id = ?1", [id], |r| {
-        Ok((r.get(0)?, r.get::<_, i64>(1)? != 0))
-    })
-    .optional()
-    .map_err(db_err)?
-    .ok_or_else(|| "Seçilen hesap bulunamadı.".to_string())
+fn account_meta(s: &mut dyn DataStore, id: &str) -> CoreResult<(String, bool)> {
+    s.account_meta(id)?.ok_or_else(|| "Seçilen hesap bulunamadı.".to_string())
 }
 
-fn account_usage(conn: &Connection, id: &str) -> CoreResult<i64> {
-    conn.query_row(
-        "SELECT COUNT(*) FROM transactions WHERE account_id = ?1 OR to_account_id = ?1",
-        [id],
-        |r| r.get(0),
-    )
-    .map_err(db_err)
+/// Geri yüklemede `createdAt`: yalnız geçerli `YYYY-MM-DDTHH:MM:SS[.f…]Z` (UTC) korunur; diğerleri "şimdi" olur
+/// (Postgres geçersiz zamanı reddeder, SQLite'la aynı sonuç için önceden elenir).
+fn clean_created_at(v: &str) -> Option<String> {
+    let b = v.as_bytes();
+    if !v.is_ascii() || b.len() < 20 || b[10] != b'T' || b[b.len() - 1] != b'Z' || validate_date(&v[0..10]).is_err() {
+        return None;
+    }
+    let num = |i: usize| -> Option<u32> { v.get(i..i + 2).filter(|s| s.bytes().all(|c| c.is_ascii_digit()))?.parse().ok() };
+    let time_ok = b[13] == b':'
+        && b[16] == b':'
+        && num(11).is_some_and(|h| h < 24)
+        && num(14).is_some_and(|m| m < 60)
+        && num(17).is_some_and(|s| s < 60);
+    // Saniyeden sonra ya hiçbir şey ya da "." ve 1-9 rakam
+    let frac = &v[19..v.len() - 1];
+    let frac_ok = frac.is_empty()
+        || (frac.len() >= 2 && frac.len() <= 10 && frac.starts_with('.') && frac[1..].bytes().all(|c| c.is_ascii_digit()));
+    (time_ok && frac_ok).then(|| v.to_string())
 }
 
 /// Arayüzdeki `validateTransaction` ile aynı kurallar.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn check_transaction(
-    conn: &Connection,
+pub fn check_transaction(
+    s: &mut dyn DataStore,
     kind: &str,
     account_id: &str,
     to_account_id: Option<&str>,
@@ -313,7 +257,7 @@ pub(crate) fn check_transaction(
 ) -> CoreResult<()> {
     validate_tx_kind(kind)?;
     let archived_err = || Err("Arşivlenmiş hesaba yeni işlem eklenemez.".to_string());
-    let (acc_kind, archived) = account_meta(conn, account_id)?;
+    let (acc_kind, archived) = account_meta(s, account_id)?;
     if is_new && archived {
         return archived_err();
     }
@@ -324,7 +268,7 @@ pub(crate) fn check_transaction(
         if to == account_id {
             return Err("Kaynak ve hedef hesap aynı olamaz.".into());
         }
-        let (to_kind, to_archived) = account_meta(conn, to)?;
+        let (to_kind, to_archived) = account_meta(s, to)?;
         // Arşivlenmiş kart/kredinin kalan borcu yine de ödenebilir
         let pays_debt = to_kind == "credit_card" || to_kind == "loan";
         if is_new && to_archived && !pays_debt {
@@ -337,7 +281,7 @@ pub(crate) fn check_transaction(
         if to_account_id.is_some() {
             return Err("Hedef hesap yalnızca transferde kullanılır.".into());
         }
-        check_category(conn, category_id, kind)?;
+        check_category(s, category_id, kind)?;
     }
     if !(1..=36).contains(&installments) {
         return Err("Taksit sayısı 1 ile 36 arasında olmalıdır.".into());
@@ -348,310 +292,198 @@ pub(crate) fn check_transaction(
     Ok(())
 }
 
-fn get_category(conn: &Connection, id: &str) -> CoreResult<Category> {
-    conn.query_row(
-        &format!("SELECT {CATEGORY_COLUMNS} FROM categories WHERE id = ?1"),
-        [id],
-        row_to_category,
-    )
-    .map_err(db_err)
+fn get_category(s: &mut dyn DataStore, id: &str) -> CoreResult<Category> {
+    s.get_category(id)?.ok_or_else(|| "Kategori bulunamadı.".to_string())
 }
 
-fn get_account(conn: &Connection, id: &str) -> CoreResult<Account> {
-    conn.query_row(
-        &format!("SELECT {ACCOUNT_COLUMNS} FROM accounts WHERE id = ?1"),
-        [id],
-        row_to_account,
-    )
-    .map_err(db_err)
+fn get_account(s: &mut dyn DataStore, id: &str) -> CoreResult<Account> {
+    s.get_account(id)?.ok_or_else(|| "Hesap bulunamadı.".to_string())
 }
 
-fn get_transaction(conn: &Connection, id: &str) -> CoreResult<Transaction> {
-    conn.query_row(
-        &format!("SELECT {TRANSACTION_COLUMNS} FROM transactions WHERE id = ?1"),
-        [id],
-        row_to_transaction,
-    )
-    .map_err(db_err)
+fn get_transaction(s: &mut dyn DataStore, id: &str) -> CoreResult<Transaction> {
+    s.get_transaction(id)?.ok_or_else(|| "İşlem bulunamadı.".to_string())
 }
 
-// ---------------------------------------------------------------------------
+fn get_recurring(s: &mut dyn DataStore, id: &str) -> CoreResult<RecurringItem> {
+    s.get_recurring(id)?.ok_or_else(|| "Kayıt bulunamadı.".to_string())
+}
+
+/// Yeni kullanıcının başlangıç verisi: varsayılan kategoriler ve "Genel Hesap" (SQLite'ta geçişlerin oluşturduğunun aynısı).
+/// Postgres arka ucu kullanır; `today` YYYY-AA-GG.
+pub fn seed_new_user(s: &mut dyn DataStore, today: &str) -> CoreResult<()> {
+    for (name, kind, color) in db::DEFAULT_CATEGORY_SEED {
+        s.insert_category(&db::new_id(), name, kind, color)?;
+    }
+    let account = Account {
+        id: String::new(),
+        name: db::DEFAULT_ACCOUNT_NAME.into(),
+        kind: "bank".into(),
+        color: "#6366f1".into(),
+        opening_balance: 0.0,
+        opening_date: today.into(),
+        credit_limit: None,
+        interest_rate: None,
+        statement_day: None,
+        due_day: None,
+        min_payment_rate: None,
+        sort_order: 0,
+        archived: false,
+        term_months: None,
+        first_due_date: None,
+        installment_amount: None,
+        tax_rate: None,
+        funding_income_id: None,
+        opening_period_spending: None,
+        opening_installments: Vec::new(),
+    };
+    s.insert_account(&db::new_id(), &clean_account(&account)?)
+}
+
 // Kategoriler
-// ---------------------------------------------------------------------------
 
-pub fn list_categories(conn: &Connection) -> CoreResult<Vec<Category>> {
-    let mut stmt = conn
-        .prepare(&format!(
-            "SELECT {CATEGORY_COLUMNS} FROM categories ORDER BY type DESC, name COLLATE NOCASE"
-        ))
-        .map_err(db_err)?;
-    let rows = stmt
-        .query_map([], row_to_category)
-        .map_err(db_err)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(db_err)?;
-    Ok(rows)
+pub fn list_categories(s: &mut dyn DataStore) -> CoreResult<Vec<Category>> {
+    s.list_categories()
 }
 
-pub fn create_category(conn: &Connection, input: CategoryInput) -> CoreResult<Category> {
+pub fn create_category(s: &mut dyn DataStore, input: CategoryInput) -> CoreResult<Category> {
     validate_category_kind(&input.kind)?;
     let name = clean_name(&input.name, "Kategori adı")?;
     let id = db::new_id();
-    conn.execute(
-        "INSERT INTO categories (id, name, type, color) VALUES (?1, ?2, ?3, ?4)",
-        (&id, &name, &input.kind, clean_color(&input.color)),
-    )
-    .map_err(db_err)?;
-    get_category(conn, &id)
+    s.insert_category(&id, &name, &input.kind, &clean_color(&input.color))?;
+    get_category(s, &id)
 }
 
-pub fn update_category(conn: &Connection, category: Category) -> CoreResult<Category> {
+pub fn update_category(s: &mut dyn DataStore, category: Category) -> CoreResult<Category> {
     validate_category_kind(&category.kind)?;
     let name = clean_name(&category.name, "Kategori adı")?;
-
-    let mismatched: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM transactions WHERE category_id = ?1 AND type <> ?2",
-            (&category.id, &category.kind),
-            |r| r.get(0),
-        )
-        .map_err(db_err)?;
+    let (mismatched, recurring_mismatch, budgets) = s.category_conflicts(&category.id, &category.kind)?;
     if mismatched > 0 {
-        return Err(format!(
-            "Bu kategori {mismatched} işlemde kullanıldığı için türü değiştirilemez."
-        ));
+        return Err(format!("Bu kategori {mismatched} işlemde kullanıldığı için türü değiştirilemez."));
     }
-    let recurring_mismatch: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM recurring_items WHERE category_id = ?1 AND type <> ?2",
-            (&category.id, &category.kind),
-            |r| r.get(0),
-        )
-        .map_err(db_err)?;
     if recurring_mismatch > 0 {
-        return Err(format!(
-            "Bu kategori {recurring_mismatch} düzenli kayıtta kullanıldığı için türü değiştirilemez."
-        ));
+        return Err(format!("Bu kategori {recurring_mismatch} düzenli kayıtta kullanıldığı için türü değiştirilemez."));
     }
-    if category.kind != "expense" {
-        let budgets: i64 = conn
-            .query_row("SELECT COUNT(*) FROM budgets WHERE category_id = ?1", [&category.id], |r| r.get(0))
-            .map_err(db_err)?;
-        if budgets > 0 {
-            return Err("Bu kategorinin bütçe limiti olduğu için türü değiştirilemez; önce limiti kaldırın.".into());
-        }
+    if category.kind != "expense" && budgets > 0 {
+        return Err("Bu kategorinin bütçe limiti olduğu için türü değiştirilemez; önce limiti kaldırın.".into());
     }
-
-    let changed = conn
-        .execute(
-            "UPDATE categories SET name = ?2, type = ?3, color = ?4 WHERE id = ?1",
-            (&category.id, &name, &category.kind, clean_color(&category.color)),
-        )
-        .map_err(db_err)?;
-    if changed == 0 {
+    if s.update_category(&category.id, &name, &category.kind, &clean_color(&category.color))? == 0 {
         return Err("Kategori bulunamadı.".into());
     }
-    get_category(conn, &category.id)
+    get_category(s, &category.id)
 }
 
-/// Kategori silinince ona bağlı işlemler silinmez, "Kategorisiz" kalır (ON DELETE SET NULL).
-pub fn delete_category(conn: &Connection, id: &str) -> CoreResult<()> {
-    conn.execute(
-        "UPDATE transactions SET category_id = NULL WHERE category_id = ?1",
-        [&id],
-    )
-    .map_err(db_err)?;
-    conn.execute("DELETE FROM categories WHERE id = ?1", [&id])
-        .map_err(db_err)?;
-    Ok(())
+/// Kategori silinince ona bağlı işlemler silinmez, "Kategorisiz" kalır.
+pub fn delete_category(s: &mut dyn DataStore, id: &str) -> CoreResult<()> {
+    s.delete_category(id)
 }
 
-// ---------------------------------------------------------------------------
 // Hesaplar
-// ---------------------------------------------------------------------------
 
-pub fn list_accounts(conn: &Connection) -> CoreResult<Vec<Account>> {
-    let mut stmt = conn
-        .prepare(&format!(
-            "SELECT {ACCOUNT_COLUMNS} FROM accounts ORDER BY sort_order, name COLLATE NOCASE"
-        ))
-        .map_err(db_err)?;
-    let rows = stmt
-        .query_map([], row_to_account)
-        .map_err(db_err)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(db_err)?;
-    Ok(rows)
+pub fn list_accounts(s: &mut dyn DataStore) -> CoreResult<Vec<Account>> {
+    s.list_accounts()
 }
 
-pub fn create_account(conn: &Connection, input: AccountInput) -> CoreResult<Account> {
+pub fn create_account(s: &mut dyn DataStore, input: AccountInput) -> CoreResult<Account> {
     let row = clean_account(&input.with_id(String::new()))?;
     let id = db::new_id();
-    insert_account(conn, &id, &row).map_err(db_err)?;
-    get_account(conn, &id)
+    s.insert_account(&id, &row)?;
+    get_account(s, &id)
 }
 
-pub fn update_account(conn: &Connection, account: Account) -> CoreResult<Account> {
+pub fn update_account(s: &mut dyn DataStore, account: Account) -> CoreResult<Account> {
     let row = clean_account(&account)?;
-    let (old_kind, _) = account_meta(conn, &account.id).map_err(|_| "Hesap bulunamadı.".to_string())?;
-    if old_kind != row.kind && account_usage(conn, &account.id)? > 0 {
+    let (old_kind, _) = account_meta(s, &account.id).map_err(|_| "Hesap bulunamadı.".to_string())?;
+    if old_kind != row.kind && s.account_usage(&account.id)? > 0 {
         return Err("Bu hesapta işlem bulunduğu için türü değiştirilemez.".into());
     }
-    conn.execute(
-        "UPDATE accounts SET name = ?2, kind = ?3, color = ?4, opening_balance_cents = ?5, opening_date = ?6,
-                credit_limit_cents = ?7, interest_rate_bp = ?8, statement_day = ?9, due_day = ?10,
-                min_payment_rate_bp = ?11, sort_order = ?12, archived = ?13, term_months = ?14,
-                first_due_date = ?15, installment_cents = ?16, tax_rate_bp = ?17, funding_income_id = ?18,
-                opening_period_cents = ?19, opening_installments = ?20
-         WHERE id = ?1",
-        params![
-            account.id, row.name, row.kind, row.color, row.opening_cents, row.opening_date, row.limit_cents,
-            row.rate_bp, row.statement_day, row.due_day, row.min_rate_bp, row.sort_order, row.archived,
-            row.term_months, row.first_due_date, row.installment_cents, row.tax_rate_bp, row.funding_income_id,
-            row.opening_period_cents, row.opening_installments
-        ],
-    )
-    .map_err(db_err)?;
-    get_account(conn, &account.id)
+    s.update_account(&account.id, &row)?;
+    get_account(s, &account.id)
 }
 
 /// İşlemi olan hesap silinemez; yalnızca arşivlenebilir.
-pub fn delete_account(conn: &Connection, id: &str) -> CoreResult<()> {
-    let used = account_usage(conn, id)?;
+pub fn delete_account(s: &mut dyn DataStore, id: &str) -> CoreResult<()> {
+    let used = s.account_usage(id)?;
     if used > 0 {
         return Err(format!("Bu hesapta {used} işlem var; silmek yerine arşivleyin."));
     }
-    conn.execute("DELETE FROM accounts WHERE id = ?1", [&id])
-        .map_err(db_err)?;
-    Ok(())
+    s.delete_account(id)
 }
 
-// ---------------------------------------------------------------------------
 // İşlemler
-// ---------------------------------------------------------------------------
 
-pub fn list_transactions(conn: &Connection) -> CoreResult<Vec<Transaction>> {
-    let mut stmt = conn
-        .prepare(&format!(
-            "SELECT {TRANSACTION_COLUMNS} FROM transactions ORDER BY date DESC, created_at DESC"
-        ))
-        .map_err(db_err)?;
-    let rows = stmt
-        .query_map([], row_to_transaction)
-        .map_err(db_err)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(db_err)?;
-    Ok(rows)
+pub fn list_transactions(s: &mut dyn DataStore) -> CoreResult<Vec<Transaction>> {
+    s.list_transactions()
 }
 
-pub fn create_transaction(conn: &Connection, input: TransactionInput) -> CoreResult<Transaction> {
-    validate_date(&input.date)?;
-    let cents = to_cents(input.amount)?;
-    check_transaction(
-        conn,
-        &input.kind,
-        &input.account_id,
-        input.to_account_id.as_deref(),
-        &input.category_id,
-        input.installments,
-        true,
-    )?;
-    let id = db::new_id();
-    conn.execute(
-        "INSERT INTO transactions (id, amount_cents, type, account_id, to_account_id, category_id, date, description, installments,
-                                   budget_month)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        params![
-            id,
-            cents,
-            input.kind,
-            input.account_id,
-            input.to_account_id,
-            input.category_id,
-            input.date,
-            input.description.trim(),
-            input.installments,
-            clean_budget_month(&input.kind, &input.budget_month)?
-        ],
-    )
-    .map_err(db_err)?;
-    get_transaction(conn, &id)
+fn transaction_row(
+    s: &mut dyn DataStore,
+    id: String,
+    t: &TransactionInput,
+    is_new: bool,
+    created_at: Option<String>,
+) -> CoreResult<TransactionRow> {
+    validate_date(&t.date)?;
+    let amount_cents = to_cents(t.amount)?;
+    check_transaction(s, &t.kind, &t.account_id, t.to_account_id.as_deref(), &t.category_id, t.installments, is_new)?;
+    Ok(TransactionRow {
+        id,
+        amount_cents,
+        kind: t.kind.clone(),
+        account_id: t.account_id.clone(),
+        to_account_id: t.to_account_id.clone(),
+        category_id: t.category_id.clone(),
+        date: t.date.clone(),
+        description: t.description.trim().to_string(),
+        installments: t.installments,
+        budget_month: clean_budget_month(&t.kind, &t.budget_month)?,
+        created_at,
+    })
 }
 
-pub fn update_transaction(conn: &Connection, transaction: Transaction) -> CoreResult<Transaction> {
-    validate_date(&transaction.date)?;
-    let cents = to_cents(transaction.amount)?;
-    check_transaction(
-        conn,
-        &transaction.kind,
-        &transaction.account_id,
-        transaction.to_account_id.as_deref(),
-        &transaction.category_id,
-        transaction.installments,
-        false,
-    )?;
-    let changed = conn
-        .execute(
-            "UPDATE transactions
-             SET amount_cents = ?2, type = ?3, account_id = ?4, to_account_id = ?5, category_id = ?6,
-                 date = ?7, description = ?8, installments = ?9, budget_month = ?10
-             WHERE id = ?1",
-            params![
-                transaction.id,
-                cents,
-                transaction.kind,
-                transaction.account_id,
-                transaction.to_account_id,
-                transaction.category_id,
-                transaction.date,
-                transaction.description.trim(),
-                transaction.installments,
-                clean_budget_month(&transaction.kind, &transaction.budget_month)?
-            ],
-        )
-        .map_err(db_err)?;
-    if changed == 0 {
+fn as_input(t: &Transaction, category_id: Option<String>) -> TransactionInput {
+    TransactionInput {
+        amount: t.amount,
+        kind: t.kind.clone(),
+        account_id: t.account_id.clone(),
+        to_account_id: t.to_account_id.clone(),
+        category_id,
+        date: t.date.clone(),
+        description: t.description.clone(),
+        installments: t.installments,
+        budget_month: t.budget_month.clone(),
+    }
+}
+
+pub fn create_transaction(s: &mut dyn DataStore, input: TransactionInput) -> CoreResult<Transaction> {
+    let row = transaction_row(s, db::new_id(), &input, true, None)?;
+    s.insert_transaction(&row)?;
+    get_transaction(s, &row.id)
+}
+
+pub fn update_transaction(s: &mut dyn DataStore, transaction: Transaction) -> CoreResult<Transaction> {
+    let input = as_input(&transaction, transaction.category_id.clone());
+    let row = transaction_row(s, transaction.id.clone(), &input, false, None)?;
+    if s.update_transaction(&row)? == 0 {
         return Err("İşlem bulunamadı.".into());
     }
-    get_transaction(conn, &transaction.id)
+    get_transaction(s, &transaction.id)
 }
 
-pub fn delete_transaction(conn: &Connection, id: &str) -> CoreResult<()> {
-    conn.execute("DELETE FROM transactions WHERE id = ?1", [&id])
-        .map_err(db_err)?;
-    Ok(())
+pub fn delete_transaction(s: &mut dyn DataStore, id: &str) -> CoreResult<()> {
+    s.delete_transaction(id)
 }
 
-// ---------------------------------------------------------------------------
 // Düzenli gelir / giderler ve bütçeler
-// ---------------------------------------------------------------------------
 
-struct RecurringRow {
-    name: String,
-    kind: String,
-    cents: i64,
-    day: i64,
-    account_id: Option<String>,
-    category_id: Option<String>,
-    active: bool,
-    sort_order: i64,
-    /// JSON dizisi, tarihe göre sıralı
-    history: String,
-    /// JSON dizisi, aya göre sıralı
-    exceptions: String,
-    covers_previous_month: bool,
-    start_date: Option<String>,
-    weekend_shift: String,
-}
-
-fn clean_recurring(conn: &Connection, r: &RecurringItem) -> CoreResult<RecurringRow> {
+fn clean_recurring(s: &mut dyn DataStore, r: &RecurringItem) -> CoreResult<RecurringRow> {
     validate_category_kind(&r.kind)?;
     let name = clean_name(&r.name, "Ad")?;
     let day = day_of_month(Some(r.day), "Gün")?;
     if let Some(id) = &r.account_id {
-        account_meta(conn, id)?;
+        account_meta(s, id)?;
     }
-    check_category(conn, &r.category_id, &r.kind)?;
+    check_category(s, &r.category_id, &r.kind)?;
+    // Buradan sonrası bugünkü clean_recurring ile birebir aynı (history/exceptions/weekend_shift/start_date doğrulaması)
     let mut history = Vec::with_capacity(r.history.len());
     for h in &r.history {
         validate_date(&h.from)?;
@@ -704,255 +536,128 @@ fn clean_recurring(conn: &Connection, r: &RecurringItem) -> CoreResult<Recurring
     })
 }
 
-fn insert_recurring(conn: &Connection, id: &str, r: &RecurringRow) -> rusqlite::Result<usize> {
-    conn.execute(
-        "INSERT INTO recurring_items (id, name, type, amount_cents, day, account_id, category_id, active, sort_order,
-                                      amount_history, amount_exceptions, covers_previous_month, start_date, weekend_shift)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-        params![
-            id, r.name, r.kind, r.cents, r.day, r.account_id, r.category_id, r.active, r.sort_order, r.history, r.exceptions,
-            r.covers_previous_month, r.start_date, r.weekend_shift
-        ],
-    )
+pub fn list_recurring(s: &mut dyn DataStore) -> CoreResult<Vec<RecurringItem>> {
+    s.list_recurring()
 }
 
-fn get_recurring(conn: &Connection, id: &str) -> CoreResult<RecurringItem> {
-    conn.query_row(
-        &format!("SELECT {RECURRING_COLUMNS} FROM recurring_items WHERE id = ?1"),
-        [id],
-        row_to_recurring,
-    )
-    .map_err(db_err)
-}
-
-pub fn list_recurring(conn: &Connection) -> CoreResult<Vec<RecurringItem>> {
-    let mut stmt = conn
-        .prepare(&format!(
-            "SELECT {RECURRING_COLUMNS} FROM recurring_items ORDER BY type DESC, day, sort_order"
-        ))
-        .map_err(db_err)?;
-    let rows = stmt
-        .query_map([], row_to_recurring)
-        .map_err(db_err)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(db_err)?;
-    Ok(rows)
-}
-
-pub fn create_recurring(conn: &Connection, item: RecurringItem) -> CoreResult<RecurringItem> {
-    let row = clean_recurring(conn, &item)?;
+pub fn create_recurring(s: &mut dyn DataStore, item: RecurringItem) -> CoreResult<RecurringItem> {
+    let row = clean_recurring(s, &item)?;
     let id = db::new_id();
-    insert_recurring(conn, &id, &row).map_err(db_err)?;
-    get_recurring(conn, &id)
+    s.insert_recurring(&id, &row)?;
+    get_recurring(s, &id)
 }
 
-pub fn update_recurring(conn: &Connection, item: RecurringItem) -> CoreResult<RecurringItem> {
-    let r = clean_recurring(conn, &item)?;
-    let changed = conn
-        .execute(
-            "UPDATE recurring_items SET name = ?2, type = ?3, amount_cents = ?4, day = ?5, account_id = ?6,
-                    category_id = ?7, active = ?8, sort_order = ?9, amount_history = ?10, amount_exceptions = ?11,
-                    covers_previous_month = ?12, start_date = ?13, weekend_shift = ?14
-             WHERE id = ?1",
-            params![
-                item.id, r.name, r.kind, r.cents, r.day, r.account_id, r.category_id, r.active, r.sort_order, r.history,
-                r.exceptions, r.covers_previous_month, r.start_date, r.weekend_shift
-            ],
-        )
-        .map_err(db_err)?;
-    if changed == 0 {
+pub fn update_recurring(s: &mut dyn DataStore, item: RecurringItem) -> CoreResult<RecurringItem> {
+    let r = clean_recurring(s, &item)?;
+    if s.update_recurring(&item.id, &r)? == 0 {
         return Err("Kayıt bulunamadı.".into());
     }
     if r.kind != "income" {
-        conn.execute("UPDATE accounts SET funding_income_id = NULL WHERE funding_income_id = ?1", [&item.id])
-            .map_err(db_err)?;
+        s.clear_funding_income(&item.id)?;
     }
-    get_recurring(conn, &item.id)
+    get_recurring(s, &item.id)
 }
 
-pub fn delete_recurring(conn: &Connection, id: &str) -> CoreResult<()> {
-    conn.execute("UPDATE accounts SET funding_income_id = NULL WHERE funding_income_id = ?1", [&id])
-        .map_err(db_err)?;
-    conn.execute("DELETE FROM recurring_items WHERE id = ?1", [&id])
-        .map_err(db_err)?;
-    Ok(())
+pub fn delete_recurring(s: &mut dyn DataStore, id: &str) -> CoreResult<()> {
+    s.clear_funding_income(id)?;
+    s.delete_recurring(id)
 }
 
-pub fn list_budgets(conn: &Connection) -> CoreResult<Vec<Budget>> {
-    let mut stmt = conn
-        .prepare("SELECT category_id, amount_cents FROM budgets")
-        .map_err(db_err)?;
-    let rows = stmt
-        .query_map([], |r| {
-            Ok(Budget {
-                category_id: r.get(0)?,
-                amount: r.get::<_, i64>(1)? as f64 / 100.0,
-            })
-        })
-        .map_err(db_err)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(db_err)?;
-    Ok(rows)
+pub fn list_budgets(s: &mut dyn DataStore) -> CoreResult<Vec<Budget>> {
+    s.list_budgets()
 }
 
-fn upsert_budget(conn: &Connection, category_id: &str, amount: Option<f64>) -> CoreResult<()> {
+fn upsert_budget(s: &mut dyn DataStore, category_id: &str, amount: Option<f64>) -> CoreResult<()> {
     match amount {
         Some(a) if a > 0.0 => {
-            let kind: Option<String> = conn
-                .query_row("SELECT type FROM categories WHERE id = ?1", [category_id], |r| r.get(0))
-                .optional()
-                .map_err(db_err)?;
-            match kind.as_deref() {
+            match s.get_category(category_id)?.map(|c| c.kind) {
                 None => return Err("Kategori bulunamadı.".into()),
-                Some("expense") => {}
+                Some(k) if k == "expense" => {}
                 Some(_) => return Err("Bütçe yalnızca gider kategorilerine tanımlanabilir.".into()),
             }
-            conn.execute(
-                "INSERT INTO budgets (category_id, amount_cents) VALUES (?1, ?2)
-                 ON CONFLICT(category_id) DO UPDATE SET amount_cents = excluded.amount_cents",
-                params![category_id, to_cents(a)?],
-            )
-            .map_err(db_err)?;
+            s.upsert_budget(category_id, to_cents(a)?)
         }
-        _ => {
-            conn.execute("DELETE FROM budgets WHERE category_id = ?1", [category_id])
-                .map_err(db_err)?;
-        }
+        _ => s.delete_budget(category_id),
     }
-    Ok(())
 }
 
 /// Tutar boş veya 0 ise kategorinin bütçesi kaldırılır.
-pub fn set_budget(conn: &Connection, category_id: &str, amount: Option<f64>) -> CoreResult<()> {
-    upsert_budget(conn, category_id, amount)
+pub fn set_budget(s: &mut dyn DataStore, category_id: &str, amount: Option<f64>) -> CoreResult<()> {
+    upsert_budget(s, category_id, amount)
 }
 
-// ---------------------------------------------------------------------------
 // Yedekleme / Geri yükleme
-// ---------------------------------------------------------------------------
 
-/// Tüm veriyi tek bir SQLite transaction'ı içinde verilen içerikle değiştirir.
-/// Herhangi bir satır hatalıysa hiçbir değişiklik uygulanmaz (atomik).
-pub fn restore_data(conn: &mut Connection, categories: Vec<Category>, accounts: Vec<Account>, transactions: Vec<Transaction>, recurring: Vec<RecurringItem>, budgets: Vec<Budget>) -> CoreResult<()> {
-    let tx = conn.transaction().map_err(db_err)?;
-
-    tx.execute("DELETE FROM budgets", []).map_err(db_err)?;
-    tx.execute("DELETE FROM recurring_items", []).map_err(db_err)?;
-    tx.execute("DELETE FROM transactions", []).map_err(db_err)?;
-    tx.execute("DELETE FROM accounts", []).map_err(db_err)?;
-    tx.execute("DELETE FROM categories", []).map_err(db_err)?;
+/// Tüm veriyi verilen içerikle değiştirir. Çağıran bunu tek bir veritabanı işleminde çalıştırır
+/// (`sqlite::run` ya da sunucudaki Postgres karşılığı): herhangi bir satır hatalıysa hiçbir değişiklik kalmaz.
+pub fn restore_data(
+    s: &mut dyn DataStore,
+    categories: Vec<Category>,
+    accounts: Vec<Account>,
+    transactions: Vec<Transaction>,
+    recurring: Vec<RecurringItem>,
+    budgets: Vec<Budget>,
+) -> CoreResult<()> {
+    s.clear_all()?;
 
     let mut category_ids = HashSet::new();
     for c in &categories {
         validate_category_kind(&c.kind)?;
         let name = clean_name(&c.name, "Kategori adı")?;
         let id = if c.id.trim().is_empty() { db::new_id() } else { c.id.clone() };
-        tx.execute(
-            "INSERT INTO categories (id, name, type, color) VALUES (?1, ?2, ?3, ?4)",
-            (&id, &name, &c.kind, clean_color(&c.color)),
-        )
-        .map_err(|e| format!("Kategori \"{name}\" eklenemedi: {}", db_err(e)))?;
+        s.insert_category(&id, &name, &c.kind, &clean_color(&c.color))
+            .map_err(|e| format!("Kategori \"{name}\" eklenemedi: {e}"))?;
         category_ids.insert(id);
     }
 
     for a in &accounts {
         let row = clean_account(a).map_err(|e| format!("Hesap \"{}\": {e}", a.name))?;
         let id = if a.id.trim().is_empty() { db::new_id() } else { a.id.clone() };
-        insert_account(&tx, &id, &row)
-            .map_err(|e| format!("Hesap \"{}\" eklenemedi: {}", row.name, db_err(e)))?;
+        s.insert_account(&id, &row).map_err(|e| format!("Hesap \"{}\" eklenemedi: {e}", row.name))?;
     }
 
     for (i, t) in transactions.iter().enumerate() {
-        let row = i + 1;
-        validate_date(&t.date).map_err(|e| format!("{row}. işlem: {e}"))?;
-        let cents = to_cents(t.amount).map_err(|e| format!("{row}. işlem: {e}"))?;
+        let n = i + 1;
         let category_id = if t.kind == "transfer" {
             None
         } else {
-            t.category_id
-                .as_ref()
-                .filter(|id| category_ids.contains(*id))
-                .cloned()
+            t.category_id.as_ref().filter(|id| category_ids.contains(*id)).cloned()
         };
-        check_transaction(
-            &tx,
-            &t.kind,
-            &t.account_id,
-            t.to_account_id.as_deref(),
-            &category_id,
-            t.installments,
-            false,
-        )
-        .map_err(|e| format!("{row}. işlem: {e}"))?;
         let id = if t.id.trim().is_empty() { db::new_id() } else { t.id.clone() };
-        tx.execute(
-            "INSERT INTO transactions (id, amount_cents, type, account_id, to_account_id, category_id, date, description, installments,
-                                       created_at, budget_month)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
-                     COALESCE(NULLIF(?10, ''), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), ?11)",
-            params![
-                id,
-                cents,
-                t.kind,
-                t.account_id,
-                t.to_account_id,
-                category_id,
-                t.date,
-                t.description.trim(),
-                t.installments,
-                t.created_at,
-                clean_budget_month(&t.kind, &t.budget_month).map_err(|e| format!("{row}. işlem: {e}"))?
-            ],
-        )
-        .map_err(|e| format!("{row}. işlem eklenemedi: {}", db_err(e)))?;
+        let row = transaction_row(s, id, &as_input(t, category_id), false, clean_created_at(&t.created_at))
+            .map_err(|e| format!("{n}. işlem: {e}"))?;
+        s.insert_transaction(&row).map_err(|e| format!("{n}. işlem eklenemedi: {e}"))?;
     }
 
     for (i, r) in recurring.iter().enumerate() {
         // Silinmiş hesap/kategoriye ya da türü uymayan kategoriye bağlı düzenli kayıt bağlantısız geri yüklenir
         let mut r = r.clone();
         if let Some(id) = &r.account_id {
-            if account_meta(&tx, id).is_err() {
+            if s.account_meta(id)?.is_none() {
                 r.account_id = None;
             }
         }
-        if r.category_id.is_some() && check_category(&tx, &r.category_id, &r.kind).is_err() {
+        if r.category_id.is_some() && check_category(s, &r.category_id, &r.kind).is_err() {
             r.category_id = None;
         }
-        let r = &r;
-        let row = clean_recurring(&tx, r).map_err(|e| format!("{}. düzenli kayıt: {e}", i + 1))?;
+        let row = clean_recurring(s, &r).map_err(|e| format!("{}. düzenli kayıt: {e}", i + 1))?;
         let id = if r.id.trim().is_empty() { db::new_id() } else { r.id.clone() };
-        insert_recurring(&tx, &id, &row)
-            .map_err(|e| format!("{}. düzenli kayıt eklenemedi: {}", i + 1, db_err(e)))?;
+        s.insert_recurring(&id, &row).map_err(|e| format!("{}. düzenli kayıt eklenemedi: {e}", i + 1))?;
     }
     for b in &budgets {
         if !category_ids.contains(&b.category_id) {
             continue;
         }
         // Bütçe yalnız gider kategorilerinde anlamlı; diğerleri (eski/elle düzenlenmiş yedek) atlanır
-        let kind: Option<String> = tx
-            .query_row("SELECT type FROM categories WHERE id = ?1", [&b.category_id], |r| r.get(0))
-            .optional()
-            .map_err(db_err)?;
-        if kind.as_deref() == Some("expense") {
-            upsert_budget(&tx, &b.category_id, Some(b.amount))?;
+        if s.get_category(&b.category_id)?.is_some_and(|c| c.kind == "expense") {
+            upsert_budget(s, &b.category_id, Some(b.amount))?;
         }
     }
     // Silinmiş düzenli gelire işaret eden finansman bağlantılarını temizle
-    tx.execute(
-        "UPDATE accounts SET funding_income_id = NULL
-         WHERE funding_income_id IS NOT NULL
-           AND funding_income_id NOT IN (SELECT id FROM recurring_items WHERE type = 'income')",
-        [],
-    )
-    .map_err(db_err)?;
-
-    tx.commit().map_err(db_err)?;
-    Ok(())
+    s.clear_dangling_funding()
 }
 
-// ---------------------------------------------------------------------------
 // Uygulama ayarları
-// ---------------------------------------------------------------------------
 
 /// Veritabanında saklanan (cihazlar arasında taşınan) ayarlar. Tema gibi cihaz tercihleri burada değildir.
 pub const SETTING_KEYS: &[&str] = &[
@@ -965,21 +670,15 @@ pub const SETTING_KEYS: &[&str] = &[
     "categoryRules",
 ];
 
-pub fn get_settings(conn: &Connection) -> CoreResult<serde_json::Map<String, serde_json::Value>> {
-    let mut stmt = conn.prepare("SELECT key, value FROM settings").map_err(db_err)?;
-    let rows = stmt
-        .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))
-        .map_err(db_err)?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(db_err)?;
+pub fn get_settings(s: &mut dyn DataStore) -> CoreResult<serde_json::Map<String, serde_json::Value>> {
     // Bozuk JSON satırı atlanır (arayüz varsayılanı kullanır)
-    Ok(rows
+    Ok(s.list_settings()?
         .into_iter()
         .filter_map(|(k, v)| serde_json::from_str(&v).ok().map(|v| (k, v)))
         .collect())
 }
 
-pub fn set_setting(conn: &Connection, key: &str, value: serde_json::Value) -> CoreResult<()> {
+pub fn set_setting(s: &mut dyn DataStore, key: &str, value: serde_json::Value) -> CoreResult<()> {
     if !SETTING_KEYS.contains(&key) {
         return Err(format!("Bilinmeyen ayar: {key}"));
     }
@@ -987,10 +686,6 @@ pub fn set_setting(conn: &Connection, key: &str, value: serde_json::Value) -> Co
     if json.len() > 1_000_000 {
         return Err("Ayar çok büyük.".into());
     }
-    conn.execute(
-        "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (key, &json),
-    )
-    .map_err(db_err)?;
-    Ok(())
+    s.upsert_setting(key, &json)
 }
+

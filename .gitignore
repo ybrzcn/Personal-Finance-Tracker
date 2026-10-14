@@ -10,3 +10,4 @@ src-tauri/target
 src-tauri/gen/schemas
 crates/finans-core/Cargo.lock
 crates/*/target
+.env

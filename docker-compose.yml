@@ -1,15 +1,38 @@
 services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?.env dosyasında POSTGRES_PASSWORD tanımlayın (bkz. .env.example)}
+      # docker/postgres-init.sh uygulama kullanıcısını bu şifreyle oluşturur (yalnız ilk kurulumda)
+      FINANS_DB_PASSWORD: ${FINANS_DB_PASSWORD:?.env dosyasında FINANS_DB_PASSWORD tanımlayın}
+    volumes:
+      - finans-pg:/var/lib/postgresql/data
+      - ./docker/postgres-init.sh:/docker-entrypoint-initdb.d/10-finans.sh:ro
+    # Port dışarı açılmaz; yalnız bu Compose ağındaki finans servisi erişir
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   finans:
     # Hazır imaj: docker compose pull && docker compose up -d
     # Kaynaktan derlemek için: docker compose up -d --build
     image: ghcr.io/ybrzcn/personal-finance-tracker:latest
     build: .
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       # Yalnız bu makineden erişilir; dışarıya HTTPS reverse proxy / Cloudflare Tunnel üzerinden açın.
       # Sunucudaki port FINANS_PORT ile değiştirilir (varsayılan 8787); konteynerin içinde uygulama 8080'de çalışır.
       - "127.0.0.1:${FINANS_PORT:-8787}:8080"
     environment:
+      # Postgres. SQLite'ta kalmak için bu satırı ve db servisini silin (veri /data'da dosya olarak tutulur).
+      FINANS_DATABASE_URL: postgres://finans:${FINANS_DB_PASSWORD}@db:5432/finans
       # "closed" yapılırsa yeni hesap açılamaz
       FINANS_REGISTRATION: "open"
       # HTTPS (reverse proxy) arkasında değilse, yalnız yerel ağda deneme için "false" yapın
@@ -19,11 +42,12 @@ services:
       # İstemci IP'si (deneme sınırları kişi başına çalışsın): Cloudflare/Tunnel → "cloudflare" (CF-Connecting-IP),
       # Caddy/nginx → "xff" (X-Forwarded-For'un son değeri). Sunucu doğrudan internete açıksa satırı silin.
       FINANS_TRUST_PROXY: "cloudflare"
-      # Kullanıcı başına veritabanı sınırı (MB) ve en fazla hesap sayısı (0 = sınırsız)
-      FINANS_USER_QUOTA_MB: "100"
+      # En fazla hesap sayısı (0 = sınırsız)
       FINANS_MAX_USERS: "0"
     volumes:
+      # SQLite modunda veri burada; Postgres modunda yalnız geçici dosyalar
       - finans-data:/data
 
 volumes:
   finans-data:
+  finans-pg:

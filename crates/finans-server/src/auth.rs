@@ -1,50 +1,17 @@
-//! Hesaplar ve oturumlar: auth.db şeması, şifre/kurtarma kodu hash'leri, oturum token'ları ve hız sınırı.
+//! Hesaplar ve oturumlar: şifre/kurtarma kodu hash'leri, oturum token'ları ve hız sınırı (SQL `AuthStore`'da).
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use argon2::password_hash::{PasswordHash, PasswordHasher, PasswordVerifier, SaltString};
 use argon2::Argon2;
-use rusqlite::{Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 
-const SCHEMA: &str = "
-CREATE TABLE IF NOT EXISTS users (
-    id             TEXT PRIMARY KEY,
-    email          TEXT NOT NULL UNIQUE,
-    password_hash  TEXT NOT NULL,
-    recovery_hash  TEXT NOT NULL,
-    created_at     INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sessions (
-    token_hash  TEXT PRIMARY KEY,
-    user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    device      TEXT NOT NULL DEFAULT '',
-    created_at  INTEGER NOT NULL,
-    last_seen   INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions (user_id);
-PRAGMA user_version = 1;
-";
+use crate::auth_store::{AuthStore, StoreResult};
 
 /// Oturum son kullanımdan bu kadar süre sonra geçersiz olur.
 pub const SESSION_TTL: i64 = 180 * 24 * 3600;
-
-pub fn open(path: &Path) -> rusqlite::Result<Connection> {
-    let conn = Connection::open(path)?;
-    conn.pragma_update(None, "foreign_keys", true)?;
-    conn.pragma_update(None, "journal_mode", "WAL")?;
-    conn.busy_timeout(Duration::from_secs(5))?;
-    conn.execute_batch(SCHEMA)?;
-    Ok(conn)
-}
-
-/// Süresi dolmuş oturumları siler (açılışta).
-pub fn sweep_sessions(conn: &Connection) -> rusqlite::Result<usize> {
-    conn.execute("DELETE FROM sessions WHERE last_seen < ?1", [now() - SESSION_TTL])
-}
 
 pub fn now() -> i64 {
     std::time::SystemTime::now()
@@ -153,32 +120,6 @@ pub fn check_password(p: &str) -> Result<(), String> {
 // Kullanıcılar ve oturumlar
 // ---------------------------------------------------------------------------
 
-pub struct UserRow {
-    pub id: String,
-    pub email: String,
-    pub password_hash: String,
-    pub recovery_hash: String,
-}
-
-pub fn find_user(conn: &Connection, email: &str) -> rusqlite::Result<Option<UserRow>> {
-    conn.query_row(
-        "SELECT id, email, password_hash, recovery_hash FROM users WHERE email = ?1",
-        [email],
-        |r| Ok(UserRow { id: r.get(0)?, email: r.get(1)?, password_hash: r.get(2)?, recovery_hash: r.get(3)? }),
-    )
-    .optional()
-}
-
-pub fn create_session(conn: &Connection, user_id: &str, device: &str) -> rusqlite::Result<String> {
-    let token = new_token();
-    let t = now();
-    conn.execute(
-        "INSERT INTO sessions (token_hash, user_id, device, created_at, last_seen) VALUES (?1, ?2, ?3, ?4, ?4)",
-        (token_hash(&token), user_id, device.chars().take(120).collect::<String>(), t),
-    )?;
-    Ok(token)
-}
-
 // ---------------------------------------------------------------------------
 // Hız sınırı
 // ---------------------------------------------------------------------------
@@ -222,32 +163,50 @@ impl RateLimiter {
 // Yönetim komutları (komut satırı)
 // ---------------------------------------------------------------------------
 
+/// Süresi dolmuş oturumları siler (açılışta).
+pub fn sweep_sessions(store: &dyn AuthStore) -> StoreResult<u64> {
+    store.sweep_sessions(now() - SESSION_TTL)
+}
+
+pub fn create_session(store: &dyn AuthStore, user_id: &str, device: &str) -> StoreResult<String> {
+    let token = new_token();
+    store.insert_session(&token_hash(&token), user_id, &device.chars().take(120).collect::<String>(), now())?;
+    Ok(token)
+}
+
+/// Unix saniyeyi "YYYY-AA-GG SS:DD:ss" (UTC) olarak yazar.
+fn fmt_unix(secs: i64) -> String {
+    let days = secs.div_euclid(86_400);
+    let rem = secs.rem_euclid(86_400);
+    // Howard Hinnant, civil_from_days
+    let z = days + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}", rem / 3600, rem % 3600 / 60, rem % 60)
+}
+
 /// `finans-server users`: kullanıcıları listeler.
-pub fn cli_users(conn: &Connection) -> rusqlite::Result<()> {
-    let mut stmt = conn.prepare(
-        "SELECT id, email, datetime(created_at, 'unixepoch'),
-                (SELECT COUNT(*) FROM sessions s WHERE s.user_id = u.id)
-         FROM users u ORDER BY created_at",
-    )?;
-    let rows = stmt.query_map([], |r| {
-        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?))
-    })?;
-    let mut n = 0;
-    for row in rows {
-        let (id, email, created, sessions) = row?;
-        println!("{id}  {email}  {created} UTC  {sessions} oturum");
-        n += 1;
+pub fn cli_users(store: &dyn AuthStore) -> StoreResult<()> {
+    let users = store.list_users()?;
+    for u in &users {
+        println!("{}  {}  {} UTC  {} oturum", u.id, u.email, fmt_unix(u.created_at), u.sessions);
     }
-    println!("{n} kullanıcı");
+    println!("{} kullanıcı", users.len());
     Ok(())
 }
 
 /// `finans-server reset-password <eposta>`: geçici şifre verir, tüm oturumları kapatır. Kullanıcı yoksa false.
-pub fn cli_reset_password(conn: &Connection, email: &str) -> rusqlite::Result<bool> {
-    let Some(user) = find_user(conn, &email.trim().to_lowercase())? else { return Ok(false) };
+pub fn cli_reset_password(store: &dyn AuthStore, email: &str) -> StoreResult<bool> {
+    let Some(user) = store.find_user(&email.trim().to_lowercase())? else { return Ok(false) };
     let password = new_temp_password();
-    conn.execute("UPDATE users SET password_hash = ?2 WHERE id = ?1", (&user.id, hash_secret(&password)))?;
-    conn.execute("DELETE FROM sessions WHERE user_id = ?1", [&user.id])?;
+    store.set_password(&user.id, &hash_secret(&password))?;
+    store.delete_sessions(&user.id, None)?;
     println!("{} için geçici şifre: {password}", user.email);
     println!("Kullanıcı giriş yaptıktan sonra Ayarlar → Hesap'tan şifresini değiştirmeli.");
     Ok(true)

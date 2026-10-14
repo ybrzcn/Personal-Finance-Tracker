@@ -394,6 +394,27 @@ const DEFAULT_CATEGORIES: &[(&str, &str, &str)] = &[
     ("Diğer Gider", "expense", "#64748b"),
 ];
 
+/// Yeni kullanıcının varsayılan kategorileri (SQLite'ta geçişlerin sonunda oluşan listenin aynısı).
+pub const DEFAULT_CATEGORY_SEED: &[(&str, &str, &str)] = &[
+    ("Maaş", "income", "#10b981"),
+    ("Ek Gelir", "income", "#14b8a6"),
+    ("Yatırım", "income", "#06b6d4"),
+    ("Diğer Gelir", "income", "#84cc16"),
+    ("Kira", "expense", "#f43f5e"),
+    ("Market", "expense", "#f97316"),
+    ("Faturalar", "expense", "#eab308"),
+    ("Ulaşım", "expense", "#3b82f6"),
+    ("Eğlence", "expense", "#a855f7"),
+    ("Sağlık", "expense", "#ec4899"),
+    ("Restoran", "expense", "#92400e"),
+    ("Kafe", "expense", "#b45309"),
+    ("Giyim", "expense", "#65a30d"),
+    ("Abonelikler", "expense", "#0ea5e9"),
+    ("Nakit Avans", "expense", "#d946ef"),
+    ("Diğer Gider", "expense", "#64748b"),
+    ("Faiz ve Masraflar", "expense", "#78716c"),
+];
+
 pub fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
@@ -611,7 +632,7 @@ pub const RECURRING_COLUMNS: &str =
 pub const TRANSACTION_COLUMNS: &str =
     "id, amount_cents, type, account_id, to_account_id, category_id, date, description, installments, created_at, budget_month";
 
-fn cents_to_f64(c: i64) -> f64 {
+pub fn cents_to_f64(c: i64) -> f64 {
     c as f64 / 100.0
 }
 

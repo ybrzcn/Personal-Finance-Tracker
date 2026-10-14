@@ -1,9 +1,9 @@
 [package]
 name = "finans-server"
-version = "1.0.3"
+version = "1.1.0"
 edition = "2021"
 license = "MIT"
-description = "Finans sunucusu: hesaplar ve kullanıcı başına SQLite veritabanı üzerinde REST API"
+description = "Finans sunucusu: hesaplar ve kullanıcı verisi (SQLite ya da Postgres) üzerinde REST API"
 
 [dependencies]
 finans-core = { path = "../finans-core" }
@@ -21,6 +21,13 @@ getrandom = "0.2"
 sha2 = "0.10"
 hex = "0.4"
 uuid = { version = "1", features = ["v4"] }
+postgres = "0.19"
+r2d2 = "0.8"
+r2d2_postgres = "0.18"
+# TLS (bağlantı adresinde sslmode=require); varsayılan "prefer": sunucu TLS sunmuyorsa şifresiz devam eder
+tokio-postgres-rustls = "0.13"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+webpki-roots = "0.26"
 
 [profile.release]
 opt-level = "s"

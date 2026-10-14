@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use std::process::Stdio;
 use std::time::Duration;
 
-use crate::app::{check_quota, with_user_db, ApiError, AppState, AuthUser};
+use crate::app::{with_user_db, ApiError, AppState, AuthUser};
 
 type S = State<Arc<AppState>>;
 type R<T> = Result<T, ApiError>;
@@ -61,13 +61,11 @@ macro_rules! crud {
         }
 
         async fn $create(State(s): S, user: AuthUser, Json(input): Json<$input>) -> R<(StatusCode, Json<$ty>)> {
-            check_quota(&s, &user)?;
             Ok((StatusCode::CREATED, Json(with_user_db(&s, &user, move |c| store::$create(c, input)).await?)))
         }
 
         async fn $update(State(s): S, user: AuthUser, Path(id): Path<String>, Json(item): Json<$ty>) -> R<Json<$ty>> {
             check_id(&id, &item.id)?;
-            check_quota(&s, &user)?;
             Ok(Json(with_user_db(&s, &user, move |c| store::$update(c, item)).await?))
         }
 
@@ -94,7 +92,6 @@ struct BudgetBody {
 }
 
 async fn set_budget(State(s): S, user: AuthUser, Path(category_id): Path<String>, Json(b): Json<BudgetBody>) -> R<StatusCode> {
-    check_quota(&s, &user)?;
     with_user_db(&s, &user, move |c| store::set_budget(c, &category_id, b.amount)).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -104,7 +101,6 @@ async fn get_settings(State(s): S, user: AuthUser) -> R<Json<serde_json::Map<Str
 }
 
 async fn set_setting(State(s): S, user: AuthUser, Path(key): Path<String>, Json(value): Json<Value>) -> R<StatusCode> {
-    check_quota(&s, &user)?;
     with_user_db(&s, &user, move |c| store::set_setting(c, &key, value)).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -119,8 +115,6 @@ struct RestoreBody {
 }
 
 async fn restore(State(s): S, user: AuthUser, Json(b): Json<RestoreBody>) -> R<StatusCode> {
-    // Geri yükleme veriyi değiştirir (büyütebilir); kota mevcut boyuta göre
-    check_quota(&s, &user)?;
     with_user_db(&s, &user, move |c| {
         store::restore_data(c, b.categories, b.accounts, b.transactions, b.recurring, b.budgets)
     })

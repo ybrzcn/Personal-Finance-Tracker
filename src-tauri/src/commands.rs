@@ -7,7 +7,8 @@ use tauri::State;
 use finans_core::db::{
     self, Account, AccountInput, Budget, Category, CategoryInput, RecurringItem, Transaction, TransactionInput,
 };
-use finans_core::store::{self, db_err};
+use finans_core::sqlite::{self, db_err};
+use finans_core::store;
 
 pub struct AppState {
     pub conn: Mutex<Connection>,
@@ -107,107 +108,107 @@ fn lock<'a>(state: &'a State<'_, AppState>) -> CmdResult<MutexGuard<'a, Connecti
 
 #[tauri::command]
 pub fn list_categories(state: State<'_, AppState>) -> CmdResult<Vec<Category>> {
-    store::list_categories(&*lock(&state)?)
+    sqlite::run(&mut *lock(&state)?, |s| store::list_categories(s))
 }
 
 #[tauri::command]
 pub fn create_category(state: State<'_, AppState>, input: CategoryInput) -> CmdResult<Category> {
-    store::create_category(&*lock(&state)?, input)
+    sqlite::run(&mut *lock(&state)?, |s| store::create_category(s, input))
 }
 
 #[tauri::command]
 pub fn update_category(state: State<'_, AppState>, category: Category) -> CmdResult<Category> {
-    store::update_category(&*lock(&state)?, category)
+    sqlite::run(&mut *lock(&state)?, |s| store::update_category(s, category))
 }
 
 #[tauri::command]
 pub fn delete_category(state: State<'_, AppState>, id: String) -> CmdResult<()> {
-    store::delete_category(&*lock(&state)?, &id)
+    sqlite::run(&mut *lock(&state)?, |s| store::delete_category(s, &id))
 }
 
 #[tauri::command]
 pub fn list_accounts(state: State<'_, AppState>) -> CmdResult<Vec<Account>> {
-    store::list_accounts(&*lock(&state)?)
+    sqlite::run(&mut *lock(&state)?, |s| store::list_accounts(s))
 }
 
 #[tauri::command]
 pub fn create_account(state: State<'_, AppState>, input: AccountInput) -> CmdResult<Account> {
-    store::create_account(&*lock(&state)?, input)
+    sqlite::run(&mut *lock(&state)?, |s| store::create_account(s, input))
 }
 
 #[tauri::command]
 pub fn update_account(state: State<'_, AppState>, account: Account) -> CmdResult<Account> {
-    store::update_account(&*lock(&state)?, account)
+    sqlite::run(&mut *lock(&state)?, |s| store::update_account(s, account))
 }
 
 #[tauri::command]
 pub fn delete_account(state: State<'_, AppState>, id: String) -> CmdResult<()> {
-    store::delete_account(&*lock(&state)?, &id)
+    sqlite::run(&mut *lock(&state)?, |s| store::delete_account(s, &id))
 }
 
 #[tauri::command]
 pub fn list_transactions(state: State<'_, AppState>) -> CmdResult<Vec<Transaction>> {
-    store::list_transactions(&*lock(&state)?)
+    sqlite::run(&mut *lock(&state)?, |s| store::list_transactions(s))
 }
 
 #[tauri::command]
 pub fn create_transaction(state: State<'_, AppState>, input: TransactionInput) -> CmdResult<Transaction> {
-    store::create_transaction(&*lock(&state)?, input)
+    sqlite::run(&mut *lock(&state)?, |s| store::create_transaction(s, input))
 }
 
 #[tauri::command]
 pub fn update_transaction(state: State<'_, AppState>, transaction: Transaction) -> CmdResult<Transaction> {
-    store::update_transaction(&*lock(&state)?, transaction)
+    sqlite::run(&mut *lock(&state)?, |s| store::update_transaction(s, transaction))
 }
 
 #[tauri::command]
 pub fn delete_transaction(state: State<'_, AppState>, id: String) -> CmdResult<()> {
-    store::delete_transaction(&*lock(&state)?, &id)
+    sqlite::run(&mut *lock(&state)?, |s| store::delete_transaction(s, &id))
 }
 
 #[tauri::command]
 pub fn list_recurring(state: State<'_, AppState>) -> CmdResult<Vec<RecurringItem>> {
-    store::list_recurring(&*lock(&state)?)
+    sqlite::run(&mut *lock(&state)?, |s| store::list_recurring(s))
 }
 
 #[tauri::command]
 pub fn create_recurring(state: State<'_, AppState>, item: RecurringItem) -> CmdResult<RecurringItem> {
-    store::create_recurring(&*lock(&state)?, item)
+    sqlite::run(&mut *lock(&state)?, |s| store::create_recurring(s, item))
 }
 
 #[tauri::command]
 pub fn update_recurring(state: State<'_, AppState>, item: RecurringItem) -> CmdResult<RecurringItem> {
-    store::update_recurring(&*lock(&state)?, item)
+    sqlite::run(&mut *lock(&state)?, |s| store::update_recurring(s, item))
 }
 
 #[tauri::command]
 pub fn delete_recurring(state: State<'_, AppState>, id: String) -> CmdResult<()> {
-    store::delete_recurring(&*lock(&state)?, &id)
+    sqlite::run(&mut *lock(&state)?, |s| store::delete_recurring(s, &id))
 }
 
 #[tauri::command]
 pub fn list_budgets(state: State<'_, AppState>) -> CmdResult<Vec<Budget>> {
-    store::list_budgets(&*lock(&state)?)
+    sqlite::run(&mut *lock(&state)?, |s| store::list_budgets(s))
 }
 
 #[tauri::command]
 pub fn set_budget(state: State<'_, AppState>, category_id: String, amount: Option<f64>) -> CmdResult<()> {
-    store::set_budget(&*lock(&state)?, &category_id, amount)
+    sqlite::run(&mut *lock(&state)?, |s| store::set_budget(s, &category_id, amount))
 }
 
 #[tauri::command]
 pub fn restore_data(state: State<'_, AppState>, categories: Vec<Category>, accounts: Vec<Account>, transactions: Vec<Transaction>, recurring: Vec<RecurringItem>, budgets: Vec<Budget>) -> CmdResult<()> {
-    store::restore_data(&mut *lock(&state)?, categories, accounts, transactions, recurring, budgets)
+    sqlite::run(&mut *lock(&state)?, |s| store::restore_data(s, categories, accounts, transactions, recurring, budgets))
 }
 
 #[tauri::command]
 pub fn get_settings(state: State<'_, AppState>) -> CmdResult<serde_json::Map<String, serde_json::Value>> {
-    store::get_settings(&*lock(&state)?)
+    sqlite::run(&mut *lock(&state)?, |s| store::get_settings(s))
 }
 
 #[tauri::command]
 pub fn set_setting(state: State<'_, AppState>, key: String, value: serde_json::Value) -> CmdResult<()> {
-    store::set_setting(&*lock(&state)?, &key, value)
+    sqlite::run(&mut *lock(&state)?, |s| store::set_setting(s, &key, value))
 }
 
 /// Hesap ve veri yeri bilgileri (sunucu adresi, oturum, mod).
