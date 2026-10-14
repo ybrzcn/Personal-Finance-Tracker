@@ -1,5 +1,5 @@
 import type { Api } from "./api";
-import type { Account, Budget, Category, RecurringItem, Transaction } from "./types";
+import type { Account, Budget, Category, RateQuote, RecurringItem, Transaction } from "./types";
 
 /** Oturum düşünce (401) yayınlanır; giriş kapısı giriş ekranına döner. */
 export const UNAUTHORIZED_EVENT = "finans:unauthorized";
@@ -83,5 +83,8 @@ export function createHttpApi(opts: HttpOptions = {}): Api {
     },
     uninstallPlan: desktopOnly,
     uninstallApp: desktopOnly,
+    latestRates: (refresh) => r<RateQuote[]>("GET", `/api/rates/latest${refresh ? "?refresh=1" : ""}`),
+    rateAt: (code, date) => r<RateQuote | null>("GET", `/api/rates/at?code=${id(code)}&date=${id(date)}`),
+    rateHistory: (code, from, to) => r<RateQuote[]>("GET", `/api/rates/history?code=${id(code)}&from=${id(from)}&to=${id(to)}`),
   };
 }

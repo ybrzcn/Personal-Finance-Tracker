@@ -1,3 +1,4 @@
+import { isForeign } from "../lib/fx";
 import { useState } from "react";
 import type { Account } from "../lib/types";
 import { AccountOptions } from "./AccountOptions";
@@ -14,7 +15,8 @@ interface Props {
 }
 
 export function CsvImportDialog({ fileName, rowCount, skipped, hasAccountColumn, accounts, onConfirm, onClose }: Props) {
-  const active = accounts.filter((a) => !a.archived);
+  // Varsayılan hesap TL olmalı: döviz/altın hesabına miktar ve kursuz satır yazılamaz
+  const active = accounts.filter((a) => !a.archived && !isForeign(a.currency));
   const [accountId, setAccountId] = useState(active[0]?.id ?? "");
 
   return (

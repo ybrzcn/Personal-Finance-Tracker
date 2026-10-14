@@ -1,4 +1,5 @@
-import { parseAmount, toISODate } from "./format";
+import { qtyDecimals } from "./fx";
+import { parseAmount, toISODate, parseDecimal } from "./format";
 import type { Account, Category, Transaction, TxType } from "./types";
 import { TYPE_LABEL } from "./types";
 
@@ -20,7 +21,7 @@ export function transactionsToCsv(
   categoryById: Map<string, Category>,
   accountById: Map<string, Account>,
 ): string {
-  const header = ["Tarih", "Tür", "Hesap", "Hedef Hesap", "Kategori", "Tutar", "Taksit", "Açıklama"];
+  const header = ["Tarih", "Tür", "Hesap", "Hedef Hesap", "Kategori", "Tutar", "Para birimi", "Orijinal tutar", "Kur", "Taksit", "Açıklama"];
   const name = (id: string | null) => (id && accountById.get(id)?.name) || "";
   const lines = [header.join(DELIMITER)];
   for (const t of txs) {
@@ -32,6 +33,7 @@ export function transactionsToCsv(
         guardFormula(name(t.toAccountId)),
         guardFormula((t.categoryId && categoryById.get(t.categoryId)?.name) || ""),
         t.amount.toFixed(2).replace(".", ","),
+        ...fxCells(t, accountById),
         String(t.installments),
         guardFormula(t.description),
       ]
@@ -41,6 +43,16 @@ export function transactionsToCsv(
   }
   // BOM: Excel'in UTF-8 (Türkçe karakterler) olarak açması için
   return "\uFEFF" + lines.join("\r\n") + "\r\n";
+}
+
+/** Dövizli işlemin birimi, miktarı ve kuru: kaynak TL dışıysa kaynak, değilse hedef taraf; TL işlemde boş. */
+function fxCells(t: Transaction, accountById: Map<string, Account>): string[] {
+  const from = accountById.get(t.accountId)?.currency ?? "TRY";
+  const to = (t.toAccountId && accountById.get(t.toAccountId)?.currency) || "TRY";
+  const [cur, qty, rate] =
+    t.origAmount != null ? [from, t.origAmount, t.fxRate] : t.toOrigAmount != null ? [to, t.toOrigAmount, t.toFxRate] : ["", null, null];
+  const n = (v: number | null | undefined, d: number) => (v == null ? "" : v.toFixed(d).replace(".", ","));
+  return [cur, n(qty, cur ? qtyDecimals(cur) : 2), n(rate, 6)];
 }
 
 /** RFC 4180 uyumlu küçük CSV ayrıştırıcı (tırnak, kaçış ve satır içi yeni satır destekli). */
@@ -102,6 +114,10 @@ const HEADER_ALIASES: Record<string, string[]> = {
   category: ["kategori", "category"],
   amount: ["tutar", "miktar", "amount"],
   installments: ["taksit", "installments"],
+  // Döviz/altın hesabı işlemleri (dışa aktarmadaki sütunlar)
+  fxCurrency: ["para birimi", "currency"],
+  origAmount: ["orijinal tutar", "original amount"],
+  fxRate: ["kur", "rate"],
   description: ["aciklama", "description", "not", "note"],
 };
 
@@ -147,6 +163,10 @@ export interface ParsedCsvRow {
   accountName: string;
   toAccountName: string;
   installments: number;
+  /** Döviz/altın tarafı: birim, kendi birimindeki miktar ve kur (yoksa boş/null) */
+  fxCurrency: string;
+  origAmount: number | null;
+  fxRate: number | null;
 }
 
 export interface CsvParseResult {
@@ -194,6 +214,9 @@ export function parseTransactionsCsv(text: string): CsvParseResult {
       accountName: get("account"),
       toAccountName: get("toAccount"),
       installments: Number.isInteger(installments) && installments >= 1 && installments <= 36 ? installments : 1,
+      fxCurrency: get("fxCurrency"),
+      origAmount: get("origAmount") ? parseDecimal(get("origAmount"), 3) : null,
+      fxRate: get("fxRate") ? parseDecimal(get("fxRate"), 6) : null,
     });
   });
   return { rows, skipped, hasAccountColumn: col.account >= 0 };

@@ -50,6 +50,17 @@ pub struct Transaction {
     pub budget_month: Option<String>,
     #[serde(default)]
     pub created_at: String,
+    /// TL dışı kaynak hesapta: hesabın birimindeki miktar (1.250,00 USD; 12,5 g; 3 adet). TL hesapta yok.
+    #[serde(default)]
+    pub orig_amount: Option<f64>,
+    /// `orig_amount`'un kuru: 1 birimin TL fiyatı
+    #[serde(default)]
+    pub fx_rate: Option<f64>,
+    /// Transferde TL dışı hedef hesap: hedefin birimindeki miktar ve kuru
+    #[serde(default)]
+    pub to_orig_amount: Option<f64>,
+    #[serde(default)]
+    pub to_fx_rate: Option<f64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -69,6 +80,17 @@ pub struct TransactionInput {
     pub installments: i64,
     #[serde(default)]
     pub budget_month: Option<String>,
+    /// TL dışı kaynak hesapta: hesabın birimindeki miktar (1.250,00 USD; 12,5 g; 3 adet). TL hesapta yok.
+    #[serde(default)]
+    pub orig_amount: Option<f64>,
+    /// `orig_amount`'un kuru: 1 birimin TL fiyatı
+    #[serde(default)]
+    pub fx_rate: Option<f64>,
+    /// Transferde TL dışı hedef hesap: hedefin birimindeki miktar ve kuru
+    #[serde(default)]
+    pub to_orig_amount: Option<f64>,
+    #[serde(default)]
+    pub to_fx_rate: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -113,6 +135,9 @@ pub struct Account {
     /// Yalnız kart: eklendiği gün devam eden taksitler (sonraki ekstreden itibaren her aya bir taksit)
     #[serde(default)]
     pub opening_installments: Vec<OpeningInstallment>,
+    /// "TRY" ya da `fx::INSTRUMENTS` kodu; TL dışı yalnız bank/cash. Açılış bakiyesi bu birimdedir.
+    #[serde(default = "try_code")]
+    pub currency: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,6 +182,9 @@ pub struct AccountInput {
     pub opening_period_spending: Option<f64>,
     #[serde(default)]
     pub opening_installments: Vec<OpeningInstallment>,
+    /// "TRY" ya da `fx::INSTRUMENTS` kodu; TL dışı yalnız bank/cash. Açılış bakiyesi bu birimdedir.
+    #[serde(default = "try_code")]
+    pub currency: String,
 }
 
 /// Düzenli gelir (maaş) veya gider (kira, fatura, abonelik).
@@ -191,6 +219,13 @@ pub struct RecurringItem {
     /// Gün hafta sonuna denk gelirse: "none" kaydırılmaz, "before" önceki Cuma, "after" sonraki Pazartesi
     #[serde(default = "weekend_none")]
     pub weekend_shift: String,
+    /// TL dışı hesaptaki düzenli kayıt: hesabın birimindeki miktar (`amount` TL tahminidir)
+    #[serde(default)]
+    pub orig_amount: Option<f64>,
+}
+
+fn try_code() -> String {
+    crate::fx::TRY.into()
 }
 
 fn weekend_none() -> String {
@@ -250,6 +285,7 @@ impl AccountInput {
             funding_income_id: self.funding_income_id,
             opening_period_spending: self.opening_period_spending,
             opening_installments: self.opening_installments,
+            currency: self.currency,
         }
     }
 }
@@ -373,7 +409,7 @@ ALTER TABLE accounts ADD COLUMN opening_period_cents INTEGER;
 ALTER TABLE accounts ADD COLUMN opening_installments TEXT NOT NULL DEFAULT '[]';
 ";
 
-pub const LATEST_VERSION: i64 = 15;
+pub const LATEST_VERSION: i64 = 16;
 
 const DEFAULT_CATEGORIES: &[(&str, &str, &str)] = &[
     ("Maaş", "income", "#10b981"),
@@ -617,7 +653,21 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         )?;
         tx.commit()?;
     }
-    // Gelecekteki şema değişiklikleri: if version < 16 { ... PRAGMA user_version = 16; }
+    if version < 16 {
+        // v16: döviz/altın hesapları: hesabın para birimi; işlemin ve düzenli kaydın kendi birimindeki miktarı ve kuru
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(
+            "ALTER TABLE accounts ADD COLUMN currency TEXT NOT NULL DEFAULT 'TRY';
+             ALTER TABLE transactions ADD COLUMN orig_amount INTEGER CHECK (orig_amount IS NULL OR orig_amount > 0);
+             ALTER TABLE transactions ADD COLUMN fx_rate INTEGER CHECK (fx_rate IS NULL OR fx_rate > 0);
+             ALTER TABLE transactions ADD COLUMN to_orig_amount INTEGER CHECK (to_orig_amount IS NULL OR to_orig_amount > 0);
+             ALTER TABLE transactions ADD COLUMN to_fx_rate INTEGER CHECK (to_fx_rate IS NULL OR to_fx_rate > 0);
+             ALTER TABLE recurring_items ADD COLUMN orig_amount INTEGER CHECK (orig_amount IS NULL OR orig_amount > 0);
+             PRAGMA user_version = 16;",
+        )?;
+        tx.commit()?;
+    }
+    // Gelecekteki şema değişiklikleri: if version < 17 { ... PRAGMA user_version = 17; }
     Ok(())
 }
 
@@ -625,12 +675,16 @@ pub const CATEGORY_COLUMNS: &str = "id, name, type, color";
 pub const ACCOUNT_COLUMNS: &str = "id, name, kind, color, opening_balance_cents, opening_date, credit_limit_cents, \
      interest_rate_bp, statement_day, due_day, min_payment_rate_bp, sort_order, archived, \
      term_months, first_due_date, installment_cents, tax_rate_bp, funding_income_id, \
-     opening_period_cents, opening_installments";
+     opening_period_cents, opening_installments, currency";
 pub const RECURRING_COLUMNS: &str =
     "id, name, type, amount_cents, day, account_id, category_id, active, sort_order, amount_history, amount_exceptions, \
-     covers_previous_month, start_date, weekend_shift";
+     covers_previous_month, start_date, weekend_shift, orig_amount, \
+     (SELECT a.currency FROM accounts a WHERE a.id = recurring_items.account_id)";
 pub const TRANSACTION_COLUMNS: &str =
-    "id, amount_cents, type, account_id, to_account_id, category_id, date, description, installments, created_at, budget_month";
+    "id, amount_cents, type, account_id, to_account_id, category_id, date, description, installments, created_at, budget_month, \
+     orig_amount, fx_rate, to_orig_amount, to_fx_rate, \
+     (SELECT a.currency FROM accounts a WHERE a.id = transactions.account_id), \
+     (SELECT a.currency FROM accounts a WHERE a.id = transactions.to_account_id)";
 
 pub fn cents_to_f64(c: i64) -> f64 {
     c as f64 / 100.0
@@ -647,12 +701,14 @@ pub fn row_to_category(r: &Row) -> rusqlite::Result<Category> {
 
 /// `_cents` ve `_bp` (yüzde × 100) sütunları 100'e bölünerek ondalığa çevrilir.
 pub fn row_to_account(r: &Row) -> rusqlite::Result<Account> {
+    let currency: String = r.get(20)?;
+    let unit = crate::fx::unit_or_try(Some(&currency));
     Ok(Account {
         id: r.get(0)?,
         name: r.get(1)?,
         kind: r.get(2)?,
         color: r.get(3)?,
-        opening_balance: cents_to_f64(r.get(4)?),
+        opening_balance: crate::fx::amount::minor_to_value(r.get(4)?, unit),
         opening_date: r.get(5)?,
         credit_limit: r.get::<_, Option<i64>>(6)?.map(cents_to_f64),
         interest_rate: r.get::<_, Option<i64>>(7)?.map(cents_to_f64),
@@ -668,6 +724,7 @@ pub fn row_to_account(r: &Row) -> rusqlite::Result<Account> {
         funding_income_id: r.get(17)?,
         opening_period_spending: r.get::<_, Option<i64>>(18)?.map(cents_to_f64),
         opening_installments: serde_json::from_str(&r.get::<_, String>(19)?).unwrap_or_default(),
+        currency,
     })
 }
 
@@ -687,11 +744,12 @@ pub fn row_to_recurring(r: &Row) -> rusqlite::Result<RecurringItem> {
         covers_previous_month: r.get::<_, i64>(11)? != 0,
         start_date: r.get(12)?,
         weekend_shift: r.get(13)?,
+        orig_amount: crate::fx::amount::stored_to_api(r.get(14)?, None, r.get::<_, Option<String>>(15)?.as_deref()).0,
     })
 }
 
 pub fn row_to_transaction(r: &Row) -> rusqlite::Result<Transaction> {
-    Ok(Transaction {
+    let mut t = Transaction {
         id: r.get(0)?,
         amount: cents_to_f64(r.get(1)?),
         kind: r.get(2)?,
@@ -703,5 +761,13 @@ pub fn row_to_transaction(r: &Row) -> rusqlite::Result<Transaction> {
         installments: r.get(8)?,
         created_at: r.get(9)?,
         budget_month: r.get(10)?,
-    })
+        orig_amount: None,
+        fx_rate: None,
+        to_orig_amount: None,
+        to_fx_rate: None,
+    };
+    let (from_cur, to_cur): (Option<String>, Option<String>) = (r.get(15)?, r.get(16)?);
+    (t.orig_amount, t.fx_rate) = crate::fx::amount::stored_to_api(r.get(11)?, r.get(12)?, from_cur.as_deref());
+    (t.to_orig_amount, t.to_fx_rate) = crate::fx::amount::stored_to_api(r.get(13)?, r.get(14)?, to_cur.as_deref());
+    Ok(t)
 }

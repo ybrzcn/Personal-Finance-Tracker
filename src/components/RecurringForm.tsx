@@ -1,12 +1,14 @@
 import { Plus, Trash2, X } from "lucide-react";
 import { useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
 import { errorMessage } from "../lib/api";
-import { amountToInput, formatDate, formatDateShort, formatMonthYear, parseAmount, todayISO } from "../lib/format";
+import { amountToInput, formatDate, formatDateShort, formatMonthYear, parseAmount, parseQuantity, todayISO } from "../lib/format";
+import { isForeign, qtyDecimals, qtyRule, tlAmount, unitOf } from "../lib/fx";
 import { clampedDate } from "../lib/cards";
 import { amountAt, occurrenceIn, shiftMonth, shiftWeekend, withAmountFrom } from "../lib/recurring";
 import type { AmountChange, CategoryType, MonthException, RecurringItem, WeekendShift } from "../lib/types";
 import { useSettings } from "../state/settings";
 import { useData } from "../state/data";
+import { useRates } from "../state/rates";
 import { useUI } from "../state/ui";
 import { MoneyInput } from "./common";
 import { Modal } from "./Modal";
@@ -121,6 +123,20 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
   const [startDate, setStartDate] = useState(item ? (item.startDate ?? "") : today);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Döviz/altın hesabında miktar kendi biriminde; TL tutarı planlar için güncel alışla tahmin edilir
+  const { rates } = useRates();
+  const cur = accounts.find((a) => a.id === accountId)?.currency ?? "TRY";
+  const foreign = isForeign(cur);
+  const unitLabel = unitOf(cur) === "currency" ? cur : unitOf(cur) === "gram" ? "gram" : "adet";
+  const [qty, setQty] = useState(item?.origAmount != null ? String(item.origAmount).replace(".", ",") : "");
+  const qtyVal = foreign ? parseQuantity(qty, qtyDecimals(cur)) : null;
+  const onQty = (v: string) => {
+    setQty(v);
+    setError(null);
+    const n = parseQuantity(v, qtyDecimals(cur));
+    const q = rates.get(cur);
+    if (n && n > 0 && q) setAmount(amountToInput(tlAmount(n, q.buy, cur)));
+  };
 
   const value = parseAmount(amount);
   const amountChanged = !!item && value !== null && value > 0 && Math.abs(value - (currentAmount ?? 0)) >= 0.005;
@@ -130,6 +146,7 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
     e.preventDefault();
     const d = Number.parseInt(day, 10);
     if (!name.trim()) return fail("Bir ad yazın (ör. Maaş).", "rec-name");
+    if (foreign && !(qtyVal && qtyVal > 0)) return fail(`Miktar girin (${unitLabel}, ${qtyRule(cur)}).`, "rec-qty");
     if (value === null || value <= 0) return fail("Geçerli bir tutar girin (ör. 62.000,00).", "rec-amount");
     if (!(d >= 1 && d <= 31)) return fail("Ayın günü 1 ile 31 arasında olmalı.", "rec-day");
     if (item && amountChanged && changeMode === "from" && !changeFrom)
@@ -156,6 +173,7 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
       categoryId: categoryId || null,
       active,
       sortOrder: item?.sortOrder ?? 0,
+      origAmount: foreign ? qtyVal : null,
     };
     try {
       if (item) {
@@ -247,7 +265,7 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
           </div>
           <div>
             <label className="label" htmlFor="rec-amount">
-              Tutar
+              {foreign ? "Tahmini TL tutarı" : "Tutar"}
             </label>
             <MoneyInput
               id="rec-amount"
@@ -318,6 +336,23 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
                 ))}
             </select>
           </div>
+          {foreign && (
+            <div>
+              <label className="label" htmlFor="rec-qty">
+                Miktar ({unitLabel})
+              </label>
+              <input
+                id="rec-qty"
+                className={`input tabular-nums ${bad("rec-qty")}`}
+                aria-invalid={errorField === "rec-qty" || undefined}
+                inputMode="decimal"
+                autoComplete="off"
+                value={qty}
+                onChange={(e) => onQty(e.target.value)}
+              />
+              <p className="mt-1 text-xs text-zinc-500">TL tutarı planlar için güncel alış kuruyla tahmin edilir; kayıt girilirken o günün kuru kullanılır.</p>
+            </div>
+          )}
           <div>
             <label className="label" htmlFor="rec-category">
               Kategori

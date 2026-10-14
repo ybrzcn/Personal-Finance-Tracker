@@ -210,6 +210,7 @@ export function SettingsPage() {
       const notes = [
         merged.createdCategories > 0 ? `${merged.createdCategories} yeni kategori` : "",
         merged.skippedTransfers > 0 ? `${merged.skippedTransfers} transfer atlandı (hedef hesap bulunamadı)` : "",
+        merged.skippedFx > 0 ? `${merged.skippedFx} döviz/altın işlemi atlandı (miktar ya da kur yok)` : "",
       ].filter(Boolean);
       toast(`${added} işlem içe aktarıldı.${notes.length ? ` ${notes.join(", ")}.` : ""}`);
     });

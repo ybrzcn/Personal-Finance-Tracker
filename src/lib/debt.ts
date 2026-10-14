@@ -1,3 +1,4 @@
+import { isForeign } from "./fx";
 import { bankSummary } from "./accounts";
 import { cardDues, cardSummary } from "./cards";
 import { addDays } from "./format";
@@ -59,7 +60,7 @@ export function debtsFromAccounts(accounts: Account[], txs: Transaction[], today
           billing,
         });
       }
-    } else if (a.kind === "bank") {
+    } else if (a.kind === "bank" && !isForeign(a.currency)) {
       const used = bankSummary(a, txs, today).overdraftUsedCents;
       if (used > 0)
         out.push({ ...base, name: `${a.name} (KMH)`, balanceCents: used, monthlyRate: effectiveMonthlyRate(a.interestRate, REVOLVING_TAX), minRatePct: null, fixedPaymentCents: null });

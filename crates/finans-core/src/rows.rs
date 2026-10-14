@@ -21,6 +21,7 @@ pub struct AccountRow {
     pub opening_period_cents: Option<i64>,
     /// JSON dizisi
     pub opening_installments: String,
+    pub currency: String,
 }
 
 pub struct RecurringRow {
@@ -39,6 +40,7 @@ pub struct RecurringRow {
     pub covers_previous_month: bool,
     pub start_date: Option<String>,
     pub weekend_shift: String,
+    pub orig_amount: Option<i64>,
 }
 
 pub struct TransactionRow {
@@ -54,4 +56,15 @@ pub struct TransactionRow {
     pub budget_month: Option<String>,
     /// Yalnız geri yüklemede verilir (`YYYY-MM-DDTHH:MM:SS[.fff]Z`); None = şimdi
     pub created_at: Option<String>,
+    pub orig_amount: Option<i64>,
+    pub fx_rate: Option<i64>,
+    pub to_orig_amount: Option<i64>,
+    pub to_fx_rate: Option<i64>,
+}
+
+/// İş kurallarının ihtiyaç duyduğu hesap bilgisi.
+pub struct AccountMeta {
+    pub kind: String,
+    pub archived: bool,
+    pub currency: String,
 }

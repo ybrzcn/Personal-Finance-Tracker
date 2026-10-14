@@ -1,3 +1,4 @@
+import { isForeign } from "./fx";
 import { bankBalanceCents } from "./accounts";
 import { assignRegular, matchesRegular, primarySalary, salaryMonthFor } from "./budget";
 import { cardDues, clampedDate, shiftClosing } from "./cards";
@@ -157,7 +158,8 @@ export function obligations(
     }
   }
   // İşlemler'e girilmiş ileri tarihli banka/nakit giderleri (kart giderleri zaten ekstreye yazılır)
-  const cashAccounts = new Set(accounts.filter((a) => a.kind === "bank" || a.kind === "cash").map((a) => a.id));
+  // Ödeme takvimi TL nakit akışıdır: döviz/altın hesapları dahil edilmez
+  const cashAccounts = new Set(accounts.filter((a) => (a.kind === "bank" || a.kind === "cash") && !isForeign(a.currency)).map((a) => a.id));
   const planned = txs.filter((t) => t.type === "expense" && cashAccounts.has(t.accountId) && t.date > today && t.date <= until);
   const replaced = new Set<string>();
   // Bu ay zaten ödenmiş düzenli gider (ör. kira 11'inde ödendi, günü 15) bu ayın planından düşer
@@ -330,7 +332,7 @@ export function buildCashPlan(
   const sum = (xs: Obligation[]) => xs.reduce((s, o) => s + o.amountCents, 0);
   // Bugünkü nakit: ileri tarihli (planlanan) işlemler henüz gerçekleşmediği için sayılmaz
   const liquidCents = accounts
-    .filter((a) => a.kind === "bank" || a.kind === "cash")
+    .filter((a) => (a.kind === "bank" || a.kind === "cash") && !isForeign(a.currency))
     .reduce((s, a) => s + bankBalanceCents(a, txs, today), 0);
 
   const byMonth = new Map<string, { incomes: IncomeEvent[]; obligations: Obligation[] }>();

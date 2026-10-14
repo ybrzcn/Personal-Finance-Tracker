@@ -39,6 +39,7 @@ export function DueIncomeBanner() {
                 categoryId: item.categoryId,
                 date,
                 description: item.name,
+                origAmount: item.origAmount ?? undefined,
               })
             }
           >

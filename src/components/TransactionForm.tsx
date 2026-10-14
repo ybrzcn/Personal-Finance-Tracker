@@ -1,14 +1,16 @@
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight } from "lucide-react";
-import { useMemo, useRef, useState, type FormEvent } from "react";
-import { bankBalanceCents } from "../lib/accounts";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { bankBalanceCents, nativeBalanceMinor } from "../lib/accounts";
 import { errorMessage } from "../lib/api";
 import { installmentPostings } from "../lib/cards";
 import { cashAdvancePlan } from "../lib/loans";
-import { amountToInput, daysBetween, formatDateShort, formatMonthYear, parseAmount, todayISO } from "../lib/format";
+import { amountToInput, daysBetween, formatDateShort, formatMonthYear, parseAmount, parseDecimal, parseQuantity, todayISO } from "../lib/format";
+import { defaultSide, formatQty, formatRate, isForeign, qtyDecimals, qtyRule, tlAmount, TRY, unitDivisor, unitOf } from "../lib/fx";
 import { shiftMonth } from "../lib/recurring";
 import { buildHistory, suggestCategory } from "../lib/statementImport";
 import type { Account, Transaction, TransactionInput, TxType } from "../lib/types";
 import { useData } from "../state/data";
+import { useRates } from "../state/rates";
 import { useSettings } from "../state/settings";
 import { useUI, type AmountHint, type TransactionDefaults } from "../state/ui";
 import { AccountOptions } from "./AccountOptions";
@@ -112,6 +114,16 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
     const list = [-3, -2, -1, 0, 1].map((d) => shiftMonth(base, d));
     return budgetMonth && !list.includes(budgetMonth) ? [budgetMonth, ...list] : list;
   }, [date, budgetMonth]);
+  const { rates, refresh, rateAt } = useRates();
+  const decimalText = (v: number | null | undefined) => (v == null ? "" : String(v).replace(".", ","));
+  const [qty, setQty] = useState(decimalText(init.origAmount));
+  const [rate, setRate] = useState(decimalText(init.fxRate));
+  const [toQty, setToQty] = useState(decimalText(init.toOrigAmount));
+  const [toRate, setToRate] = useState(decimalText(init.toFxRate));
+  // Kullanıcı ya da düzenlenen kayıt kuru belirlediyse otomatik doldurma ezmez (çevrimdışı düzenleme saklı kurla çalışır)
+  const rateTouched = useRef(init.fxRate != null);
+  const toRateTouched = useRef(init.toFxRate != null);
+  const [rateNote, setRateNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   // Hatalı alan: kırmızı çerçeve + odak + ekran okuyucuya duyuru
@@ -150,9 +162,70 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
   const selectable = (keep: string) => accounts.filter((a) => !a.archived || a.id === keep);
   const categoryOptions = useMemo(() => categories.filter((c) => c.type === type), [categories, type]);
   const account = accountById.get(accountId);
+  const toAccount = type === "transfer" ? accountById.get(toAccountId) : undefined;
+  const fromCur = account?.currency ?? TRY;
+  const toCur = toAccount?.currency ?? TRY;
+  const fromFx = isForeign(fromCur);
+  const toFx = type === "transfer" && isForeign(toCur);
   const canInstall = type === "expense" && account?.kind === "credit_card";
   const n = canInstall ? installments : 1;
   const parsed = parseAmount(amount);
+  const qtyVal = fromFx ? parseQuantity(qty, qtyDecimals(fromCur)) : null;
+  const rateVal = fromFx ? parseDecimal(rate, 6) : null;
+  const toQtyVal = toFx ? parseQuantity(toQty, qtyDecimals(toCur)) : null;
+  const toRateVal = toFx ? parseDecimal(toRate, 6) : null;
+  // TL karşılığı: TL dışı kaynaktan, o yoksa TL dışı hedeften; ikisi de TL ise girilen tutar
+  const tlValue = fromFx
+    ? qtyVal && qtyVal > 0 && rateVal && rateVal > 0
+      ? tlAmount(qtyVal, rateVal, fromCur)
+      : null
+    : toFx
+      ? toQtyVal && toQtyVal > 0 && toRateVal && toRateVal > 0
+        ? tlAmount(toQtyVal, toRateVal, toCur)
+        : null
+      : parsed;
+  // Döviz → döviz: hedef miktarı boşsa TL karşılığından önerilir
+  const toQtySuggestion =
+    fromFx && toFx && tlValue && toRateVal ? Math.round((tlValue / toRateVal) * 10 ** qtyDecimals(toCur)) / 10 ** qtyDecimals(toCur) : null;
+
+  // Dövizli hesap seçilince kurlar kaynaktan yenilenir (en çok dakikada bir)
+  useEffect(() => {
+    if (fromFx || toFx) void refresh();
+  }, [fromFx, toFx, refresh]);
+
+  // Para birimi değişince elle girilen/saklı kur geçersizdir (USD kuru altın hesabında kalmasın)
+  const lastFromCur = useRef(fromCur);
+  const lastToCur = useRef(toCur);
+  if (lastFromCur.current !== fromCur) {
+    lastFromCur.current = fromCur;
+    rateTouched.current = false;
+  }
+  if (lastToCur.current !== toCur) {
+    lastToCur.current = toCur;
+    toRateTouched.current = false;
+  }
+
+  // Kur alanları: bugün için güncel, geçmiş tarih için o günün kuru; kullanıcı değiştirdiyse dokunulmaz.
+  // `rates` bağımlılığı: form kurlar gelmeden açıldıysa gelince doldurulur
+  useEffect(() => {
+    let cancelled = false;
+    const fill = async (code: string, side: "buy" | "sell", set: (v: string) => void) => {
+      const q = await rateAt(code, date || todayISO()).catch(() => null);
+      if (cancelled) return;
+      if (q) set(formatRate(q[side]));
+      else {
+        // Bulunamazsa başka günün/birimin kuru alanda kalmaz
+        set("");
+        setRateNote("Bu tarih için kur bulunamadı; kuru elle girin.");
+      }
+    };
+    setRateNote(null);
+    if (fromFx && !rateTouched.current) void fill(fromCur, defaultSide(fromCur, toFx ? toCur : null), setRate);
+    if (toFx && !toRateTouched.current) void fill(toCur, defaultSide(fromCur, toCur), setToRate);
+    return () => {
+      cancelled = true;
+    };
+  }, [fromFx, toFx, fromCur, toCur, date, rateAt, rates]);
   const isAdvance = canInstall && cashAdvance && !editing;
   // Banka yöntemi: taksitler çekim gününden itibaren ekstrelere yazılır; ilk dönemin faizi çekimden ilk son ödeme
   // tarihine kadar işler (ör. kesim 23 / ödeme 2 kartta 26 Eylül çekim → 2 Kasım, 37 gün)
@@ -215,7 +288,12 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (parsed === null || parsed <= 0) return fail("Geçerli ve sıfırdan büyük bir tutar girin (ör. 1.250,00).", "tx-amount");
+    if (fromFx && !(qtyVal && qtyVal > 0)) return fail(`Geçerli bir miktar girin (${qtyRule(fromCur)}).`, "tx-qty");
+    if (fromFx && !(rateVal && rateVal > 0)) return fail("Kuru girin (1 birimin TL fiyatı).", "tx-rate");
+    const toQtyFinal = toQtyVal ?? toQtySuggestion;
+    if (toFx && !(toQtyFinal && toQtyFinal > 0)) return fail(`Hedefe geçen miktarı girin (${qtyRule(toCur)}).`, "tx-to-qty");
+    if (toFx && !(toRateVal && toRateVal > 0)) return fail("Hedef hesabın kurunu girin.", "tx-to-rate");
+    if (tlValue === null || tlValue <= 0) return fail("Geçerli ve sıfırdan büyük bir tutar girin (ör. 1.250,00).", "tx-amount");
     if (!date) return fail("Bir tarih seçin.", "tx-date");
     if (!accountId) return fail("Bir hesap seçin.", "tx-account");
     if (type === "transfer" && !toAccountId) return fail("Paranın gideceği hesabı seçin.", "tx-to-account");
@@ -223,15 +301,13 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
     // Nakit hesabı eksiye düşemez: muhtemelen yanlış hesap ya da tutar
     const source = accountById.get(accountId);
     if (source?.kind === "cash" && type !== "income") {
-      const before = bankBalanceCents(
-        source,
-        transactions.filter((t) => t.id !== transaction?.id),
-      );
-      const after = before - Math.round(parsed * 100);
+      const others = transactions.filter((t) => t.id !== transaction?.id);
+      const before = fromFx ? nativeBalanceMinor(source, others) : bankBalanceCents(source, others);
+      const after = before - (fromFx ? Math.round(qtyVal! * unitDivisor(fromCur)) : Math.round(tlValue * 100));
       if (after < 0) {
         const ok = await confirm({
           title: "Nakit eksiye düşecek",
-          message: `${source.name} bakiyesi ${formatMoney(after / 100)} olacak. Nakit eksiye düşemez; tutarı ya da hesabı kontrol edin. Yine de kaydedilsin mi?`,
+          message: `${source.name} bakiyesi ${fromFx ? formatQty(after / unitDivisor(fromCur), fromCur) : formatMoney(after / 100)} olacak. Nakit eksiye düşemez; tutarı ya da hesabı kontrol edin. Yine de kaydedilsin mi?`,
           confirmLabel: "Yine de kaydet",
         });
         if (!ok) return;
@@ -243,7 +319,7 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
     partialSaved.current = 0;
     try {
       const payload: TransactionInput = {
-        amount: parsed,
+        amount: tlValue,
         type,
         accountId,
         toAccountId: type === "transfer" ? toAccountId : null,
@@ -252,12 +328,16 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
         description,
         installments: n,
         budgetMonth: type === "income" && budgetMonth ? budgetMonth : null,
+        origAmount: fromFx ? qtyVal : null,
+        fxRate: fromFx ? rateVal : null,
+        toOrigAmount: toFx ? toQtyFinal : null,
+        toFxRate: toFx ? toRateVal : null,
       };
       if (transaction) {
         await updateTransaction({ ...transaction, ...payload });
         onSaved("İşlem güncellendi.");
       } else if (isAdvance && advance) {
-        if (n > 1 && advance.total < parsed) throw new Error("Taksit tutarı, toplamda çekilen tutardan az olamaz.");
+        if (n > 1 && advance.total < tlValue) throw new Error("Taksit tutarı, toplamda çekilen tutardan az olamaz.");
         const advCat = categories.find((c) => c.type === "expense" && c.name === "Nakit Avans");
         const feeCat = categories.find((c) => c.type === "expense" && c.name === "Faiz ve Masraflar");
         const label = description.trim() || "Nakit avans";
@@ -356,35 +436,78 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
             ))}
           </div>
 
-          <div>
-            <label className="label" htmlFor="tx-amount">
-              Tutar
-            </label>
-            <MoneyInput
-              id="tx-amount"
-              data-autofocus
-              className={`text-lg font-semibold ${invalid("tx-amount")}`}
-              aria-invalid={errorField === "tx-amount" || undefined}
-              aria-describedby={errorField === "tx-amount" ? "tx-error" : undefined}
-              placeholder="0,00"
-              value={amount}
-              onValueChange={setAmount}
-            />
-            {hints && hints.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {hints.map((h) => (
-                  <button
-                    key={h.label}
-                    type="button"
-                    onClick={() => setAmount(amountToInput(h.amount))}
-                    className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                  >
-                    {h.label}: {formatMoney(h.amount)}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {!fromFx && !toFx && (
+            <div>
+              <label className="label" htmlFor="tx-amount">
+                Tutar
+              </label>
+              <MoneyInput
+                id="tx-amount"
+                data-autofocus
+                className={`text-lg font-semibold ${invalid("tx-amount")}`}
+                aria-invalid={errorField === "tx-amount" || undefined}
+                aria-describedby={errorField === "tx-amount" ? "tx-error" : undefined}
+                placeholder="0,00"
+                value={amount}
+                onValueChange={setAmount}
+              />
+              {hints && hints.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {hints.map((h) => (
+                    <button
+                      key={h.label}
+                      type="button"
+                      onClick={() => setAmount(amountToInput(h.amount))}
+                      className="rounded-full bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-600 hover:bg-zinc-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    >
+                      {h.label}: {formatMoney(h.amount)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {(fromFx || toFx) && (
+            <div className="space-y-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-800">
+              {fromFx && (
+                <FxFields
+                  idPrefix="tx"
+                  label={type === "transfer" ? "Çıkan miktar" : "Miktar"}
+                  code={fromCur}
+                  qty={qty}
+                  onQty={setQty}
+                  rate={rate}
+                  onRate={(v) => {
+                    rateTouched.current = true;
+                    setRate(v);
+                  }}
+                  invalid={invalid}
+                  autoFocus
+                />
+              )}
+              {toFx && (
+                <FxFields
+                  idPrefix="tx-to"
+                  label="Hedefe geçen miktar"
+                  code={toCur}
+                  qty={toQty}
+                  placeholder={toQtySuggestion ? String(toQtySuggestion).replace(".", ",") : undefined}
+                  onQty={setToQty}
+                  rate={toRate}
+                  onRate={(v) => {
+                    toRateTouched.current = true;
+                    setToRate(v);
+                  }}
+                  invalid={invalid}
+                  autoFocus={!fromFx}
+                />
+              )}
+              <p className="text-sm tabular-nums">
+                TL karşılığı: <strong>{tlValue ? formatMoney(tlValue) : "—"}</strong>
+              </p>
+              {rateNote && <p className="text-xs text-amber-700 dark:text-amber-300">{rateNote}</p>}
+            </div>
+          )}
 
           {/* Açıklama önce: yazılınca kategori önerilir */}
           <div>
@@ -712,5 +835,53 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
         </form>
       )}
     </Modal>
+  );
+}
+
+function FxFields(props: {
+  idPrefix: string;
+  label: string;
+  code: string;
+  qty: string;
+  onQty(v: string): void;
+  rate: string;
+  onRate(v: string): void;
+  placeholder?: string;
+  invalid(field: string): string;
+  autoFocus?: boolean;
+}) {
+  const { idPrefix, label, code, qty, onQty, rate, onRate, placeholder, invalid, autoFocus } = props;
+  const unit = unitOf(code) === "currency" ? code : unitOf(code) === "gram" ? "gram" : "adet";
+  return (
+    <div className="grid grid-cols-2 gap-3">
+      <div>
+        <label className="label" htmlFor={`${idPrefix}-qty`}>
+          {label} ({unit})
+        </label>
+        <input
+          id={`${idPrefix}-qty`}
+          data-autofocus={autoFocus || undefined}
+          className={`input tabular-nums ${invalid(`${idPrefix}-qty`)}`}
+          inputMode="decimal"
+          autoComplete="off"
+          placeholder={placeholder ?? "0"}
+          value={qty}
+          onChange={(e) => onQty(e.target.value)}
+        />
+      </div>
+      <div>
+        <label className="label" htmlFor={`${idPrefix}-rate`}>
+          Kur (1 {unit} = ₺)
+        </label>
+        <input
+          id={`${idPrefix}-rate`}
+          className={`input tabular-nums ${invalid(`${idPrefix}-rate`)}`}
+          inputMode="decimal"
+          autoComplete="off"
+          value={rate}
+          onChange={(e) => onRate(e.target.value)}
+        />
+      </div>
+    </div>
   );
 }

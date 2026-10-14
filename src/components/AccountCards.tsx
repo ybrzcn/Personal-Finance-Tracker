@@ -1,11 +1,13 @@
-import { Banknote, CalendarClock, CreditCard, FileUp, HandCoins, Landmark, List, Pencil, Plus, Wallet } from "lucide-react";
+import { AlertTriangle, Banknote, CalendarClock, CreditCard, FileUp, HandCoins, Landmark, List, Pencil, Plus, Wallet } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
-import { bankSummary } from "../lib/accounts";
+import { bankSummary, fxValueCents, nativeBalanceMinor } from "../lib/accounts";
+import { formatQty, formatRate, isForeign, unitDivisor } from "../lib/fx";
 import { cardStatements, cardSummary, type Statement, type StatementStatus } from "../lib/cards";
 import { daysBetween, formatDateShort, todayISO } from "../lib/format";
 import { loanSummary } from "../lib/loans";
 import { ACCOUNT_KIND_LABEL, type Account } from "../lib/types";
 import { useData } from "../state/data";
+import { useRates } from "../state/rates";
 import { useSettings } from "../state/settings";
 import { useUI, type AmountHint } from "../state/ui";
 import { Term, TERMS } from "./common";
@@ -112,6 +114,11 @@ export function BankAccountCard({ account }: { account: Account }) {
   const today = todayISO();
   const s = useMemo(() => bankSummary(account, transactions, today), [account, transactions, today]);
   const limit = account.creditLimit;
+  const { rates } = useRates();
+  const foreign = isForeign(account.currency);
+  const native = useMemo(() => (foreign ? nativeBalanceMinor(account, transactions, today) : 0), [foreign, account, transactions, today]);
+  const quote = foreign ? rates.get(account.currency) : undefined;
+  const valueCents = foreign ? fxValueCents(account, transactions, rates, today) : null;
   return (
     <CardShell
       account={account}
@@ -124,15 +131,38 @@ export function BankAccountCard({ account }: { account: Account }) {
         </>
       }
     >
-      <div className={`text-2xl font-semibold tracking-tight tabular-nums ${s.balanceCents < 0 ? "text-rose-600 dark:text-rose-400" : ""}`}>
-        {formatMoney(s.balanceCents / 100)}
-      </div>
-      {account.kind === "cash" && s.balanceCents < 0 && (
+      {foreign ? (
+        <div>
+          <div className={`text-2xl font-semibold tracking-tight tabular-nums ${native < 0 ? "text-rose-600 dark:text-rose-400" : ""}`}>
+            {formatQty(native / unitDivisor(account.currency), account.currency)}
+          </div>
+          <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-500 tabular-nums">
+            {quote && valueCents !== null ? (
+              <>
+                ≈ {formatMoney(valueCents / 100)} · alış {formatRate(quote.buy)} ·{" "}
+                {new Date(quote.observedAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+                {quote.stale && (
+                  <span title="Kur eski: kaynağa ulaşılamıyor olabilir" className="text-amber-600 dark:text-amber-400">
+                    <AlertTriangle size={12} />
+                  </span>
+                )}
+              </>
+            ) : (
+              "TL karşılığı: — (kur alınamadı)"
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className={`text-2xl font-semibold tracking-tight tabular-nums ${s.balanceCents < 0 ? "text-rose-600 dark:text-rose-400" : ""}`}>
+          {formatMoney(s.balanceCents / 100)}
+        </div>
+      )}
+      {account.kind === "cash" && (foreign ? native < 0 : s.balanceCents < 0) && (
         <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
           Nakit eksiye düşemez; bir gider fazla ya da yanlış hesaba girilmiş olabilir.
         </p>
       )}
-      {account.kind === "bank" && limit !== null && limit > 0 && (
+      {account.kind === "bank" && !foreign && limit !== null && limit > 0 && (
         <>
           <UsageBar used={s.overdraftUsedCents / 100} limit={limit} />
           <Row label={<Term hint={TERMS.KMH}>KMH kullanımı</Term>}>
@@ -141,7 +171,7 @@ export function BankAccountCard({ account }: { account: Account }) {
           {s.availableCents !== null && <Row label="Kullanılabilir">{formatMoney(s.availableCents / 100)}</Row>}
         </>
       )}
-      {account.kind === "bank" && account.interestRate !== null && <Row label={<Term hint={TERMS.KMH}>Aylık KMH faizi</Term>}>{rate(account.interestRate)}</Row>}
+      {account.kind === "bank" && !foreign && account.interestRate !== null && <Row label={<Term hint={TERMS.KMH}>Aylık KMH faizi</Term>}>{rate(account.interestRate)}</Row>}
     </CardShell>
   );
 }

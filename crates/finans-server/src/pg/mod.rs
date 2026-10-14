@@ -3,6 +3,7 @@
 
 mod auth;
 mod data;
+pub mod rates;
 
 use std::time::{Duration, Instant};
 
@@ -20,7 +21,10 @@ use crate::auth_store::StoreError;
 
 pub type Pool = r2d2::Pool<PostgresConnectionManager<MakeRustlsConnect>>;
 
-const MIGRATIONS: &[(i32, &str)] = &[(1, include_str!("migrations/0001_init.sql"))];
+const MIGRATIONS: &[(i32, &str)] = &[
+    (1, include_str!("migrations/0001_init.sql")),
+    (2, include_str!("migrations/0002_doviz.sql")),
+];
 
 fn make_tls() -> MakeRustlsConnect {
     let _ = rustls::crypto::ring::default_provider().install_default();
@@ -101,7 +105,7 @@ pub fn pg_err(e: postgres::Error) -> String {
     format!("Veritabanı hatası: {e}")
 }
 
-fn unavailable() -> ApiError {
+pub(crate) fn unavailable() -> ApiError {
     ApiError::new(StatusCode::SERVICE_UNAVAILABLE, "Veritabanına ulaşılamıyor.")
 }
 
@@ -149,6 +153,11 @@ impl PgData {
             c.query_one("SELECT to_char(current_date, 'YYYY-MM-DD')", &[]).map_err(ApiError::internal)?.get(0)
         };
         self.with_user(user_id, |s| finans_core::store::seed_new_user(s, &today))
+    }
+
+    /// Kur deposu aynı havuzu kullanır
+    pub fn pool(&self) -> Pool {
+        self.pool.clone()
     }
 
     pub fn ping(&self) -> Result<(), String> {

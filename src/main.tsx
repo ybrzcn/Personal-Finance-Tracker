@@ -5,6 +5,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary";
 import { installErrorLog } from "./lib/errorLog";
 import { AuthGate } from "./state/auth";
 import { DataProvider } from "./state/data";
+import { RatesProvider } from "./state/rates";
 import { SettingsProvider } from "./state/settings";
 import { UIProvider } from "./state/ui";
 import "@fontsource-variable/onest";
@@ -18,11 +19,13 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
     <ErrorBoundary>
       <AuthGate>
         <DataProvider>
-          <SettingsProvider>
-            <UIProvider>
-              <App />
-            </UIProvider>
-          </SettingsProvider>
+          <RatesProvider>
+            <SettingsProvider>
+              <UIProvider>
+                <App />
+              </UIProvider>
+            </SettingsProvider>
+          </RatesProvider>
         </DataProvider>
       </AuthGate>
     </ErrorBoundary>

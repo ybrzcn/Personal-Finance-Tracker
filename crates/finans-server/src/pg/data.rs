@@ -2,7 +2,8 @@
 
 use finans_core::data_store::DataStore;
 use finans_core::db::{cents_to_f64, Account, Budget, Category, RecurringItem, Transaction};
-use finans_core::rows::{AccountRow, RecurringRow, TransactionRow};
+use finans_core::fx::amount::stored_to_api;
+use finans_core::rows::{AccountMeta, AccountRow, RecurringRow, TransactionRow};
 use finans_core::CoreResult;
 use postgres::Row;
 
@@ -16,24 +17,30 @@ pub struct PgStore<'a, 't> {
 const CATEGORY_COLUMNS: &str = "id, name, type, color";
 const ACCOUNT_COLUMNS: &str = "id, name, kind, color, opening_balance_cents, opening_date::text, credit_limit_cents, \
      interest_rate_bp, statement_day, due_day, min_payment_rate_bp, sort_order, archived, term_months, \
-     first_due_date::text, installment_cents, tax_rate_bp, funding_income_id, opening_period_cents, opening_installments::text";
+     first_due_date::text, installment_cents, tax_rate_bp, funding_income_id, opening_period_cents, opening_installments::text, currency";
 const RECURRING_COLUMNS: &str = "id, name, type, amount_cents, day, account_id, category_id, active, sort_order, \
-     amount_history::text, amount_exceptions::text, covers_previous_month, start_date::text, weekend_shift";
+     amount_history::text, amount_exceptions::text, covers_previous_month, start_date::text, weekend_shift, orig_amount, \
+     (SELECT a.currency FROM accounts a WHERE a.user_id = recurring_items.user_id AND a.id = recurring_items.account_id)";
 const TRANSACTION_COLUMNS: &str = "id, amount_cents, type, account_id, to_account_id, category_id, date::text, description, \
-     installments, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), budget_month";
+     installments, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), budget_month, \
+     orig_amount, fx_rate, to_orig_amount, to_fx_rate, \
+     (SELECT a.currency FROM accounts a WHERE a.user_id = transactions.user_id AND a.id = transactions.account_id), \
+     (SELECT a.currency FROM accounts a WHERE a.user_id = transactions.user_id AND a.id = transactions.to_account_id)";
 
 fn category(r: &Row) -> Category {
     Category { id: r.get(0), name: r.get(1), kind: r.get(2), color: r.get(3) }
 }
 
 fn account(r: &Row) -> Account {
+    let currency: String = r.get(20);
+    let unit = finans_core::fx::unit_or_try(Some(&currency));
     let opt = |i: usize| r.get::<_, Option<i64>>(i).map(cents_to_f64);
     Account {
         id: r.get(0),
         name: r.get(1),
         kind: r.get(2),
         color: r.get(3),
-        opening_balance: cents_to_f64(r.get(4)),
+        opening_balance: finans_core::fx::amount::minor_to_value(r.get(4), unit),
         opening_date: r.get(5),
         credit_limit: opt(6),
         interest_rate: opt(7),
@@ -49,6 +56,7 @@ fn account(r: &Row) -> Account {
         funding_income_id: r.get(17),
         opening_period_spending: opt(18),
         opening_installments: serde_json::from_str(r.get::<_, &str>(19)).unwrap_or_default(),
+        currency,
     }
 }
 
@@ -68,10 +76,13 @@ fn recurring(r: &Row) -> RecurringItem {
         covers_previous_month: r.get(11),
         start_date: r.get(12),
         weekend_shift: r.get(13),
+        orig_amount: stored_to_api(r.get(14), None, r.get::<_, Option<&str>>(15)).0,
     }
 }
 
 fn transaction(r: &Row) -> Transaction {
+    let (orig_amount, fx_rate) = stored_to_api(r.get(11), r.get(12), r.get::<_, Option<&str>>(15));
+    let (to_orig_amount, to_fx_rate) = stored_to_api(r.get(13), r.get(14), r.get::<_, Option<&str>>(16));
     Transaction {
         id: r.get(0),
         amount: cents_to_f64(r.get(1)),
@@ -84,6 +95,10 @@ fn transaction(r: &Row) -> Transaction {
         installments: r.get(8),
         created_at: r.get(9),
         budget_month: r.get(10),
+        orig_amount,
+        fx_rate,
+        to_orig_amount,
+        to_fx_rate,
     }
 }
 
@@ -160,8 +175,12 @@ impl DataStore for PgStore<'_, '_> {
         self.one(&format!("SELECT {ACCOUNT_COLUMNS} FROM accounts WHERE user_id = $1 AND id = $2"), id, account)
     }
 
-    fn account_meta(&mut self, id: &str) -> CoreResult<Option<(String, bool)>> {
-        self.one("SELECT kind, archived FROM accounts WHERE user_id = $1 AND id = $2", id, |r| (r.get(0), r.get(1)))
+    fn account_meta(&mut self, id: &str) -> CoreResult<Option<AccountMeta>> {
+        self.one("SELECT kind, archived, currency FROM accounts WHERE user_id = $1 AND id = $2", id, |r| AccountMeta {
+            kind: r.get(0),
+            archived: r.get(1),
+            currency: r.get(2),
+        })
     }
 
     fn account_usage(&mut self, id: &str) -> CoreResult<i64> {
@@ -175,13 +194,14 @@ impl DataStore for PgStore<'_, '_> {
             "INSERT INTO accounts (user_id, id, name, kind, color, opening_balance_cents, opening_date, credit_limit_cents,
                                    interest_rate_bp, statement_day, due_day, min_payment_rate_bp, sort_order, archived,
                                    term_months, first_due_date, installment_cents, tax_rate_bp, funding_income_id,
-                                   opening_period_cents, opening_installments)
+                                   opening_period_cents, opening_installments, currency)
              VALUES ($1, $2, $3, $4, $5, $6, $7::text::date, $8, $9, $10, $11, $12, $13, $14, $15, $16::text::date, $17, $18, $19,
-                     $20, $21::text::jsonb)",
+                     $20, $21::text::jsonb, $22)",
             &[
                 &u, &id, &r.name, &r.kind, &r.color, &r.opening_cents, &r.opening_date, &r.limit_cents, &r.rate_bp,
                 &r.statement_day, &r.due_day, &r.min_rate_bp, &r.sort_order, &r.archived, &r.term_months, &r.first_due_date,
                 &r.installment_cents, &r.tax_rate_bp, &r.funding_income_id, &r.opening_period_cents, &r.opening_installments,
+                &r.currency,
             ],
         )?;
         Ok(())
@@ -194,12 +214,13 @@ impl DataStore for PgStore<'_, '_> {
                     credit_limit_cents = $8, interest_rate_bp = $9, statement_day = $10, due_day = $11,
                     min_payment_rate_bp = $12, sort_order = $13, archived = $14, term_months = $15,
                     first_due_date = $16::text::date, installment_cents = $17, tax_rate_bp = $18, funding_income_id = $19,
-                    opening_period_cents = $20, opening_installments = $21::text::jsonb
+                    opening_period_cents = $20, opening_installments = $21::text::jsonb, currency = $22
              WHERE user_id = $1 AND id = $2",
             &[
                 &u, &id, &r.name, &r.kind, &r.color, &r.opening_cents, &r.opening_date, &r.limit_cents, &r.rate_bp,
                 &r.statement_day, &r.due_day, &r.min_rate_bp, &r.sort_order, &r.archived, &r.term_months, &r.first_due_date,
                 &r.installment_cents, &r.tax_rate_bp, &r.funding_income_id, &r.opening_period_cents, &r.opening_installments,
+                &r.currency,
             ],
         )
     }
@@ -225,11 +246,12 @@ impl DataStore for PgStore<'_, '_> {
         let u = self.user_id.clone();
         self.exec(
             "INSERT INTO transactions (user_id, id, amount_cents, type, account_id, to_account_id, category_id, date, description,
-                                       installments, budget_month, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::date, $9, $10, $11, COALESCE($12::text::timestamptz, now()))",
+                                       installments, budget_month, created_at, orig_amount, fx_rate, to_orig_amount, to_fx_rate)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text::date, $9, $10, $11, COALESCE($12::text::timestamptz, now()),
+                     $13, $14, $15, $16)",
             &[
                 &u, &r.id, &r.amount_cents, &r.kind, &r.account_id, &r.to_account_id, &r.category_id, &r.date, &r.description,
-                &r.installments, &r.budget_month, &r.created_at,
+                &r.installments, &r.budget_month, &r.created_at, &r.orig_amount, &r.fx_rate, &r.to_orig_amount, &r.to_fx_rate,
             ],
         )?;
         Ok(())
@@ -240,11 +262,12 @@ impl DataStore for PgStore<'_, '_> {
         self.exec(
             "UPDATE transactions
              SET amount_cents = $3, type = $4, account_id = $5, to_account_id = $6, category_id = $7,
-                 date = $8::text::date, description = $9, installments = $10, budget_month = $11
+                 date = $8::text::date, description = $9, installments = $10, budget_month = $11,
+                 orig_amount = $12, fx_rate = $13, to_orig_amount = $14, to_fx_rate = $15
              WHERE user_id = $1 AND id = $2",
             &[
                 &u, &r.id, &r.amount_cents, &r.kind, &r.account_id, &r.to_account_id, &r.category_id, &r.date, &r.description,
-                &r.installments, &r.budget_month,
+                &r.installments, &r.budget_month, &r.orig_amount, &r.fx_rate, &r.to_orig_amount, &r.to_fx_rate,
             ],
         )
     }
@@ -270,11 +293,12 @@ impl DataStore for PgStore<'_, '_> {
         let u = self.user_id.clone();
         self.exec(
             "INSERT INTO recurring_items (user_id, id, name, type, amount_cents, day, account_id, category_id, active, sort_order,
-                                          amount_history, amount_exceptions, covers_previous_month, start_date, weekend_shift)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text::jsonb, $12::text::jsonb, $13, $14::text::date, $15)",
+                                          amount_history, amount_exceptions, covers_previous_month, start_date, weekend_shift,
+                                          orig_amount)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text::jsonb, $12::text::jsonb, $13, $14::text::date, $15, $16)",
             &[
                 &u, &id, &r.name, &r.kind, &r.cents, &r.day, &r.account_id, &r.category_id, &r.active, &r.sort_order, &r.history,
-                &r.exceptions, &r.covers_previous_month, &r.start_date, &r.weekend_shift,
+                &r.exceptions, &r.covers_previous_month, &r.start_date, &r.weekend_shift, &r.orig_amount,
             ],
         )?;
         Ok(())
@@ -286,11 +310,11 @@ impl DataStore for PgStore<'_, '_> {
             "UPDATE recurring_items SET name = $3, type = $4, amount_cents = $5, day = $6, account_id = $7,
                     category_id = $8, active = $9, sort_order = $10, amount_history = $11::text::jsonb,
                     amount_exceptions = $12::text::jsonb, covers_previous_month = $13, start_date = $14::text::date,
-                    weekend_shift = $15
+                    weekend_shift = $15, orig_amount = $16
              WHERE user_id = $1 AND id = $2",
             &[
                 &u, &id, &r.name, &r.kind, &r.cents, &r.day, &r.account_id, &r.category_id, &r.active, &r.sort_order, &r.history,
-                &r.exceptions, &r.covers_previous_month, &r.start_date, &r.weekend_shift,
+                &r.exceptions, &r.covers_previous_month, &r.start_date, &r.weekend_shift, &r.orig_amount,
             ],
         )
     }

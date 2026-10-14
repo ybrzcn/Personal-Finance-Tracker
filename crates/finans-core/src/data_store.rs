@@ -2,7 +2,7 @@
 //! SQLite (`sqlite.rs`) ve Postgres (finans-server) uygular. Her çağrı dizisi tek bir veritabanı işleminde çalışır.
 
 use crate::db::{Account, Budget, Category, RecurringItem, Transaction};
-use crate::rows::{AccountRow, RecurringRow, TransactionRow};
+use crate::rows::{AccountMeta, AccountRow, RecurringRow, TransactionRow};
 use crate::CoreResult;
 
 pub trait DataStore {
@@ -18,8 +18,7 @@ pub trait DataStore {
 
     fn list_accounts(&mut self) -> CoreResult<Vec<Account>>;
     fn get_account(&mut self, id: &str) -> CoreResult<Option<Account>>;
-    /// (tür, arşivli mi)
-    fn account_meta(&mut self, id: &str) -> CoreResult<Option<(String, bool)>>;
+    fn account_meta(&mut self, id: &str) -> CoreResult<Option<AccountMeta>>;
     /// Hesabın kaynak ya da hedef olduğu işlem sayısı
     fn account_usage(&mut self, id: &str) -> CoreResult<i64>;
     fn insert_account(&mut self, id: &str, row: &AccountRow) -> CoreResult<()>;

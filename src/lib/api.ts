@@ -13,6 +13,7 @@ import type {
   Budget,
   Category,
   CategoryInput,
+  RateQuote,
   RecurringInput,
   RecurringItem,
   Transaction,
@@ -64,6 +65,12 @@ export interface Api {
   uninstallPlan(): Promise<UninstallPlan>;
   /** Uygulamayı kapatır ve tüm verisiyle birlikte siler */
   uninstallApp(includeCustomDatabase: boolean): Promise<void>;
+  /** Güncel kurlar; `refresh` kaynaklardan yenilemeyi ister (en çok dakikada bir) */
+  latestRates(refresh: boolean): Promise<RateQuote[]>;
+  /** Bir günün kuru; yoksa null */
+  rateAt(code: string, date: string): Promise<RateQuote | null>;
+  /** Kur geçmişi (yalnız Postgres'li sunucu) */
+  rateHistory(code: string, from: string, to: string): Promise<RateQuote[]>;
 }
 
 export interface AppInfo {
@@ -127,6 +134,11 @@ const tauriApi: Api = {
   appInfo: () => invoke<AppInfo>("app_info"),
   uninstallPlan: () => invoke<UninstallPlan>("uninstall_plan"),
   uninstallApp: (includeCustomDatabase) => invoke<void>("uninstall_app", { includeCustomDatabase }),
+  latestRates: () => invoke<RateQuote[]>("rates_latest"),
+  rateAt: (code, date) => invoke<RateQuote | null>("rate_at", { code, date }),
+  rateHistory: async () => {
+    throw "Kur geçmişi yalnızca sunucuya bağlıyken görülebilir.";
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -433,6 +445,15 @@ const localApi: Api = {
     // Tarayıcı modunda yalnız yerel veriler silinir
     localStorage.clear();
     location.reload();
+  },
+  async latestRates() {
+    return [];
+  },
+  async rateAt() {
+    return null;
+  },
+  async rateHistory() {
+    throw "Kur geçmişi yalnızca sunucuya bağlıyken görülebilir.";
   },
 };
 

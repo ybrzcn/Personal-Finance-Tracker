@@ -2,6 +2,7 @@ import {
   Activity,
   ArrowLeftRight,
   CalendarRange,
+  Coins,
   Landmark,
   LayoutDashboard,
   Monitor,
@@ -21,16 +22,18 @@ import { isMac, modKey } from "../lib/platform";
 import { useSettings, type ThemePref } from "../state/settings";
 import { useUI, type Page } from "../state/ui";
 
-const NAV: { page: Page; label: string; icon: typeof LayoutDashboard }[] = [
-  { page: "dashboard", label: "Genel Bakış", icon: LayoutDashboard },
-  { page: "transactions", label: "İşlemler", icon: ArrowLeftRight },
-  { page: "accounts", label: "Hesaplar", icon: Landmark },
-  { page: "budget", label: "Bütçe", icon: PiggyBank },
-  { page: "analysis", label: "Analiz", icon: Activity },
-  { page: "plan", label: "Ödeme Takvimi", icon: CalendarRange },
-  { page: "debt", label: "Borç Planı", icon: TrendingDown },
-  { page: "categories", label: "Kategoriler", icon: Tags },
-  { page: "settings", label: "Ayarlar", icon: Settings },
+/** `key`: App.tsx'deki kısayol (⌘1–9); kısayolu olmayan sayfada yok */
+const NAV: { page: Page; label: string; icon: typeof LayoutDashboard; key?: string }[] = [
+  { page: "dashboard", label: "Genel Bakış", icon: LayoutDashboard, key: "1" },
+  { page: "transactions", label: "İşlemler", icon: ArrowLeftRight, key: "2" },
+  { page: "accounts", label: "Hesaplar", icon: Landmark, key: "3" },
+  { page: "rates", label: "Kurlar", icon: Coins },
+  { page: "budget", label: "Bütçe", icon: PiggyBank, key: "4" },
+  { page: "analysis", label: "Analiz", icon: Activity, key: "5" },
+  { page: "plan", label: "Ödeme Takvimi", icon: CalendarRange, key: "6" },
+  { page: "debt", label: "Borç Planı", icon: TrendingDown, key: "7" },
+  { page: "categories", label: "Kategoriler", icon: Tags, key: "8" },
+  { page: "settings", label: "Ayarlar", icon: Settings, key: "9" },
 ];
 
 const THEMES: { value: ThemePref; icon: typeof Sun; label: string }[] = [
@@ -117,7 +120,7 @@ export function Sidebar({ topInset }: { topInset: boolean }) {
         </button>
 
         <nav className="space-y-0.5">
-          {NAV.map(({ page: p, label, icon: Icon }, i) => {
+          {NAV.map(({ page: p, label, icon: Icon, key }) => {
             const active = page === p;
             return (
               <button
@@ -137,14 +140,16 @@ export function Sidebar({ topInset }: { topInset: boolean }) {
                 {/* Simgeler yalnız dar şeritte; geniş menüde ad ve kısayol */}
                 <Icon size={17} className={lg("shrink-0 lg:hidden")} />
                 <span className={lg("hidden truncate lg:inline")}>{label}</span>
-                <span
-                  className={lg(
-                    `hidden text-[11px] font-normal lg:inline ${active ? "text-indigo-500 dark:text-indigo-400" : "text-zinc-400 dark:text-zinc-500"}`,
-                  )}
-                >
-                  {modKey}
-                  {i + 1}
-                </span>
+                {key && (
+                  <span
+                    className={lg(
+                      `hidden text-[11px] font-normal lg:inline ${active ? "text-indigo-500 dark:text-indigo-400" : "text-zinc-400 dark:text-zinc-500"}`,
+                    )}
+                  >
+                    {modKey}
+                    {key}
+                  </span>
+                )}
               </button>
             );
           })}

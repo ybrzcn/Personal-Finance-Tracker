@@ -8,6 +8,7 @@ import { expectedIncomeThisMonth } from "../lib/budget";
 import { monthName } from "../lib/recurring";
 import { todayISO } from "../lib/format";
 import { useData } from "../state/data";
+import { useRates } from "../state/rates";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
 
@@ -21,7 +22,8 @@ export function Accounts() {
   const [showArchived, setShowArchived] = useState(false);
   const today = todayISO();
 
-  const pos = useMemo(() => netPosition(accounts, transactions, today), [accounts, transactions, today]);
+  const { rates } = useRates();
+  const pos = useMemo(() => netPosition(accounts, transactions, today, rates), [accounts, transactions, today, rates]);
   const expected = useMemo(() => expectedIncomeThisMonth(transactions, recurring, today), [transactions, recurring, today]);
   const expectedHint = [
     expected.regularCents > 0 ? `Maaş ${formatMoney(expected.regularCents / 100)}` : "",
@@ -85,6 +87,11 @@ export function Accounts() {
           />
         ))}
       </div>
+      {pos.unvaluedCount > 0 && (
+        <p className="-mt-4 mb-6 text-xs text-amber-700 dark:text-amber-300">
+          {pos.unvaluedCount} döviz/altın hesabı kur alınamadığı için toplama katılmadı.
+        </p>
+      )}
 
       {visible.length === 0 ? (
         <div className="card">

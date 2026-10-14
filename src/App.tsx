@@ -6,6 +6,7 @@ import { isMac, isMobile, isTauri } from "./lib/platform";
 import { Accounts } from "./pages/Accounts";
 import { AnalysisPage } from "./pages/Analysis";
 import { BudgetPage } from "./pages/Budget";
+import { RatesPage } from "./pages/Rates";
 import { CashPlanPage } from "./pages/CashPlan";
 import { DebtPlannerPage } from "./pages/DebtPlanner";
 import { Categories } from "./pages/Categories";
@@ -94,6 +95,7 @@ export default function App() {
               {page === "dashboard" && <Dashboard />}
               {page === "transactions" && <Transactions />}
               {page === "accounts" && <Accounts />}
+              {page === "rates" && <RatesPage />}
               {page === "budget" && <BudgetPage />}
               {page === "analysis" && <AnalysisPage />}
               {page === "plan" && <CashPlanPage />}

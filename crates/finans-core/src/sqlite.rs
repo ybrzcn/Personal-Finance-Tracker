@@ -7,7 +7,7 @@ use crate::db::{
     row_to_account, row_to_category, row_to_recurring, row_to_transaction, Account, Budget, Category, RecurringItem,
     Transaction, ACCOUNT_COLUMNS, CATEGORY_COLUMNS, RECURRING_COLUMNS, TRANSACTION_COLUMNS,
 };
-use crate::rows::{AccountRow, RecurringRow, TransactionRow};
+use crate::rows::{AccountMeta, AccountRow, RecurringRow, TransactionRow};
 use crate::CoreResult;
 
 pub fn db_err(e: rusqlite::Error) -> String {
@@ -100,8 +100,10 @@ impl DataStore for SqliteStore<'_> {
         self.one(&format!("SELECT {ACCOUNT_COLUMNS} FROM accounts WHERE id = ?1"), id, row_to_account)
     }
 
-    fn account_meta(&mut self, id: &str) -> CoreResult<Option<(String, bool)>> {
-        self.one("SELECT kind, archived FROM accounts WHERE id = ?1", id, |r| Ok((r.get(0)?, r.get::<_, i64>(1)? != 0)))
+    fn account_meta(&mut self, id: &str) -> CoreResult<Option<AccountMeta>> {
+        self.one("SELECT kind, archived, currency FROM accounts WHERE id = ?1", id, |r| {
+            Ok(AccountMeta { kind: r.get(0)?, archived: r.get::<_, i64>(1)? != 0, currency: r.get(2)? })
+        })
     }
 
     fn account_usage(&mut self, id: &str) -> CoreResult<i64> {
@@ -114,13 +116,13 @@ impl DataStore for SqliteStore<'_> {
                 "INSERT INTO accounts (id, name, kind, color, opening_balance_cents, opening_date, credit_limit_cents,
                                        interest_rate_bp, statement_day, due_day, min_payment_rate_bp, sort_order, archived,
                                        term_months, first_due_date, installment_cents, tax_rate_bp, funding_income_id,
-                                       opening_period_cents, opening_installments)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                                       opening_period_cents, opening_installments, currency)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
                 params![
                     id, r.name, r.kind, r.color, r.opening_cents, r.opening_date, r.limit_cents, r.rate_bp,
                     r.statement_day, r.due_day, r.min_rate_bp, r.sort_order, r.archived, r.term_months,
                     r.first_due_date, r.installment_cents, r.tax_rate_bp, r.funding_income_id, r.opening_period_cents,
-                    r.opening_installments
+                    r.opening_installments, r.currency
                 ],
             )
             .map_err(db_err)?;
@@ -135,13 +137,13 @@ impl DataStore for SqliteStore<'_> {
                         credit_limit_cents = ?7, interest_rate_bp = ?8, statement_day = ?9, due_day = ?10,
                         min_payment_rate_bp = ?11, sort_order = ?12, archived = ?13, term_months = ?14,
                         first_due_date = ?15, installment_cents = ?16, tax_rate_bp = ?17, funding_income_id = ?18,
-                        opening_period_cents = ?19, opening_installments = ?20
+                        opening_period_cents = ?19, opening_installments = ?20, currency = ?21
                  WHERE id = ?1",
                 params![
                     id, r.name, r.kind, r.color, r.opening_cents, r.opening_date, r.limit_cents, r.rate_bp,
                     r.statement_day, r.due_day, r.min_rate_bp, r.sort_order, r.archived, r.term_months,
                     r.first_due_date, r.installment_cents, r.tax_rate_bp, r.funding_income_id, r.opening_period_cents,
-                    r.opening_installments
+                    r.opening_installments, r.currency
                 ],
             )
             .map_err(db_err)?;
@@ -165,11 +167,12 @@ impl DataStore for SqliteStore<'_> {
         self.conn
             .execute(
                 "INSERT INTO transactions (id, amount_cents, type, account_id, to_account_id, category_id, date, description,
-                                           installments, budget_month, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))",
+                                           installments, budget_month, created_at, orig_amount, fx_rate, to_orig_amount, to_fx_rate)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, COALESCE(?11, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                         ?12, ?13, ?14, ?15)",
                 params![
                     r.id, r.amount_cents, r.kind, r.account_id, r.to_account_id, r.category_id, r.date, r.description,
-                    r.installments, r.budget_month, r.created_at
+                    r.installments, r.budget_month, r.created_at, r.orig_amount, r.fx_rate, r.to_orig_amount, r.to_fx_rate
                 ],
             )
             .map_err(db_err)?;
@@ -182,11 +185,12 @@ impl DataStore for SqliteStore<'_> {
             .execute(
                 "UPDATE transactions
                  SET amount_cents = ?2, type = ?3, account_id = ?4, to_account_id = ?5, category_id = ?6,
-                     date = ?7, description = ?8, installments = ?9, budget_month = ?10
+                     date = ?7, description = ?8, installments = ?9, budget_month = ?10,
+                     orig_amount = ?11, fx_rate = ?12, to_orig_amount = ?13, to_fx_rate = ?14
                  WHERE id = ?1",
                 params![
                     r.id, r.amount_cents, r.kind, r.account_id, r.to_account_id, r.category_id, r.date, r.description,
-                    r.installments, r.budget_month
+                    r.installments, r.budget_month, r.orig_amount, r.fx_rate, r.to_orig_amount, r.to_fx_rate
                 ],
             )
             .map_err(db_err)?;
@@ -210,11 +214,12 @@ impl DataStore for SqliteStore<'_> {
         self.conn
             .execute(
                 "INSERT INTO recurring_items (id, name, type, amount_cents, day, account_id, category_id, active, sort_order,
-                                              amount_history, amount_exceptions, covers_previous_month, start_date, weekend_shift)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+                                              amount_history, amount_exceptions, covers_previous_month, start_date, weekend_shift,
+                                              orig_amount)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
                 params![
                     id, r.name, r.kind, r.cents, r.day, r.account_id, r.category_id, r.active, r.sort_order, r.history,
-                    r.exceptions, r.covers_previous_month, r.start_date, r.weekend_shift
+                    r.exceptions, r.covers_previous_month, r.start_date, r.weekend_shift, r.orig_amount
                 ],
             )
             .map_err(db_err)?;
@@ -227,11 +232,11 @@ impl DataStore for SqliteStore<'_> {
             .execute(
                 "UPDATE recurring_items SET name = ?2, type = ?3, amount_cents = ?4, day = ?5, account_id = ?6,
                         category_id = ?7, active = ?8, sort_order = ?9, amount_history = ?10, amount_exceptions = ?11,
-                        covers_previous_month = ?12, start_date = ?13, weekend_shift = ?14
+                        covers_previous_month = ?12, start_date = ?13, weekend_shift = ?14, orig_amount = ?15
                  WHERE id = ?1",
                 params![
                     id, r.name, r.kind, r.cents, r.day, r.account_id, r.category_id, r.active, r.sort_order, r.history,
-                    r.exceptions, r.covers_previous_month, r.start_date, r.weekend_shift
+                    r.exceptions, r.covers_previous_month, r.start_date, r.weekend_shift, r.orig_amount
                 ],
             )
             .map_err(db_err)?;

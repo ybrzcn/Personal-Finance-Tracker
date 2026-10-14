@@ -5,8 +5,10 @@ mod auth_store;
 mod config;
 mod data;
 mod pg;
+mod rates;
 mod routes_auth;
 mod routes_data;
+mod routes_rates;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -164,10 +166,15 @@ async fn serve(config: Config) {
     })
     .await
     .expect("oturum temizliği");
+    let rates = match &data {
+        DataBackend::Postgres(d) => rates::RateService::Stored(rates::StoredRates::new(d.pool())),
+        DataBackend::Sqlite(_) => rates::RateService::Live(finans_core::fx::live::LiveRates::new()),
+    };
     let state = Arc::new(AppState {
         config,
         auth: st,
         data,
+        rates,
         limiter: Default::default(),
         hash_permits: tokio::sync::Semaphore::new(4),
         parse_permits: tokio::sync::Semaphore::new(2),
@@ -177,6 +184,7 @@ async fn serve(config: Config) {
     let router = Router::new()
         .merge(routes_auth::router())
         .merge(routes_data::router())
+        .merge(routes_rates::router())
         .route("/api/health", get(health))
         // Bilinmeyen API yolları web arayüzüne düşmesin
         .route("/api/{*rest}", any(not_found));
@@ -199,6 +207,19 @@ async fn serve(config: Config) {
     match &web_dir {
         Some(dir) => println!("web arayüzü: {}", dir.display()),
         None => println!("web arayüzü yok (FINANS_WEB_DIR ayarlanmadı); yalnız API"),
+    }
+    if matches!(state.rates, rates::RateService::Stored(_)) {
+        let st = state.clone();
+        tokio::spawn(async move {
+            loop {
+                let s = st.clone();
+                let _ = tokio::task::spawn_blocking(move || s.rates.tick()).await;
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+            }
+        });
+        println!("kurlar: Postgres'te toplanıyor (Harem 15 dk, TCMB günlük)");
+    } else {
+        println!("kurlar: saklanmıyor (SQLite modu; istekte canlı çekilir)");
     }
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await.expect("port açılamadı");

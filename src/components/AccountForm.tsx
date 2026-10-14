@@ -2,7 +2,8 @@ import { Check, Trash2 } from "lucide-react";
 import { useMemo, useState, type FormEvent } from "react";
 import { errorMessage } from "../lib/api";
 import { closingOnOrAfter, closingOnOrBefore, dueDateFor, shiftClosing, toCents } from "../lib/cards";
-import { addDays, amountToInput, formatDate, parseAmount, todayISO } from "../lib/format";
+import { addDays, amountToInput, formatDate, parseAmount, parseQuantity, todayISO } from "../lib/format";
+import { GROUP_LABEL, INSTRUMENTS, isForeign, qtyDecimals, qtyRule, TRY, unitOf, type FxGroup } from "../lib/fx";
 import { annuityPaymentCents, DEFAULT_LOAN_TAX, effectiveMonthlyRate } from "../lib/loans";
 import { ACCOUNT_KIND_LABEL, type Account, type AccountInput, type AccountKind } from "../lib/types";
 import { useData } from "../state/data";
@@ -42,7 +43,14 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
   const [name, setName] = useState(account?.name ?? "");
   const [kind, setKind] = useState<AccountKind>(account?.kind ?? "bank");
   const [color, setColor] = useState(account?.color ?? PALETTE[accounts.length % PALETTE.length]);
-  const [opening, setOpening] = useState(account && account.openingBalance !== 0 ? amountToInput(account.openingBalance) : "");
+  const [opening, setOpening] = useState(
+    account && account.openingBalance !== 0
+      ? isForeign(account.currency)
+        ? String(account.openingBalance).replace(".", ",")
+        : amountToInput(account.openingBalance)
+      : "",
+  );
+  const [currency, setCurrency] = useState(account?.currency ?? TRY);
   const [openingDate, setOpeningDate] = useState(account?.openingDate ?? todayISO());
   const [limit, setLimit] = useState(account?.creditLimit != null ? amountToInput(account.creditLimit) : "");
   const [rate, setRate] = useState(percentInput(account?.interestRate ?? null));
@@ -64,6 +72,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
   const card = kind === "credit_card";
   const cash = kind === "cash";
   const loan = kind === "loan";
+  const foreign = isForeign(currency) && (kind === "bank" || kind === "cash");
   const sd = Number(statementDay);
   const dd = Number(dueDay);
   const preview = useMemo(() => {
@@ -105,8 +114,9 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
     setError(null);
     let input: AccountInput;
     try {
-      const openingValue = opening.trim() ? parseAmount(opening) : 0;
-      if (openingValue === null) throw `Geçerli bir ${OPENING_LABEL[kind].toLocaleLowerCase("tr")} girin.`;
+      const openingValue = opening.trim() ? (foreign ? parseQuantity(opening, qtyDecimals(currency)) : parseAmount(opening)) : 0;
+      if (openingValue === null)
+        throw `Geçerli bir ${OPENING_LABEL[kind].toLocaleLowerCase("tr")} girin${foreign ? ` (${qtyRule(currency)})` : ""}.`;
       if (card && (!isDay(sd) || !isDay(dd))) throw "Kesim ve son ödeme günü 1 ile 31 arasında olmalıdır.";
       const termValue = Number.parseInt(term, 10);
       if (loan && (!termValue || termValue < 1)) throw "Kalan vade (ay) girin.";
@@ -132,6 +142,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
         fundingIncomeId: (card || loan) && fundingIncomeId ? fundingIncomeId : null,
         openingPeriodSpending: account?.openingPeriodSpending ?? null,
         openingInstallments: account?.openingInstallments ?? [],
+        currency: foreign ? currency : TRY,
       };
     } catch (err) {
       return setError(errorMessage(err));
@@ -220,7 +231,11 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
                 key={k}
                 type="button"
                 disabled={used && k !== kind}
-                onClick={() => setKind(k)}
+                onClick={() => {
+                  setKind(k);
+                  // Kart ve kredi yalnız TL
+                  if (k === "credit_card" || k === "loan") setCurrency(TRY);
+                }}
                 className={`rounded-lg py-1.5 text-sm font-medium transition disabled:opacity-40 ${
                   kind === k ? "bg-white shadow-sm dark:bg-zinc-900" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
                 }`}
@@ -232,14 +247,52 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
           {used && <p className="mt-1 text-xs text-zinc-500">İşlemi olan hesabın türü değiştirilemez.</p>}
         </div>
 
+        {(kind === "bank" || kind === "cash") && (
+          <div>
+            <label className="label" htmlFor="acc-currency">
+              Para birimi
+            </label>
+            <select id="acc-currency" className="input" value={currency} disabled={used} onChange={(e) => setCurrency(e.target.value)}>
+              <option value={TRY}>Türk lirası (TL)</option>
+              {(["doviz", "altin", "maden"] as FxGroup[]).map((g) => (
+                <optgroup key={g} label={GROUP_LABEL[g]}>
+                  {INSTRUMENTS.filter((i) => i.group === g).map((i) => (
+                    <option key={i.code} value={i.code}>
+                      {i.name}
+                      {i.unit === "currency" ? ` (${i.code})` : i.unit === "gram" ? " (gram)" : " (adet)"}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+            {used && <p className="mt-1 text-xs text-zinc-500">İşlemi olan hesabın para birimi değiştirilemez.</p>}
+          </div>
+        )}
+
         {!card && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label" htmlFor="acc-opening">
                 {OPENING_LABEL[kind]}
               </label>
-              <MoneyInput id="acc-opening" placeholder="0,00" value={opening} onValueChange={setOpening} />
-              {kind === "bank" && (
+              {foreign ? (
+                <div className="relative">
+                  <input
+                    id="acc-opening"
+                    className="input pr-14 tabular-nums"
+                    inputMode="decimal"
+                    placeholder="0"
+                    value={opening}
+                    onChange={(e) => setOpening(e.target.value)}
+                  />
+                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-zinc-400">
+                    {unitOf(currency) === "currency" ? currency : unitOf(currency) === "gram" ? "gram" : "adet"}
+                  </span>
+                </div>
+              ) : (
+                <MoneyInput id="acc-opening" placeholder="0,00" value={opening} onValueChange={setOpening} />
+              )}
+              {kind === "bank" && !foreign && (
                 <p className="mt-1 text-xs text-zinc-500">
                   Eksi değer = <Term hint={TERMS.KMH}>KMH</Term> kullanımı
                 </p>
@@ -260,7 +313,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
           </div>
         )}
 
-        {!cash && (
+        {!cash && !foreign && (
           <div className="grid grid-cols-2 gap-3">
             {!loan && (
               <div>

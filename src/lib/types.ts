@@ -44,6 +44,8 @@ export interface Account {
   openingPeriodSpending: number | null;
   /** Yalnız kart: eklendiği gün devam eden taksitler */
   openingInstallments: OpeningInstallment[];
+  /** "TRY" ya da döviz/altın kodu (yalnız banka/nakit TL dışı olabilir); açılış bakiyesi bu birimde */
+  currency: string;
 }
 
 /** Kart eklenirken girilen, devam eden taksitli harcama. */
@@ -77,6 +79,8 @@ export interface RecurringItem {
   startDate: string | null;
   /** Gün hafta sonuna denk gelirse: kaydırılmaz / önceki Cuma / sonraki Pazartesi */
   weekendShift: WeekendShift;
+  /** TL dışı hesapta: hesabın birimindeki miktar (`amount` planlar için TL tahmini) */
+  origAmount?: number | null;
 }
 
 export type WeekendShift = "none" | "before" | "after";
@@ -118,6 +122,12 @@ export interface Transaction {
   budgetMonth?: string | null;
   /** ISO zaman damgası */
   createdAt: string;
+  /** TL dışı kaynak hesapta: hesabın birimindeki miktar ve kuru (1 birimin TL fiyatı); `amount` TL karşılığıdır */
+  origAmount?: number | null;
+  fxRate?: number | null;
+  /** Transferde TL dışı hedef hesap: hedefin birimindeki miktar ve kuru */
+  toOrigAmount?: number | null;
+  toFxRate?: number | null;
 }
 
 export type CategoryInput = Omit<Category, "id">;
@@ -209,3 +219,17 @@ export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
   credit_card: "Kredi Kartı",
   loan: "Kredi",
 };
+
+/** Kur: 1 birimin TL fiyatı */
+export interface RateQuote {
+  code: string;
+  source: "tcmb" | "harem";
+  /** ISO zaman (UTC) */
+  observedAt: string;
+  buy: number;
+  sell: number;
+  /** Bir önceki günün son alışı (yalnız Postgres'li sunucuda) */
+  prevBuy?: number | null;
+  /** Fiyat eski (kaynağa ulaşılamıyor olabilir) */
+  stale: boolean;
+}

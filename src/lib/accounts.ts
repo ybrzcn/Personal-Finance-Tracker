@@ -1,7 +1,8 @@
 import { cardSummary, toCents } from "./cards";
 import { newId } from "./id";
 import { DEFAULT_LOAN_TAX, liabilityBalanceCents } from "./loans";
-import type { Account, Category, Transaction, TransactionInput } from "./types";
+import { instrumentByCode, isForeign, rateMicros, tlCents, toMinor, TRY } from "./fx";
+import type { Account, Category, RateQuote, Transaction, TransactionInput } from "./types";
 
 export const DEFAULT_ACCOUNT_NAME = "Genel Hesap";
 
@@ -27,6 +28,7 @@ export function makeDefaultAccount(openingDate: string): Account {
     fundingIncomeId: null,
     openingPeriodSpending: null,
     openingInstallments: [],
+    currency: TRY,
   };
 }
 
@@ -48,6 +50,26 @@ export function bankBalanceCents(account: Account, txs: Transaction[], asOf?: st
     if (t.type === "transfer" && t.toAccountId === account.id) b += c;
   }
   return b;
+}
+
+/** TL dışı hesabın kendi birimindeki bakiyesi (en küçük birim): açılış + miktarlar. */
+export function nativeBalanceMinor(account: Account, txs: Transaction[], asOf?: string): number {
+  let b = toMinor(account.openingBalance, account.currency);
+  for (const t of txs) {
+    if (asOf && t.date > asOf) continue;
+    if (t.accountId === account.id && t.origAmount != null) b += (t.type === "income" ? 1 : -1) * toMinor(t.origAmount, account.currency);
+    if (t.type === "transfer" && t.toAccountId === account.id && t.toOrigAmount != null) b += toMinor(t.toOrigAmount, account.currency);
+  }
+  return b;
+}
+
+/** TL dışı hesabın güncel alış kuruyla TL karşılığı (kuruş); kur yoksa null. */
+export function fxValueCents(account: Account, txs: Transaction[], rates: Map<string, RateQuote>, asOf?: string): number | null {
+  const q = rates.get(account.currency);
+  if (!q) return null;
+  const minor = nativeBalanceMinor(account, txs, asOf);
+  if (minor === 0) return 0;
+  return Math.sign(minor) * tlCents(Math.abs(minor), rateMicros(q.buy), account.currency);
 }
 
 export interface BankSummary {
@@ -74,9 +96,12 @@ export interface NetPosition {
   loanDebtCents: number;
   overdraftCents: number;
   netCents: number;
+  /** Kur alınamadığı için toplama katılmayan döviz/altın hesabı sayısı */
+  unvaluedCount: number;
 }
 
-export function netPosition(accounts: Account[], txs: Transaction[], today: string): NetPosition {
+export function netPosition(accounts: Account[], txs: Transaction[], today: string, rates: Map<string, RateQuote> = new Map()): NetPosition {
+  let unvalued = 0;
   let assets = 0;
   let cardDebt = 0;
   let overdraft = 0;
@@ -90,6 +115,12 @@ export function netPosition(accounts: Account[], txs: Transaction[], today: stri
       cardDebt += Math.max(0, cardSummary(a, txs, today).totalDebtCents);
       continue;
     }
+    if (isForeign(a.currency)) {
+      const v = fxValueCents(a, txs, rates, today);
+      if (v === null) unvalued++;
+      else assets += v;
+      continue;
+    }
     const b = bankBalanceCents(a, txs, today);
     if (a.kind === "bank" && b < 0) overdraft += -b;
     else assets += b;
@@ -100,6 +131,7 @@ export function netPosition(accounts: Account[], txs: Transaction[], today: stri
     loanDebtCents: loanDebt,
     overdraftCents: overdraft,
     netCents: assets - cardDebt - loanDebt - overdraft,
+    unvaluedCount: unvalued,
   };
 }
 
@@ -109,6 +141,10 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 export function normalizeAccount(a: Account): Account {
   const name = a.name.trim();
   if (!name) throw "Hesap adı boş olamaz.";
+  const currency = a.currency || TRY;
+  if (currency !== TRY && !instrumentByCode.has(currency)) throw `Bilinmeyen para birimi: ${currency}`;
+  const foreign = currency !== TRY;
+  if (foreign && a.kind !== "bank" && a.kind !== "cash") throw "Kredi kartı ve kredi hesapları yalnızca TL olabilir.";
   if ([...name].length > 60) throw "Hesap adı en fazla 60 karakter olabilir.";
   if (!["bank", "cash", "credit_card", "loan"].includes(a.kind)) throw "Geçersiz hesap türü.";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(a.openingDate)) throw `Geçersiz tarih: ${a.openingDate} (YYYY-AA-GG bekleniyor).`;
@@ -131,16 +167,17 @@ export function normalizeAccount(a: Account): Account {
     if (!a.firstDueDate || !/^\d{4}-\d{2}-\d{2}$/.test(a.firstDueDate)) throw "Geçerli bir ilk taksit tarihi girin.";
     if (a.installmentAmount !== null && !(a.installmentAmount > 0)) throw "Taksit tutarı sıfırdan büyük olmalıdır.";
   }
-  if (!cash && !loan && a.creditLimit !== null) {
+  if (!cash && !loan && !foreign && a.creditLimit !== null) {
     if (!Number.isFinite(a.creditLimit) || a.creditLimit < 0) throw "Limit negatif olamaz.";
     creditLimit = round2(a.creditLimit);
   }
   return {
     ...a,
     name,
-    openingBalance: round2(a.openingBalance),
+    currency,
+    openingBalance: foreign ? a.openingBalance : round2(a.openingBalance),
     creditLimit,
-    interestRate: cash ? null : rate(a.interestRate, "Faiz oranı"),
+    interestRate: cash || foreign ? null : rate(a.interestRate, "Faiz oranı"),
     statementDay: card ? day(a.statementDay, "Kesim günü") : null,
     dueDay: card ? day(a.dueDay, "Son ödeme günü") : null,
     minPaymentRate: card ? rate(a.minPaymentRate ?? 20, "Asgari ödeme oranı") : null,

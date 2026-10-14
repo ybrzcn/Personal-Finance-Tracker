@@ -31,10 +31,10 @@ export const formatMonthShort = (d: Date) => monthFmt.format(d);
 export const formatMonthYear = (d: Date) => monthYearFmt.format(d);
 
 /**
- * Kullanıcı girdisini sayıya çevirir. Hem "1.234,56" (TR) hem "1,234.56" / "1234.56" biçimlerini kabul eder.
+ * Kullanıcı girdisini sayıya çevirir (en çok `decimals` hane). Hem "1.234,56" (TR) hem "1,234.56" / "1234.56" kabul edilir.
  * Geçersizse null döner.
  */
-export function parseAmount(input: string): number | null {
+export function parseDecimal(input: string, decimals: number, strict = false): number | null {
   let s = input.replace(/[\s₺$€£]|TL|TRY/gi, "");
   if (!s) return null;
   let negative = false;
@@ -54,10 +54,18 @@ export function parseAmount(input: string): number | null {
     s = s.replace(/\./g, ""); // 1.250 → binlik ayırıcı
   }
   if (!/^\d+(\.\d+)?$/.test(s)) return null;
+  // Katı: izin verilenden fazla ondalık yuvarlanmaz, geçersiz sayılır (2,5 çeyrek → 3 olmasın)
+  if (strict && (s.split(".")[1]?.length ?? 0) > decimals) return null;
   const n = Number(s);
   if (!Number.isFinite(n)) return null;
-  return Math.round((negative ? -n : n) * 100) / 100;
+  const f = 10 ** decimals;
+  return Math.round((negative ? -n : n) * f) / f;
 }
+
+export const parseAmount = (input: string): number | null => parseDecimal(input, 2);
+
+/** Döviz/altın miktarı: en çok `decimals` hane; fazlası geçersiz. */
+export const parseQuantity = (input: string, decimals: number): number | null => parseDecimal(input, decimals, true);
 
 const inputFmt = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: true });
 

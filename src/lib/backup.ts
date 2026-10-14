@@ -1,3 +1,4 @@
+import { isForeign } from "./fx";
 import { PALETTE } from "../components/CategoryForm";
 import { makeDefaultAccount } from "./accounts";
 import type { ParsedCsvRow } from "./csv";
@@ -122,6 +123,7 @@ export function parseBackup(text: string): Backup {
           taxRate: num(a.taxRate),
           fundingIncomeId: str(a.fundingIncomeId),
           openingPeriodSpending: num(a.openingPeriodSpending),
+          currency: typeof a.currency === "string" && a.currency ? a.currency : "TRY",
           openingInstallments: (Array.isArray(a.openingInstallments) ? a.openingInstallments : [])
             .filter((it: unknown): it is Record<string, unknown> => isObj(it) && typeof it.amount === "number" && typeof it.remaining === "number")
             .map((it) => ({ description: typeof it.description === "string" ? it.description : "", amount: it.amount as number, remaining: it.remaining as number })),
@@ -155,6 +157,10 @@ export function parseBackup(text: string): Backup {
       installments: num(t.installments) ?? 1,
       budgetMonth: t.type === "income" && typeof t.budgetMonth === "string" ? t.budgetMonth : null,
       createdAt: typeof t.createdAt === "string" ? t.createdAt : "",
+      origAmount: num(t.origAmount),
+      fxRate: num(t.fxRate),
+      toOrigAmount: num(t.toOrigAmount),
+      toFxRate: num(t.toFxRate),
     };
   });
   const recurring: RecurringItem[] = (Array.isArray(data.recurring) ? data.recurring : []).map((r: unknown, i: number) => {
@@ -179,6 +185,7 @@ export function parseBackup(text: string): Backup {
       coversPreviousMonth: r.coversPreviousMonth === true,
       startDate: str(r.startDate),
       weekendShift: r.weekendShift === "before" || r.weekendShift === "after" ? r.weekendShift : "none",
+      origAmount: num(r.origAmount),
     };
   });
   const budgets: Budget[] = (Array.isArray(data.budgets) ? data.budgets : [])
@@ -211,7 +218,7 @@ export function mergeCsvRows(
   rows: ParsedCsvRow[],
   data: { categories: Category[]; accounts: Account[]; transactions: Transaction[] },
   defaultAccountId: string,
-): { categories: Category[]; transactions: Transaction[]; createdCategories: number; skippedTransfers: number } {
+): { categories: Category[]; transactions: Transaction[]; createdCategories: number; skippedTransfers: number; skippedFx: number } {
   const cats = [...data.categories];
   const key = (name: string, type: string) => `${type}:${name.trim().toLocaleLowerCase("tr")}`;
   const index = new Map(cats.map((c) => [key(c.name, c.type), c]));
@@ -220,6 +227,12 @@ export function mergeCsvRows(
   const kindOf = new Map(data.accounts.map((a) => [a.id, a.kind]));
   let created = 0;
   let skippedTransfers = 0;
+  // Döviz/altın hesabına düşen ama o birimde miktar ve kuru olmayan satırlar (ör. döviz → döviz transfer) atlanır
+  let skippedFx = 0;
+  const currencyOf = new Map(data.accounts.map((a) => [a.id, a.currency || "TRY"]));
+  /** Satırın döviz bilgisi `cur` birimindeyse (miktar, kur); değilse null */
+  const fxOf = (r: ParsedCsvRow, cur: string) =>
+    r.fxCurrency === cur && r.origAmount && r.origAmount > 0 && r.fxRate && r.fxRate > 0 ? { orig: r.origAmount, rate: r.fxRate } : null;
   const now = new Date().toISOString();
 
   const newTxs: Transaction[] = [];
@@ -231,10 +244,26 @@ export function mergeCsvRows(
         skippedTransfers++;
         continue;
       }
+      const fromCur = currencyOf.get(accountId) ?? "TRY";
+      const toCur = to.currency || "TRY";
+      const from = isForeign(fromCur) ? fxOf(r, fromCur) : null;
+      const toSide = isForeign(toCur) ? fxOf(r, toCur) : null;
+      // CSV'de tek döviz sütunu var: iki tarafı da döviz olan transfer ya da bilgisi eksik döviz tarafı alınamaz
+      if ((isForeign(fromCur) && !from) || (isForeign(toCur) && !toSide) || (from && toSide)) {
+        skippedFx++;
+        continue;
+      }
       newTxs.push({
         id: newId(), amount: r.amount, type: "transfer", accountId, toAccountId: to.id, categoryId: null,
         date: r.date, description: r.description, installments: 1, createdAt: now,
+        origAmount: from?.orig ?? null, fxRate: from?.rate ?? null, toOrigAmount: toSide?.orig ?? null, toFxRate: toSide?.rate ?? null,
       });
+      continue;
+    }
+    const cur = currencyOf.get(accountId) ?? "TRY";
+    const fx = isForeign(cur) ? fxOf(r, cur) : null;
+    if (isForeign(cur) && !fx) {
+      skippedFx++;
       continue;
     }
     let categoryId: string | null = null;
@@ -252,8 +281,9 @@ export function mergeCsvRows(
     newTxs.push({
       id: newId(), amount: r.amount, type: r.type, accountId, toAccountId: null, categoryId,
       date: r.date, description: r.description, installments, createdAt: now,
+      origAmount: fx?.orig ?? null, fxRate: fx?.rate ?? null,
     });
   }
 
-  return { categories: cats, transactions: [...data.transactions, ...newTxs], createdCategories: created, skippedTransfers };
+  return { categories: cats, transactions: [...data.transactions, ...newTxs], createdCategories: created, skippedTransfers, skippedFx };
 }

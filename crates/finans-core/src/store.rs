@@ -5,7 +5,8 @@ use std::collections::HashSet;
 
 use crate::data_store::DataStore;
 use crate::db::{self, Account, AccountInput, Budget, Category, CategoryInput, RecurringItem, Transaction, TransactionInput};
-use crate::rows::{AccountRow, RecurringRow, TransactionRow};
+use crate::fx::{self, amount as fxa};
+use crate::rows::{AccountMeta, AccountRow, RecurringRow, TransactionRow};
 use crate::CoreResult;
 
 // ---------------------------------------------------------------------------
@@ -125,6 +126,15 @@ fn rate_bp(v: Option<f64>, label: &str) -> CoreResult<Option<i64>> {
 /// Arayüzdeki `normalizeAccount` ile aynı kurallar.
 pub fn clean_account(a: &Account) -> CoreResult<AccountRow> {
     let name = clean_name(&a.name, "Hesap adı")?;
+    let currency = match a.currency.trim() {
+        "" => fx::TRY.to_string(),
+        c => c.to_string(),
+    };
+    let unit = fx::unit_of(&currency).ok_or_else(|| format!("Bilinmeyen para birimi: {currency}"))?;
+    let foreign = currency != fx::TRY;
+    if foreign && !matches!(a.kind.as_str(), "bank" | "cash") {
+        return Err("Kredi kartı ve kredi hesapları yalnızca TL olabilir.".into());
+    }
     if !matches!(a.kind.as_str(), "bank" | "cash" | "credit_card" | "loan") {
         return Err("Geçersiz hesap türü.".into());
     }
@@ -149,7 +159,7 @@ pub fn clean_account(a: &Account) -> CoreResult<AccountRow> {
         (None, None, None, None)
     };
     let limit_cents = match a.credit_limit {
-        Some(l) if !cash && !loan => {
+        Some(l) if !cash && !loan && !foreign => {
             if !l.is_finite() || l < 0.0 {
                 return Err("Limit negatif olamaz.".into());
             }
@@ -161,10 +171,10 @@ pub fn clean_account(a: &Account) -> CoreResult<AccountRow> {
         name,
         kind: a.kind.clone(),
         color: clean_color(&a.color),
-        opening_cents: to_signed_cents(a.opening_balance)?,
+        opening_cents: if foreign { fxa::signed_value_to_minor(a.opening_balance, unit)? } else { to_signed_cents(a.opening_balance)? },
         opening_date: a.opening_date.clone(),
         limit_cents,
-        rate_bp: if cash { None } else { rate_bp(a.interest_rate, "Faiz oranı")? },
+        rate_bp: if cash || foreign { None } else { rate_bp(a.interest_rate, "Faiz oranı")? },
         statement_day: if card { Some(day_of_month(a.statement_day, "Kesim günü")?) } else { None },
         due_day: if card { Some(day_of_month(a.due_day, "Son ödeme günü")?) } else { None },
         min_rate_bp: if card {
@@ -183,6 +193,7 @@ pub fn clean_account(a: &Account) -> CoreResult<AccountRow> {
             _ => None,
         },
         opening_installments: if card { clean_opening_installments(&a.opening_installments)? } else { "[]".into() },
+        currency,
         funding_income_id: if card || loan {
             a.funding_income_id.clone().filter(|s| !s.is_empty())
         } else {
@@ -219,8 +230,8 @@ fn check_category(s: &mut dyn DataStore, category_id: &Option<String>, kind: &st
     }
 }
 
-/// Hesabın türü ve arşiv durumu.
-fn account_meta(s: &mut dyn DataStore, id: &str) -> CoreResult<(String, bool)> {
+/// Hesabın türü, arşiv durumu ve para birimi.
+fn account_meta(s: &mut dyn DataStore, id: &str) -> CoreResult<AccountMeta> {
     s.account_meta(id)?.ok_or_else(|| "Seçilen hesap bulunamadı.".to_string())
 }
 
@@ -257,7 +268,7 @@ pub fn check_transaction(
 ) -> CoreResult<()> {
     validate_tx_kind(kind)?;
     let archived_err = || Err("Arşivlenmiş hesaba yeni işlem eklenemez.".to_string());
-    let (acc_kind, archived) = account_meta(s, account_id)?;
+    let AccountMeta { kind: acc_kind, archived, .. } = account_meta(s, account_id)?;
     if is_new && archived {
         return archived_err();
     }
@@ -268,7 +279,7 @@ pub fn check_transaction(
         if to == account_id {
             return Err("Kaynak ve hedef hesap aynı olamaz.".into());
         }
-        let (to_kind, to_archived) = account_meta(s, to)?;
+        let AccountMeta { kind: to_kind, archived: to_archived, .. } = account_meta(s, to)?;
         // Arşivlenmiş kart/kredinin kalan borcu yine de ödenebilir
         let pays_debt = to_kind == "credit_card" || to_kind == "loan";
         if is_new && to_archived && !pays_debt {
@@ -335,6 +346,7 @@ pub fn seed_new_user(s: &mut dyn DataStore, today: &str) -> CoreResult<()> {
         funding_income_id: None,
         opening_period_spending: None,
         opening_installments: Vec::new(),
+        currency: fx::TRY.into(),
     };
     s.insert_account(&db::new_id(), &clean_account(&account)?)
 }
@@ -392,9 +404,13 @@ pub fn create_account(s: &mut dyn DataStore, input: AccountInput) -> CoreResult<
 
 pub fn update_account(s: &mut dyn DataStore, account: Account) -> CoreResult<Account> {
     let row = clean_account(&account)?;
-    let (old_kind, _) = account_meta(s, &account.id).map_err(|_| "Hesap bulunamadı.".to_string())?;
-    if old_kind != row.kind && s.account_usage(&account.id)? > 0 {
+    let old = account_meta(s, &account.id).map_err(|_| "Hesap bulunamadı.".to_string())?;
+    let used = s.account_usage(&account.id)? > 0;
+    if old.kind != row.kind && used {
         return Err("Bu hesapta işlem bulunduğu için türü değiştirilemez.".into());
+    }
+    if old.currency != row.currency && used {
+        return Err("Bu hesapta işlem bulunduğu için para birimi değiştirilemez.".into());
     }
     s.update_account(&account.id, &row)?;
     get_account(s, &account.id)
@@ -415,6 +431,42 @@ pub fn list_transactions(s: &mut dyn DataStore) -> CoreResult<Vec<Transaction>> 
     s.list_transactions()
 }
 
+/// TL dışı hesap tarafı: miktar ve kur zorunlu → (en küçük birim, kur). TL tarafı: gönderilen değerler yok sayılır.
+fn fx_side(currency: &str, amount: Option<f64>, rate: Option<f64>, label: &str) -> CoreResult<Option<(i64, i64, fx::Unit)>> {
+    if currency == fx::TRY {
+        return Ok(None);
+    }
+    let unit = fx::unit_or_try(Some(currency));
+    let amount = amount.ok_or_else(|| format!("{label}: miktar girin."))?;
+    let rate = rate.ok_or_else(|| format!("{label}: kur girin."))?;
+    Ok(Some((fxa::value_to_minor(amount, unit)?, fxa::rate_from_f64(rate)?, unit)))
+}
+
+struct FxAmounts {
+    amount_cents: i64,
+    from: Option<(i64, i64)>,
+    to: Option<(i64, i64)>,
+}
+
+/// TL karşılığı: TL dışı kaynaktan, o yoksa TL dışı hedeften hesaplanır; ikisi de TL ise girilen tutardır.
+fn fx_amounts(s: &mut dyn DataStore, t: &TransactionInput) -> CoreResult<FxAmounts> {
+    let from_cur = account_meta(s, &t.account_id)?.currency;
+    let transfer = t.kind == "transfer";
+    let from = fx_side(&from_cur, t.orig_amount, t.fx_rate, if transfer { "Kaynak hesap" } else { "Hesap" })?;
+    let to = match (&t.to_account_id, transfer) {
+        (Some(id), true) => {
+            let cur = account_meta(s, id)?.currency;
+            fx_side(&cur, t.to_orig_amount, t.to_fx_rate, "Hedef hesap")?
+        }
+        _ => None,
+    };
+    let amount_cents = match (from, to) {
+        (Some((m, r, u)), _) | (None, Some((m, r, u))) => fxa::tl_cents(m, r, u)?,
+        (None, None) => to_cents(t.amount)?,
+    };
+    Ok(FxAmounts { amount_cents, from: from.map(|(m, r, _)| (m, r)), to: to.map(|(m, r, _)| (m, r)) })
+}
+
 fn transaction_row(
     s: &mut dyn DataStore,
     id: String,
@@ -423,11 +475,11 @@ fn transaction_row(
     created_at: Option<String>,
 ) -> CoreResult<TransactionRow> {
     validate_date(&t.date)?;
-    let amount_cents = to_cents(t.amount)?;
     check_transaction(s, &t.kind, &t.account_id, t.to_account_id.as_deref(), &t.category_id, t.installments, is_new)?;
+    let fx = fx_amounts(s, t)?;
     Ok(TransactionRow {
         id,
-        amount_cents,
+        amount_cents: fx.amount_cents,
         kind: t.kind.clone(),
         account_id: t.account_id.clone(),
         to_account_id: t.to_account_id.clone(),
@@ -437,6 +489,10 @@ fn transaction_row(
         installments: t.installments,
         budget_month: clean_budget_month(&t.kind, &t.budget_month)?,
         created_at,
+        orig_amount: fx.from.map(|p| p.0),
+        fx_rate: fx.from.map(|p| p.1),
+        to_orig_amount: fx.to.map(|p| p.0),
+        to_fx_rate: fx.to.map(|p| p.1),
     })
 }
 
@@ -451,6 +507,10 @@ fn as_input(t: &Transaction, category_id: Option<String>) -> TransactionInput {
         description: t.description.clone(),
         installments: t.installments,
         budget_month: t.budget_month.clone(),
+        orig_amount: t.orig_amount,
+        fx_rate: t.fx_rate,
+        to_orig_amount: t.to_orig_amount,
+        to_fx_rate: t.to_fx_rate,
     }
 }
 
@@ -479,9 +539,16 @@ fn clean_recurring(s: &mut dyn DataStore, r: &RecurringItem) -> CoreResult<Recur
     validate_category_kind(&r.kind)?;
     let name = clean_name(&r.name, "Ad")?;
     let day = day_of_month(Some(r.day), "Gün")?;
-    if let Some(id) = &r.account_id {
-        account_meta(s, id)?;
-    }
+    let currency = match &r.account_id {
+        Some(id) => account_meta(s, id)?.currency,
+        None => fx::TRY.to_string(),
+    };
+    let orig_amount = if currency == fx::TRY {
+        None
+    } else {
+        let v = r.orig_amount.ok_or("Döviz/altın hesabındaki düzenli kayıt için miktar girin.")?;
+        Some(fxa::value_to_minor(v, fx::unit_or_try(Some(&currency)))?)
+    };
     check_category(s, &r.category_id, &r.kind)?;
     // Buradan sonrası bugünkü clean_recurring ile birebir aynı (history/exceptions/weekend_shift/start_date doğrulaması)
     let mut history = Vec::with_capacity(r.history.len());
@@ -533,6 +600,7 @@ fn clean_recurring(s: &mut dyn DataStore, r: &RecurringItem) -> CoreResult<Recur
         category_id: r.category_id.clone(),
         active: r.active,
         sort_order: r.sort_order,
+        orig_amount,
     })
 }
 

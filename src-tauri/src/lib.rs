@@ -1,5 +1,6 @@
 mod commands;
 mod maintenance;
+mod rates;
 
 use finans_core::db;
 
@@ -64,6 +65,7 @@ pub fn run() {
                 config_path,
                 fallback_from: Mutex::new(fallback_from),
             });
+            app.manage(rates::RatesState(finans_core::fx::live::LiveRates::new()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -101,6 +103,8 @@ pub fn run() {
             maintenance::uninstall_app,
             commands::parse_statement_bytes,
             commands::save_export,
+            rates::rates_latest,
+            rates::rate_at,
         ])
         .run(tauri::generate_context!())
         .expect("Tauri uygulaması başlatılırken hata oluştu");
