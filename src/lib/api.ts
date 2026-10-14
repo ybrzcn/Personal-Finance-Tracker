@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { accountUsage, makeDefaultAccount, normalizeAccount, validateTransaction } from "./accounts";
 import { todayISO } from "./format";
+import { isForeign } from "./fx";
 import { newId } from "./id";
 import { createHttpApi } from "./httpApi";
 import { backend } from "./platform";
@@ -264,6 +265,8 @@ function assertRecurring(r: RecurringItem, d: LocalData): RecurringItem {
   return { ...r, name, amount: round2(r.amount), history, exceptions, coversPreviousMonth: r.type === "income" && !!r.coversPreviousMonth, startDate: r.startDate || null, weekendShift: r.weekendShift ?? "none" };
 }
 
+const NEEDS_BACKEND = "Bu özellik sunucu ya da masaüstü uygulaması gerektirir.";
+
 const localApi: Api = {
   async listCategories() {
     return readLocal().categories;
@@ -300,6 +303,8 @@ const localApi: Api = {
   async createAccount(input) {
     const d = readLocal();
     const a = normalizeAccount({ ...input, id: newId() });
+    // Döviz kuralları (miktar, kur, kâr/zarar) yalnız Rust'ta: tarayıcı modunda döviz/altın hesabı açılmaz
+    if (isForeign(a.currency)) throw NEEDS_BACKEND;
     assertUniqueAccount(d.accounts, a);
     d.accounts.push(a);
     writeLocal(d);
@@ -311,6 +316,7 @@ const localApi: Api = {
     assertUniqueAccount(d.accounts, a);
     const prev = d.accounts.find((x) => x.id === a.id);
     if (!prev) throw "Hesap bulunamadı.";
+    if (isForeign(a.currency) && a.currency !== prev.currency) throw NEEDS_BACKEND;
     if (prev.kind !== a.kind && accountUsage(d.transactions, a.id) > 0)
       throw "Bu hesapta işlem bulunduğu için türü değiştirilemez.";
     d.accounts = d.accounts.map((x) => (x.id === a.id ? a : x));
@@ -465,7 +471,7 @@ const localApi: Api = {
     throw "Kur geçmişi yalnızca sunucuya bağlıyken görülebilir.";
   },
   async pnlReport() {
-    throw "Bu özellik sunucu ya da masaüstü uygulaması gerektirir.";
+    throw NEEDS_BACKEND;
   },
   async evdsKeySet() {
     return false;

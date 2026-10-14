@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { errorMessage } from "../lib/api";
+import { isForeign } from "../lib/fx";
 import { amountToInput, parseAmount, todayISO } from "../lib/format";
 import { loanSummary } from "../lib/loans";
 import { norm } from "../lib/csv";
@@ -25,7 +26,8 @@ export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
   const { formatMoney } = useSettings();
   const summary = useMemo(() => loanSummary(account, transactions), [account, transactions]);
   const next = summary.next;
-  const sources = accounts.filter((a) => !a.archived && (a.kind === "bank" || a.kind === "cash"));
+  // Taksit TL ödenir: döviz/altın hesapları kaynak olamaz
+  const sources = accounts.filter((a) => !a.archived && (a.kind === "bank" || a.kind === "cash") && !isForeign(a.currency));
   const feeCategory = categories.find((c) => c.type === "expense" && norm(c.name) === norm("Faiz ve Masraflar"));
 
   const [sourceId, setSourceId] = useState(sources[0]?.id ?? "");

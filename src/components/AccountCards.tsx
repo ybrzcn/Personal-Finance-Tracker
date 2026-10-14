@@ -130,7 +130,7 @@ export function BankAccountCard({ account }: { account: Account }) {
         <>
           <span className="ml-auto" />
           <IconAction title="İşlemler" onClick={() => showAccountTransactions(account.id)} icon={<List size={16} />} />
-          <IconAction title="Ekstre yükle (Excel, PDF, CSV)" onClick={() => openStatementImport(account.id)} icon={<FileUp size={16} />} />
+          {!foreign && <IconAction title="Ekstre yükle (Excel, PDF, CSV)" onClick={() => openStatementImport(account.id)} icon={<FileUp size={16} />} />}
         </>
       }
     >

@@ -228,11 +228,11 @@ export function mergeCsvRows(
   const kindOf = new Map(data.accounts.map((a) => [a.id, a.kind]));
   let created = 0;
   let skippedTransfers = 0;
-  // Döviz/altın hesabına düşen ama o birimde miktar ve kuru olmayan satırlar (ör. döviz → döviz transfer) atlanır
+  // Döviz/altın hesabına düşen ama o birimde miktar ve kuru olmayan satırlar atlanır
   let skippedFx = 0;
   const currencyOf = new Map(data.accounts.map((a) => [a.id, a.currency || "TRY"]));
   /** Satırın döviz bilgisi `cur` birimindeyse (miktar, kur); değilse null */
-  const fxOf = (r: ParsedCsvRow, cur: string) =>
+  const fxOf = (r: Pick<ParsedCsvRow, "fxCurrency" | "origAmount" | "fxRate">, cur: string) =>
     r.fxCurrency === cur && r.origAmount && r.origAmount > 0 && r.fxRate && r.fxRate > 0 ? { orig: r.origAmount, rate: r.fxRate } : null;
   const now = new Date().toISOString();
 
@@ -248,9 +248,14 @@ export function mergeCsvRows(
       const fromCur = currencyOf.get(accountId) ?? "TRY";
       const toCur = to.currency || "TRY";
       const from = isForeign(fromCur) ? fxOf(r, fromCur) : null;
-      const toSide = isForeign(toCur) ? fxOf(r, toCur) : null;
-      // CSV'de tek döviz sütunu var: iki tarafı da döviz olan transfer ya da bilgisi eksik döviz tarafı alınamaz
-      if ((isForeign(fromCur) && !from) || (isForeign(toCur) && !toSide) || (from && toSide)) {
+      // İki tarafı da döviz olan transferin hedefi "Hedef ..." sütunlarında; tek tarafı dövizse ana döviz sütunlarında
+      const toSide = !isForeign(toCur)
+        ? null
+        : from
+          ? fxOf({ fxCurrency: r.toFxCurrency, origAmount: r.toOrigAmount, fxRate: r.toFxRate }, toCur)
+          : fxOf(r, toCur);
+      // Bilgisi eksik döviz tarafı alınamaz
+      if ((isForeign(fromCur) && !from) || (isForeign(toCur) && !toSide)) {
         skippedFx++;
         continue;
       }

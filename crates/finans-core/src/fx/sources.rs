@@ -131,6 +131,11 @@ pub fn fetch_tcmb_today() -> CoreResult<TcmbDay> {
     parse_tcmb(&xml)
 }
 
+/// TCMB kur arşivinin başı (1996); öncesi için ağa gidilmez.
+pub fn tcmb_archive_start() -> i64 {
+    days_from_civil(1996, 1, 1)
+}
+
 /// Arşivdeki gün; yayın yoksa (hafta sonu, tatil) None.
 pub fn fetch_tcmb_on(days: i64) -> CoreResult<Option<TcmbDay>> {
     install_crypto();

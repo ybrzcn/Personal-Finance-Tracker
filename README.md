@@ -391,3 +391,4 @@ Tarih;Tür;Kategori;Tutar;Açıklama
 - Tarih: `YYYY-AA-GG` veya `GG.AA.YYYY`
 - Tür sütunu yoksa negatif tutarlar gider, pozitifler gelir sayılır.
 - Olmayan kategoriler otomatik oluşturulur.
+- Döviz/altın hesaplarının işlemleri `Para birimi`, `Orijinal tutar` (o birimdeki miktar) ve `Kur` sütunlarıyla gelir; iki tarafı da döviz olan transferlerde hedef taraf `Hedef para birimi`, `Hedef miktar` ve `Hedef kur` sütunlarındadır (dışa aktarılan dosyada bu sütunlar hazırdır).

@@ -2,14 +2,16 @@
 //! SQLite modunda saklanmaz, masaüstündeki gibi canlı çekilip 60 sn bellekte tutulur.
 //! Kilit yalnız karar ve kayıt için tutulur; ağ ve veritabanı işleri kilit dışında yapılır (yavaş kaynak diğer istekleri bekletmez).
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 use axum::http::StatusCode;
 use finans_core::fx::live::{LiveRates, REFRESH_SECS};
-use finans_core::fx::sources::{fetch_harem, fetch_tcmb_on, fetch_tcmb_today, Quote, RateView};
+use finans_core::fx::sources::{fetch_harem, fetch_tcmb_on, fetch_tcmb_today, tcmb_archive_start, Quote, RateView, TcmbDay};
 use finans_core::fx::time::*;
 use finans_core::fx::{find, Source};
+
+use finans_core::CoreResult;
 
 use crate::app::ApiError;
 use crate::pg::{self, Pool};
@@ -18,6 +20,10 @@ use crate::pg::{self, Pool};
 const HAREM_EVERY: i64 = 15 * 60;
 /// TCMB yayımlanmadıysa yeniden deneme aralığı
 const TCMB_RETRY: i64 = 3600;
+/// Arşive ulaşılamadıysa yeniden deneme aralığı
+const ARCHIVE_RETRY: i64 = 600;
+/// Bellekte hatırlanan en fazla arşiv günü (≈ 11 yıl); dolunca baştan başlanır
+const ARCHIVE_MAX: usize = 4000;
 
 pub enum RateService {
     Stored(StoredRates),
@@ -30,14 +36,18 @@ struct Fetch {
     tcmb_at: i64,
     /// Son başarılı `today.xml`'in kur tarihi (gün)
     tcmb_day: Option<i64>,
-    /// Arşivden çekilmiş günler (bu süreç boyunca)
-    archive_days: HashSet<i64>,
+    /// Arşivden çekilmiş günler (bu süreç boyunca): true = yayın var (tabloya yazıldı), false = yayın yok (tatil)
+    archive_days: HashMap<i64, bool>,
+    /// Arşive ulaşılamadı: bu zamana kadar yeniden denenmez
+    archive_down_until: i64,
     last_error: Option<String>,
 }
 
 pub struct StoredRates {
     pool: Pool,
     fetch: Mutex<Fetch>,
+    /// TCMB arşivinden bir günü çeker (doğrulamada sahte kaynak verilebilir)
+    fetch_day: fn(i64) -> CoreResult<Option<TcmbDay>>,
 }
 
 fn db_down(e: String) -> ApiError {
@@ -49,9 +59,23 @@ fn not_found() -> ApiError {
     ApiError::new(StatusCode::NOT_FOUND, "Kur geçmişi bu sunucuda tutulmuyor.")
 }
 
+/// Arşiv gününü hatırlar; liste sınırı aşınca baştan başlar (keyfi tarih istekleri belleği büyütmesin).
+fn remember(f: &mut Fetch, day: i64, published: bool) {
+    if f.archive_days.len() >= ARCHIVE_MAX {
+        f.archive_days.clear();
+    }
+    f.archive_days.insert(day, published);
+}
+
 impl StoredRates {
     pub fn new(pool: Pool) -> Self {
-        StoredRates { pool, fetch: Mutex::new(Fetch::default()) }
+        Self::with_archive_fetcher(pool, fetch_tcmb_on)
+    }
+
+    /// Arşiv kaynağı verilerek kurulur (doğrulama için; `LiveRates::with_archive_fetcher` gibi).
+    #[allow(dead_code)]
+    pub fn with_archive_fetcher(pool: Pool, fetch_day: fn(i64) -> CoreResult<Option<TcmbDay>>) -> Self {
+        StoredRates { pool, fetch: Mutex::new(Fetch::default()), fetch_day }
     }
 
     fn log_once(f: &mut Fetch, e: String) {
@@ -149,27 +173,37 @@ impl StoredRates {
             // `day`'den geriye en yakın iş günü yayını çekilmemişse arşivden alınır (yalnız değişen yazıldığı için
             // tabloda satır olmaması "çekilmedi" ya da "değişmedi" olabilir; çekilen günler bellekte tutulur).
             // Ağ isteği kilit dışında.
-            for d in (day - 10..=day.min(istanbul_today(now))).rev() {
+            let today = istanbul_today(now);
+            for d in ((day - 10).max(tcmb_archive_start())..=day.min(today)).rev() {
                 if weekday(d) >= 5 {
                     continue;
                 }
                 {
                     let f = self.lock();
-                    if f.tcmb_day == Some(d) || f.archive_days.contains(&d) {
+                    if f.tcmb_day == Some(d) || f.archive_days.get(&d) == Some(&true) {
+                        break;
+                    }
+                    // Tatil: bir önceki iş gününe bakılır
+                    if f.archive_days.get(&d) == Some(&false) {
+                        continue;
+                    }
+                    if now < f.archive_down_until {
                         break;
                     }
                 }
-                match fetch_tcmb_on(d) {
+                match (self.fetch_day)(d) {
                     Ok(Some(t)) => {
                         self.save(&t.quotes);
-                        self.lock().archive_days.insert(d);
+                        remember(&mut self.lock(), d, true);
                         break;
                     }
-                    Ok(None) => {
-                        self.lock().archive_days.insert(d);
-                    }
+                    // Bugünün kuru henüz yayınlanmamış olabilir (15:30): "yok" yalnız geçmiş günler için saklanır
+                    Ok(None) if d < today => remember(&mut self.lock(), d, false),
+                    Ok(None) => {}
                     Err(e) => {
-                        Self::log_once(&mut self.lock(), e);
+                        let mut f = self.lock();
+                        f.archive_down_until = now + ARCHIVE_RETRY;
+                        Self::log_once(&mut f, e);
                         break;
                     }
                 }

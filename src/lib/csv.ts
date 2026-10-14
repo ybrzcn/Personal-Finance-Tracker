@@ -21,7 +21,7 @@ export function transactionsToCsv(
   categoryById: Map<string, Category>,
   accountById: Map<string, Account>,
 ): string {
-  const header = ["Tarih", "Tür", "Hesap", "Hedef Hesap", "Kategori", "Tutar", "Para birimi", "Orijinal tutar", "Kur", "Taksit", "Açıklama"];
+  const header = ["Tarih", "Tür", "Hesap", "Hedef Hesap", "Kategori", "Tutar", "Para birimi", "Orijinal tutar", "Kur", "Taksit", "Açıklama", "Hedef para birimi", "Hedef miktar", "Hedef kur"];
   const name = (id: string | null) => (id && accountById.get(id)?.name) || "";
   const lines = [header.join(DELIMITER)];
   for (const t of txs) {
@@ -36,6 +36,7 @@ export function transactionsToCsv(
         ...fxCells(t, accountById),
         String(t.installments),
         guardFormula(t.description),
+        ...targetFxCells(t, accountById),
       ]
         .map(escapeCell)
         .join(DELIMITER),
@@ -53,6 +54,13 @@ function fxCells(t: Transaction, accountById: Map<string, Account>): string[] {
     t.origAmount != null ? [from, t.origAmount, t.fxRate] : t.toOrigAmount != null ? [to, t.toOrigAmount, t.toFxRate] : ["", null, null];
   const n = (v: number | null | undefined, d: number) => (v == null ? "" : v.toFixed(d).replace(".", ","));
   return [cur, n(qty, cur ? qtyDecimals(cur) : 2), n(rate, 6)];
+}
+
+/** İki tarafı da döviz/altın olan transferin hedef tarafı (birim, miktar, kur); diğer işlemlerde boş. */
+function targetFxCells(t: Transaction, accountById: Map<string, Account>): string[] {
+  if (t.origAmount == null || t.toOrigAmount == null) return ["", "", ""];
+  const cur = (t.toAccountId && accountById.get(t.toAccountId)?.currency) || "TRY";
+  return [cur, t.toOrigAmount.toFixed(qtyDecimals(cur)).replace(".", ","), t.toFxRate == null ? "" : t.toFxRate.toFixed(6).replace(".", ",")];
 }
 
 /** RFC 4180 uyumlu küçük CSV ayrıştırıcı (tırnak, kaçış ve satır içi yeni satır destekli). */
@@ -118,6 +126,10 @@ const HEADER_ALIASES: Record<string, string[]> = {
   fxCurrency: ["para birimi", "currency"],
   origAmount: ["orijinal tutar", "original amount"],
   fxRate: ["kur", "rate"],
+  // İki tarafı da döviz olan transferin hedef tarafı
+  toFxCurrency: ["hedef para birimi", "to currency"],
+  toOrigAmount: ["hedef miktar", "to original amount"],
+  toFxRate: ["hedef kur", "to rate"],
   description: ["aciklama", "description", "not", "note"],
 };
 
@@ -167,6 +179,10 @@ export interface ParsedCsvRow {
   fxCurrency: string;
   origAmount: number | null;
   fxRate: number | null;
+  /** İki tarafı da döviz olan transferde hedef tarafı (yoksa boş/null) */
+  toFxCurrency: string;
+  toOrigAmount: number | null;
+  toFxRate: number | null;
 }
 
 export interface CsvParseResult {
@@ -217,6 +233,9 @@ export function parseTransactionsCsv(text: string): CsvParseResult {
       fxCurrency: get("fxCurrency"),
       origAmount: get("origAmount") ? parseDecimal(get("origAmount"), 3) : null,
       fxRate: get("fxRate") ? parseDecimal(get("fxRate"), 6) : null,
+      toFxCurrency: get("toFxCurrency"),
+      toOrigAmount: get("toOrigAmount") ? parseDecimal(get("toOrigAmount"), 3) : null,
+      toFxRate: get("toFxRate") ? parseDecimal(get("toFxRate"), 6) : null,
     });
   });
   return { rows, skipped, hasAccountColumn: col.account >= 0 };

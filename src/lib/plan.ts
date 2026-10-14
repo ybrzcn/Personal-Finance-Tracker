@@ -300,6 +300,10 @@ export function buildCashPlan(
   months: number,
 ): CashPlan {
   const until = addMonthsISO(today, months);
+  // Ödeme takvimi TL nakit akışıdır: döviz/altın hesabına bağlı düzenli kalemler ve o hesaplara gelirler dahil edilmez
+  const foreignIds = new Set(accounts.filter((a) => isForeign(a.currency)).map((a) => a.id));
+  recurring = recurring.filter((r) => !r.accountId || !foreignIds.has(r.accountId));
+  txs = txs.filter((t) => t.type !== "income" || !foreignIds.has(t.accountId));
   const obs = obligations(accounts, txs, recurring, today, until);
   // Bugünden önceki son gelir de dahil: ilk ödemeler o maaştan karşılanıyor olabilir
   const events = withFutureIncomes(incomeEvents(recurring, addMonthsISO(today, -1), until), txs, recurring, today, until);

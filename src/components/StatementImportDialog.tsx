@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { errorMessage } from "../lib/api";
 import { openStatementFile } from "../lib/fileio";
 import { formatDate, formatDateShort } from "../lib/format";
+import { isForeign } from "../lib/fx";
 import { newId } from "../lib/id";
 import { firstTrackedClosing } from "../lib/cards";
 import {
@@ -41,8 +42,9 @@ const COLUMN_LABELS: { key: keyof ColumnMap; label: string; required?: boolean }
 export function StatementImportDialog({ accountId: initialAccountId, onClose, onSaved }: Props) {
   const { accounts, categories, transactions, latest, restore, updateAccount } = useData();
   const { formatMoney, settings } = useSettings();
-  const active = accounts.filter((a) => !a.archived && a.kind !== "loan");
-  const [accountId, setAccountId] = useState(initialAccountId ?? active[0]?.id ?? "");
+  // Ekstre TL tutarlıdır: döviz/altın hesaplarına yüklenmez, transfer hedefi de olamaz
+  const active = accounts.filter((a) => !a.archived && a.kind !== "loan" && !isForeign(a.currency));
+  const [accountId, setAccountId] = useState(active.find((a) => a.id === initialAccountId)?.id ?? active[0]?.id ?? "");
   const account = accounts.find((a) => a.id === accountId);
 
   const [fileName, setFileName] = useState("");
@@ -381,7 +383,7 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
                       <option value="expense">Gider</option>
                       <option value="income">Gelir / İade</option>
                       {accounts
-                        .filter((a) => a.id !== accountId && !a.archived)
+                        .filter((a) => a.id !== accountId && !a.archived && !isForeign(a.currency))
                         .map((a) => (
                           <option key={a.id} value={`transfer:${a.id}`}>
                             Transfer → {a.name}

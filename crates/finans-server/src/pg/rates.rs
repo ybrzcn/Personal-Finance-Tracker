@@ -43,7 +43,8 @@ pub fn latest(pool: &Pool) -> Result<Vec<(Quote, Option<i64>)>, String> {
                 "SELECT {COLUMNS},
                         (SELECT p.buy FROM fx_rates p
                          WHERE p.code = r.code
-                           AND p.observed_at < date_trunc('day', r.observed_at + interval '3 hours') - interval '3 hours'
+                           -- Bir önceki günün (İstanbul) son fiyatı; oturum saat diliminden bağımsız
+                           AND p.observed_at < (date_trunc('day', r.observed_at AT TIME ZONE 'Europe/Istanbul') AT TIME ZONE 'Europe/Istanbul')
                          ORDER BY p.observed_at DESC LIMIT 1)
                  FROM (SELECT DISTINCT ON (code) * FROM fx_rates ORDER BY code, observed_at DESC) r"
             ),

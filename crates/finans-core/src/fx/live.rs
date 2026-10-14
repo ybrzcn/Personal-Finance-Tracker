@@ -13,6 +13,8 @@ use crate::CoreResult;
 pub const REFRESH_SECS: i64 = 60;
 /// Arşive ulaşılamazsa bu süre yeniden denenmez (çevrimdışıyken her rapor ağ beklemesin)
 const ARCHIVE_RETRY: i64 = 600;
+/// Bellekte tutulan en fazla arşiv günü (≈ 11 yıl); dolunca baştan başlanır (sunucuda keyfi tarihler belleği büyütmesin)
+const ARCHIVE_MAX: usize = 4000;
 
 #[derive(Default)]
 struct State {
@@ -103,8 +105,9 @@ impl LiveRates {
             return Ok(None);
         }
         let now = unix_now();
-        for d in (day - 10..=day).rev() {
-            if weekday(d) >= 5 || d > istanbul_today(now) {
+        let today = istanbul_today(now);
+        for d in ((day - 10).max(tcmb_archive_start())..=day).rev() {
+            if weekday(d) >= 5 || d > today {
                 continue;
             }
             let cached = self.archive.lock().unwrap_or_else(|e| e.into_inner()).get(&d).cloned();
@@ -123,7 +126,14 @@ impl LiveRates {
                             return Err(e);
                         }
                     };
-                    self.archive.lock().unwrap_or_else(|e| e.into_inner()).insert(d, fetched.clone());
+                    // Bugünün kuru henüz yayınlanmamış olabilir (15:30): "yok" yalnız geçmiş günler için saklanır
+                    if fetched.is_some() || d < today {
+                        let mut archive = self.archive.lock().unwrap_or_else(|e| e.into_inner());
+                        if archive.len() >= ARCHIVE_MAX {
+                            archive.clear();
+                        }
+                        archive.insert(d, fetched.clone());
+                    }
                     fetched
                 }
             };
