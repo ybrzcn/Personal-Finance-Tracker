@@ -1,6 +1,6 @@
 [package]
 name = "finans"
-version = "1.2.0"
+version = "1.3.0"
 description = "Kişisel Finans Takip Masaüstü Uygulaması"
 authors = ["ybrzcn"]
 edition = "2021"

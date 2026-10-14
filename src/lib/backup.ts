@@ -124,6 +124,7 @@ export function parseBackup(text: string): Backup {
           fundingIncomeId: str(a.fundingIncomeId),
           openingPeriodSpending: num(a.openingPeriodSpending),
           currency: typeof a.currency === "string" && a.currency ? a.currency : "TRY",
+          openingCost: typeof a.openingCost === "number" && a.openingCost > 0 ? a.openingCost : null,
           openingInstallments: (Array.isArray(a.openingInstallments) ? a.openingInstallments : [])
             .filter((it: unknown): it is Record<string, unknown> => isObj(it) && typeof it.amount === "number" && typeof it.remaining === "number")
             .map((it) => ({ description: typeof it.description === "string" ? it.description : "", amount: it.amount as number, remaining: it.remaining as number })),

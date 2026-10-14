@@ -1,5 +1,6 @@
 mod commands;
 mod maintenance;
+mod pnl;
 mod rates;
 
 use finans_core::db;
@@ -66,6 +67,7 @@ pub fn run() {
                 fallback_from: Mutex::new(fallback_from),
             });
             app.manage(rates::RatesState(finans_core::fx::live::LiveRates::new()));
+            app.manage(pnl::CpiState(Default::default()));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -105,6 +107,9 @@ pub fn run() {
             commands::save_export,
             rates::rates_latest,
             rates::rate_at,
+            pnl::pnl_report,
+            commands::evds_key_set,
+            commands::set_evds_key,
         ])
         .run(tauri::generate_context!())
         .expect("Tauri uygulaması başlatılırken hata oluştu");

@@ -22,6 +22,7 @@ pub struct AccountRow {
     /// JSON dizisi
     pub opening_installments: String,
     pub currency: String,
+    pub opening_cost_cents: Option<i64>,
 }
 
 pub struct RecurringRow {

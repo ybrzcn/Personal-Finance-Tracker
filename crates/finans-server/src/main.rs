@@ -5,9 +5,11 @@ mod auth_store;
 mod config;
 mod data;
 mod pg;
+mod cpi;
 mod rates;
 mod routes_auth;
 mod routes_data;
+mod routes_pnl;
 mod routes_rates;
 
 use std::net::SocketAddr;
@@ -170,11 +172,16 @@ async fn serve(config: Config) {
         DataBackend::Postgres(d) => rates::RateService::Stored(rates::StoredRates::new(d.pool())),
         DataBackend::Sqlite(_) => rates::RateService::Live(finans_core::fx::live::LiveRates::new()),
     };
+    let cpi = match &data {
+        DataBackend::Postgres(d) => cpi::CpiService::Stored(cpi::StoredCpi::new(d.pool(), config.evds_key.clone())),
+        DataBackend::Sqlite(_) => cpi::CpiService::Live { live: Default::default(), key: config.evds_key.clone() },
+    };
     let state = Arc::new(AppState {
         config,
         auth: st,
         data,
         rates,
+        cpi,
         limiter: Default::default(),
         hash_permits: tokio::sync::Semaphore::new(4),
         parse_permits: tokio::sync::Semaphore::new(2),
@@ -185,6 +192,7 @@ async fn serve(config: Config) {
         .merge(routes_auth::router())
         .merge(routes_data::router())
         .merge(routes_rates::router())
+        .merge(routes_pnl::router())
         .route("/api/health", get(health))
         // Bilinmeyen API yolları web arayüzüne düşmesin
         .route("/api/{*rest}", any(not_found));
@@ -213,7 +221,11 @@ async fn serve(config: Config) {
         tokio::spawn(async move {
             loop {
                 let s = st.clone();
-                let _ = tokio::task::spawn_blocking(move || s.rates.tick()).await;
+                let _ = tokio::task::spawn_blocking(move || {
+                    s.rates.tick();
+                    s.cpi.tick();
+                })
+                .await;
                 tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             }
         });
@@ -221,6 +233,7 @@ async fn serve(config: Config) {
     } else {
         println!("kurlar: saklanmıyor (SQLite modu; istekte canlı çekilir)");
     }
+    println!("tüfe: {}", if state.config.evds_key.is_some() { "EVDS anahtarı tanımlı" } else { "FINANS_EVDS_KEY yok; enflasyon karşılaştırması kapalı" });
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
     let listener = tokio::net::TcpListener::bind(addr).await.expect("port açılamadı");
     println!("finans-server {} dinliyor: http://{addr}", env!("CARGO_PKG_VERSION"));

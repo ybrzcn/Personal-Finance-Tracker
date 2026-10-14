@@ -417,6 +417,7 @@ export function SettingsPage() {
             </div>
           </Section>
         )}
+        {desktop && mode !== "server" && <EvdsKeySection />}
         {accountDialog === "password" && auth && <ChangePasswordDialog auth={auth} onClose={() => setAccountDialog(null)} />}
         {accountDialog === "delete" && user && auth && (
           <DeleteAccountDialog
@@ -613,5 +614,51 @@ export function SettingsPage() {
         {uninstalling && <UninstallDialog onClose={() => setUninstalling(false)} onBackup={exportJson} />}
       </div>
     </>
+  );
+}
+
+/** Masaüstü yerel mod: TÜFE için EVDS anahtarı (yalnız bu cihazın ayar dosyasında; anahtarın kendisi geri okunmaz). */
+function EvdsKeySection() {
+  const [set, setSet] = useState<boolean | null>(null);
+  const [key, setKey] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => {
+    api.evdsKeySet().then(setSet, () => setSet(false));
+  }, []);
+  const save = async (value: string | null) => {
+    setMsg(null);
+    try {
+      await api.setEvdsKey(value);
+      setSet(value !== null);
+      setKey("");
+      setMsg(value ? "Anahtar kaydedildi." : "Anahtar silindi.");
+    } catch (e) {
+      setMsg(errorMessage(e));
+    }
+  };
+  return (
+    <Section
+      title="Enflasyon verisi (TÜFE)"
+      description="Kâr/Zarar sayfasında enflasyon karşılaştırması için TCMB EVDS API anahtarı. Anahtar yalnız bu cihazda saklanır."
+    >
+      <p className="text-sm text-zinc-600 dark:text-zinc-300">
+        Durum: {set === null ? "…" : set ? "anahtar girildi" : "anahtar yok"}
+      </p>
+      <p className="mt-1 text-xs text-zinc-500">
+        Anahtar ücretsizdir: <span className="select-all font-medium">evds3.tcmb.gov.tr</span> adresinde üye olun, Profil → API Anahtarı.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <input className="input max-w-xs" placeholder="API anahtarı" value={key} onChange={(e) => setKey(e.target.value)} />
+        <button className="btn-primary" disabled={!key.trim()} onClick={() => void save(key.trim())}>
+          Kaydet
+        </button>
+        {set && (
+          <button className="btn-secondary" onClick={() => void save(null)}>
+            Sil
+          </button>
+        )}
+      </div>
+      {msg && <p className="mt-2 text-xs text-zinc-500">{msg}</p>}
+    </Section>
   );
 }

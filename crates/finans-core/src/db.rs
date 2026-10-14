@@ -22,6 +22,11 @@ pub struct CategoryInput {
     pub color: String,
 }
 
+/// Alan JSON'da varsa (null dahil) Some: `#[serde(default)]` ile yokluk None olur.
+fn present<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Option<f64>>, D::Error> {
+    Option::<f64>::deserialize(d).map(Some)
+}
+
 fn one() -> i64 {
     1
 }
@@ -138,6 +143,11 @@ pub struct Account {
     /// "TRY" ya da `fx::INSTRUMENTS` kodu; TL dışı yalnız bank/cash. Açılış bakiyesi bu birimdedir.
     #[serde(default = "try_code")]
     pub currency: String,
+    /// Yalnız TL dışı hesap: açılış bakiyesinin TL maliyeti (kâr/zarar için); boşsa açılış günü kuru kullanılır.
+    /// Dış katman alanın gönderilip gönderilmediğidir: alanı bilmeyen eski istemci düzenlerse (None) kayıtlı değer korunur;
+    /// `null` (Some(None)) siler.
+    #[serde(default, deserialize_with = "present")]
+    pub opening_cost: Option<Option<f64>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -185,6 +195,9 @@ pub struct AccountInput {
     /// "TRY" ya da `fx::INSTRUMENTS` kodu; TL dışı yalnız bank/cash. Açılış bakiyesi bu birimdedir.
     #[serde(default = "try_code")]
     pub currency: String,
+    /// Yalnız TL dışı hesap: açılış bakiyesinin TL maliyeti (kâr/zarar için); boşsa açılış günü kuru kullanılır
+    #[serde(default)]
+    pub opening_cost: Option<f64>,
 }
 
 /// Düzenli gelir (maaş) veya gider (kira, fatura, abonelik).
@@ -286,6 +299,7 @@ impl AccountInput {
             opening_period_spending: self.opening_period_spending,
             opening_installments: self.opening_installments,
             currency: self.currency,
+            opening_cost: Some(self.opening_cost),
         }
     }
 }
@@ -409,7 +423,7 @@ ALTER TABLE accounts ADD COLUMN opening_period_cents INTEGER;
 ALTER TABLE accounts ADD COLUMN opening_installments TEXT NOT NULL DEFAULT '[]';
 ";
 
-pub const LATEST_VERSION: i64 = 16;
+pub const LATEST_VERSION: i64 = 17;
 
 const DEFAULT_CATEGORIES: &[(&str, &str, &str)] = &[
     ("Maaş", "income", "#10b981"),
@@ -667,7 +681,16 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         )?;
         tx.commit()?;
     }
-    // Gelecekteki şema değişiklikleri: if version < 17 { ... PRAGMA user_version = 17; }
+    if version < 17 {
+        // v17: döviz/altın hesabının açılış maliyeti (kâr/zarar)
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(
+            "ALTER TABLE accounts ADD COLUMN opening_cost_cents INTEGER CHECK (opening_cost_cents IS NULL OR opening_cost_cents > 0);
+             PRAGMA user_version = 17;",
+        )?;
+        tx.commit()?;
+    }
+    // Gelecekteki şema değişiklikleri: if version < 18 { ... PRAGMA user_version = 18; }
     Ok(())
 }
 
@@ -675,7 +698,7 @@ pub const CATEGORY_COLUMNS: &str = "id, name, type, color";
 pub const ACCOUNT_COLUMNS: &str = "id, name, kind, color, opening_balance_cents, opening_date, credit_limit_cents, \
      interest_rate_bp, statement_day, due_day, min_payment_rate_bp, sort_order, archived, \
      term_months, first_due_date, installment_cents, tax_rate_bp, funding_income_id, \
-     opening_period_cents, opening_installments, currency";
+     opening_period_cents, opening_installments, currency, opening_cost_cents";
 pub const RECURRING_COLUMNS: &str =
     "id, name, type, amount_cents, day, account_id, category_id, active, sort_order, amount_history, amount_exceptions, \
      covers_previous_month, start_date, weekend_shift, orig_amount, \
@@ -725,6 +748,7 @@ pub fn row_to_account(r: &Row) -> rusqlite::Result<Account> {
         opening_period_spending: r.get::<_, Option<i64>>(18)?.map(cents_to_f64),
         opening_installments: serde_json::from_str(&r.get::<_, String>(19)?).unwrap_or_default(),
         currency,
+        opening_cost: Some(r.get::<_, Option<i64>>(21)?.map(cents_to_f64)),
     })
 }
 

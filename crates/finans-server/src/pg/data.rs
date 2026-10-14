@@ -17,7 +17,7 @@ pub struct PgStore<'a, 't> {
 const CATEGORY_COLUMNS: &str = "id, name, type, color";
 const ACCOUNT_COLUMNS: &str = "id, name, kind, color, opening_balance_cents, opening_date::text, credit_limit_cents, \
      interest_rate_bp, statement_day, due_day, min_payment_rate_bp, sort_order, archived, term_months, \
-     first_due_date::text, installment_cents, tax_rate_bp, funding_income_id, opening_period_cents, opening_installments::text, currency";
+     first_due_date::text, installment_cents, tax_rate_bp, funding_income_id, opening_period_cents, opening_installments::text, currency, opening_cost_cents";
 const RECURRING_COLUMNS: &str = "id, name, type, amount_cents, day, account_id, category_id, active, sort_order, \
      amount_history::text, amount_exceptions::text, covers_previous_month, start_date::text, weekend_shift, orig_amount, \
      (SELECT a.currency FROM accounts a WHERE a.user_id = recurring_items.user_id AND a.id = recurring_items.account_id)";
@@ -57,6 +57,7 @@ fn account(r: &Row) -> Account {
         opening_period_spending: opt(18),
         opening_installments: serde_json::from_str(r.get::<_, &str>(19)).unwrap_or_default(),
         currency,
+        opening_cost: Some(r.get::<_, Option<i64>>(21).map(cents_to_f64)),
     }
 }
 
@@ -194,14 +195,14 @@ impl DataStore for PgStore<'_, '_> {
             "INSERT INTO accounts (user_id, id, name, kind, color, opening_balance_cents, opening_date, credit_limit_cents,
                                    interest_rate_bp, statement_day, due_day, min_payment_rate_bp, sort_order, archived,
                                    term_months, first_due_date, installment_cents, tax_rate_bp, funding_income_id,
-                                   opening_period_cents, opening_installments, currency)
+                                   opening_period_cents, opening_installments, currency, opening_cost_cents)
              VALUES ($1, $2, $3, $4, $5, $6, $7::text::date, $8, $9, $10, $11, $12, $13, $14, $15, $16::text::date, $17, $18, $19,
-                     $20, $21::text::jsonb, $22)",
+                     $20, $21::text::jsonb, $22, $23)",
             &[
                 &u, &id, &r.name, &r.kind, &r.color, &r.opening_cents, &r.opening_date, &r.limit_cents, &r.rate_bp,
                 &r.statement_day, &r.due_day, &r.min_rate_bp, &r.sort_order, &r.archived, &r.term_months, &r.first_due_date,
                 &r.installment_cents, &r.tax_rate_bp, &r.funding_income_id, &r.opening_period_cents, &r.opening_installments,
-                &r.currency,
+                &r.currency, &r.opening_cost_cents,
             ],
         )?;
         Ok(())
@@ -214,13 +215,13 @@ impl DataStore for PgStore<'_, '_> {
                     credit_limit_cents = $8, interest_rate_bp = $9, statement_day = $10, due_day = $11,
                     min_payment_rate_bp = $12, sort_order = $13, archived = $14, term_months = $15,
                     first_due_date = $16::text::date, installment_cents = $17, tax_rate_bp = $18, funding_income_id = $19,
-                    opening_period_cents = $20, opening_installments = $21::text::jsonb, currency = $22
+                    opening_period_cents = $20, opening_installments = $21::text::jsonb, currency = $22, opening_cost_cents = $23
              WHERE user_id = $1 AND id = $2",
             &[
                 &u, &id, &r.name, &r.kind, &r.color, &r.opening_cents, &r.opening_date, &r.limit_cents, &r.rate_bp,
                 &r.statement_day, &r.due_day, &r.min_rate_bp, &r.sort_order, &r.archived, &r.term_months, &r.first_due_date,
                 &r.installment_cents, &r.tax_rate_bp, &r.funding_income_id, &r.opening_period_cents, &r.opening_installments,
-                &r.currency,
+                &r.currency, &r.opening_cost_cents,
             ],
         )
     }

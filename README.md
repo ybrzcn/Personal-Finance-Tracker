@@ -21,6 +21,8 @@ Data is stored in PostgreSQL (one schema, rows isolated per user with row-level 
 
 **Foreign currency and gold accounts:** bank and cash accounts can be held in a foreign currency, in gold/silver by the gram or in gold coins; their TRY value is shown at the current buying rate. Rates come from the Central Bank of Turkey (currencies) and Harem Altın (gold and silver; an unofficial feed — if it is unreachable the last price is shown and rates can always be entered by hand). Rate history is kept only on a Postgres server; the SQLite server and the desktop app fetch rates live and do not store them.
 
+**Profit/loss:** the Kâr/Zarar page shows, for each foreign currency and gold account, the weighted average cost, current value and unrealised profit/loss, plus realised profit/loss for every sale or foreign-currency expense with a monthly chart. Buying and selling are entered as transfers. With a free TCMB EVDS API key (evds3.tcmb.gov.tr → sign up → Profile → API key) it also compares returns with consumer price inflation (TÜFE): set `FINANS_EVDS_KEY` in `.env` on the server (Postgres stores the series), or enter the key under Settings in the desktop app (kept only on that device).
+
 Put it behind HTTPS (Cloudflare Tunnel, Caddy, nginx). The server serves the web app and `/api`; the landing page offers the desktop downloads. Configuration (environment variables) is documented in the Turkish section [Sunucu (self-host)](#sunucu-self-host).
 
 ---
@@ -36,6 +38,7 @@ Put it behind HTTPS (Cloudflare Tunnel, Caddy, nginx). The server serves the web
 - **Dashboard:** Toplam Gelir / Gider / Net Bakiye kartları (Bu Ay · Son 30 Gün · Tümü), bu ayın kategori bazlı harcama halkası, son 30 günün kategori çubuk grafiği, son 6 ayın gelir-gider karşılaştırması, son 10 işlem, yaklaşan kart ödemeleri (30 gün).
 - **Hesaplar:** Vadesiz hesap (isteğe bağlı KMH limiti ve faiz oranı), nakit ve kredi kartları. Kartlarda kesim / son ödeme günü, limit, aylık akdi faiz, asgari ödeme oranı; ekstre borcu, son ödeme tarihi, asgari tutar ve ödeme durumu işlemlerden otomatik hesaplanır. Taksitli harcamalar ekstrelere bölünür. Kart tanımlanırken yalnızca "son ekstre ödendi mi?" sorulur; borç, karta girilen harcamalardan hesaplanır. Eski taksitli alışverişler alış tarihi ve toplam taksit sayısıyla girilir, takip başlangıcından önceki ekstrelere düşen taksitler ödenmiş sayılır. Kart ödemesi ve hesaplar arası para aktarımı **transfer** olarak girilir (gider sayılmaz).
 - **Döviz ve altın hesapları:** Vadesiz hesap ve nakit; döviz (TCMB'nin yayımladığı 21 para birimi), gram altın/gümüş (has, külçe, 22 ve 14 ayar) ya da ziynet altın (çeyrek, yarım, tam, Ata, beşli, gremse; yeni/eski) olarak tutulabilir. Bakiye kendi biriminde, TL karşılığı güncel alış kuruyla gösterilir ve net servete eklenir. Dövizli gelir, gider ve transferde kur (döviz alımında satış, diğerlerinde alış) kendiliğinden gelir ve değiştirilebilir; geçmiş tarihli işlemde o günün TCMB kuru kullanılır. **Kurlar** sayfasında alış, satış, günlük değişim ve geçmiş grafiği bulunur. Kaynaklar: dövizde TCMB (iş günü 15:30), altın ve gümüşte Harem Altın (resmî olmayan akış; ulaşılamazsa son fiyat gösterilir, kur her zaman elle girilebilir).
+- **Kâr/Zarar:** Döviz ve altın hesaplarında ağırlıklı ortalama maliyet, güncel değer ve kâğıt üstü kâr/zarar; her satışın ve dövizle yapılan giderin gerçekleşen kâr/zararı, aylık grafikle. Alım ve satım transfer olarak girilir; açılış bakiyesinin maliyeti hesap formunda girilebilir (boşsa açılış günü kuru). TCMB EVDS anahtarı verilirse getiri TÜFE ile karşılaştırılır (reel kâr/zarar): anahtar evds3.tcmb.gov.tr'de ücretsiz üyelikle Profil → API Anahtarı'ndan alınır; sunucuda `.env`'deki `FINANS_EVDS_KEY`'e, masaüstünde Ayarlar'a girilir (yalnız o cihazda saklanır).
 - **Krediler:** Kalan anapara, aylık faiz, KKDF+BSMV, kalan vade ve sonraki taksit tarihiyle ödeme planı; "Taksit öde" anaparayı krediye transfer, faizi "Faiz ve Masraflar" gideri olarak kaydeder.
 - **Bütçe:** Gider kategorilerine aylık limit (ilerleme çubuğu, aşım uyarısı), düzenli gelirler (maaş günü) ve düzenli giderler (kira, fatura, abonelik).
 - **Ödeme Takvimi:** Önümüzdeki 1/3/6 ayın kart ekstreleri (kesilmemişler tahmini), kredi taksitleri ve düzenli giderleri; her ödeme son ödeme tarihinden önce yatan son gelire yazılır (hesap bazında elle seçilebilir), gelir başına "kalan" gösterilir.
@@ -217,6 +220,7 @@ Tablolar sunucu açılırken otomatik oluşturulur ve güncellenir.
 | `FINANS_DATABASE_URL` | boş (Compose'da Postgres) | Verilirse veri PostgreSQL'de tutulur; boşsa SQLite |
 | `FINANS_DB_POOL` | `8` | PostgreSQL bağlantı havuzu boyutu |
 | `FINANS_MAX_USERS` | `0` (sınırsız) | En fazla hesap sayısı |
+| `FINANS_EVDS_KEY` | boş | TCMB EVDS API anahtarı; verilirse TÜFE günde bir çekilir (Postgres'te saklanır, SQLite modunda bellekte), Kâr/Zarar sayfasında enflasyon karşılaştırması açılır |
 
 `FINANS_USER_QUOTA_MB` 1.1.0'da kaldırıldı (kullanıcı başına kota yok); verilirse yok sayılır.
 
@@ -296,6 +300,8 @@ Tüm yanıtlar JSON; hata biçimi `{"error": "<mesaj>"}`. Kimlik: web'de `finans
 | `GET /api/settings`, `PUT /api/settings/{key}` | Borç planı / analiz ayarları |
 | `POST /api/restore`, `GET /api/export` | Tüm veriyi değiştir / indir |
 | `POST /api/statements/parse?name=<dosya>` (ham bayt) | Ekstre dosyasını okur (CSV, Excel, PDF) |
+| `GET /api/rates/latest[?refresh=1]`, `GET /api/rates/at?code=&date=`, `GET /api/rates/history?code=&from=&to=` | Kurlar (geçmiş yalnız Postgres) |
+| `GET /api/pnl?from=&to=` | Döviz/altın kâr/zarar raporu (tutarlar kuruş, kurlar ×1.000.000, yüzdeler baz puan) |
 | `GET /api/health` | Sağlık kontrolü |
 
 ## Masaüstü: hesap ve veri yeri

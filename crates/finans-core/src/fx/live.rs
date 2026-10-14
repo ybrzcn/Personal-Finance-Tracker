@@ -11,6 +11,8 @@ use super::time::*;
 use crate::CoreResult;
 
 pub const REFRESH_SECS: i64 = 60;
+/// Arşive ulaşılamazsa bu süre yeniden denenmez (çevrimdışıyken her rapor ağ beklemesin)
+const ARCHIVE_RETRY: i64 = 600;
 
 #[derive(Default)]
 struct State {
@@ -22,11 +24,20 @@ struct State {
     last_error: Option<String>,
 }
 
-#[derive(Default)]
 pub struct LiveRates {
     state: Mutex<State>,
     /// Arşiv günleri: gün → o günün yayını (None = yayın yok)
     archive: Mutex<HashMap<i64, Option<Vec<Quote>>>>,
+    /// Arşiv günü çekme (doğrulamada sahtesi verilir)
+    fetch_day: fn(i64) -> CoreResult<Option<TcmbDay>>,
+    /// Son arşiv hatası ve o ana kadar yeniden denenmeyeceği zaman
+    archive_down: Mutex<Option<(i64, String)>>,
+}
+
+impl Default for LiveRates {
+    fn default() -> Self {
+        Self::with_archive_fetcher(fetch_tcmb_on)
+    }
 }
 
 fn log_once(state: &mut State, e: String) {
@@ -39,6 +50,12 @@ fn log_once(state: &mut State, e: String) {
 impl LiveRates {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Arşiv çekme fonksiyonu verilmiş önbellek (doğrulama betikleri için)
+    #[doc(hidden)]
+    pub fn with_archive_fetcher(fetch_day: fn(i64) -> CoreResult<Option<TcmbDay>>) -> Self {
+        LiveRates { state: Default::default(), archive: Default::default(), fetch_day, archive_down: Default::default() }
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -94,7 +111,18 @@ impl LiveRates {
             let quotes = match cached {
                 Some(q) => q,
                 None => {
-                    let fetched = fetch_tcmb_on(d)?.map(|t| t.quotes);
+                    if let Some((until, e)) = self.archive_down.lock().unwrap_or_else(|e| e.into_inner()).clone() {
+                        if now < until {
+                            return Err(e);
+                        }
+                    }
+                    let fetched = match (self.fetch_day)(d) {
+                        Ok(t) => t.map(|t| t.quotes),
+                        Err(e) => {
+                            *self.archive_down.lock().unwrap_or_else(|e| e.into_inner()) = Some((now + ARCHIVE_RETRY, e.clone()));
+                            return Err(e);
+                        }
+                    };
                     self.archive.lock().unwrap_or_else(|e| e.into_inner()).insert(d, fetched.clone());
                     fetched
                 }

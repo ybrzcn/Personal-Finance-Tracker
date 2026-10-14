@@ -29,6 +29,7 @@ export function makeDefaultAccount(openingDate: string): Account {
     openingPeriodSpending: null,
     openingInstallments: [],
     currency: TRY,
+    openingCost: null,
   };
 }
 
@@ -175,6 +176,7 @@ export function normalizeAccount(a: Account): Account {
     ...a,
     name,
     currency,
+    openingCost: foreign && a.openingCost != null && a.openingCost > 0 && a.openingBalance > 0 ? round2(a.openingCost) : null,
     openingBalance: foreign ? a.openingBalance : round2(a.openingBalance),
     creditLimit,
     interestRate: cash || foreign ? null : rate(a.interestRate, "Faiz oranı"),

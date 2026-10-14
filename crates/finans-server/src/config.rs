@@ -34,6 +34,8 @@ pub struct Config {
     pub database_url: Option<String>,
     /// Postgres bağlantı havuzu boyutu
     pub db_pool: u32,
+    /// TCMB EVDS API anahtarı (TÜFE); yoksa enflasyon karşılaştırması yapılmaz
+    pub evds_key: Option<String>,
 }
 
 impl Config {
@@ -58,6 +60,7 @@ impl Config {
             web_dir: var("FINANS_WEB_DIR").map(PathBuf::from).filter(|p| p.join("index.html").is_file()),
             database_url: var("FINANS_DATABASE_URL"),
             db_pool: var("FINANS_DB_POOL").and_then(|v| v.parse().ok()).filter(|n| *n > 0).unwrap_or(8),
+            evds_key: var("FINANS_EVDS_KEY"),
         }
     }
 }

@@ -20,6 +20,8 @@ pub struct AppState {
     pub data: DataBackend,
     /// Kurlar (Postgres: toplanır ve saklanır; SQLite: canlı)
     pub rates: crate::rates::RateService,
+    /// TÜFE (Postgres: günlük toplanır; SQLite: istekte)
+    pub cpi: crate::cpi::CpiService,
     pub limiter: RateLimiter,
     /// Aynı anda en fazla bu kadar Argon2 (şifre/kurtarma kodu) hesabı: kayıt/giriş seliyle işlemci tüketilemesin
     pub hash_permits: tokio::sync::Semaphore,

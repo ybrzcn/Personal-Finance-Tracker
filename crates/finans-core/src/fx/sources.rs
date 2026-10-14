@@ -66,11 +66,11 @@ pub fn is_stale(q: &Quote, now: i64) -> bool {
     }
 }
 
-fn install_crypto() {
+pub(crate) fn install_crypto() {
     let _ = rustls::crypto::ring::default_provider().install_default();
 }
 
-fn agent() -> ureq::Agent {
+pub(crate) fn agent() -> ureq::Agent {
     ureq::AgentBuilder::new().timeout(Duration::from_secs(15)).user_agent("finans").build()
 }
 

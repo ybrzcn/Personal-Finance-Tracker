@@ -7,6 +7,7 @@ import { daysBetween, formatDateShort, todayISO } from "../lib/format";
 import { loanSummary } from "../lib/loans";
 import { ACCOUNT_KIND_LABEL, type Account } from "../lib/types";
 import { useData } from "../state/data";
+import { usePnlSummary } from "../state/pnl";
 import { useRates } from "../state/rates";
 import { useSettings } from "../state/settings";
 import { useUI, type AmountHint } from "../state/ui";
@@ -118,6 +119,8 @@ export function BankAccountCard({ account }: { account: Account }) {
   const foreign = isForeign(account.currency);
   const native = useMemo(() => (foreign ? nativeBalanceMinor(account, transactions, today) : 0), [foreign, account, transactions, today]);
   const quote = foreign ? rates.get(account.currency) : undefined;
+  const { byAccount } = usePnlSummary();
+  const pnl = foreign ? byAccount.get(account.id) : undefined;
   const valueCents = foreign ? fxValueCents(account, transactions, rates, today) : null;
   return (
     <CardShell
@@ -151,6 +154,13 @@ export function BankAccountCard({ account }: { account: Account }) {
               "TL karşılığı: — (kur alınamadı)"
             )}
           </div>
+          {pnl && pnl.qtyMinor > 0 && pnl.unrealizedCents !== null && (
+            <div className={`mt-0.5 text-xs tabular-nums ${pnl.unrealizedCents >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+              k/z {pnl.unrealizedCents > 0 ? "+" : ""}
+              {formatMoney(pnl.unrealizedCents / 100)}
+              {pnl.unrealizedBp !== null && ` (%${(pnl.unrealizedBp / 100).toLocaleString("tr-TR", { maximumFractionDigits: 1 })})`}
+            </div>
+          )}
         </div>
       ) : (
         <div className={`text-2xl font-semibold tracking-tight tabular-nums ${s.balanceCents < 0 ? "text-rose-600 dark:text-rose-400" : ""}`}>

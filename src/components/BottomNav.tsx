@@ -3,6 +3,7 @@ import {
   Activity,
   CalendarRange,
   Coins,
+  TrendingUp,
   Landmark,
   LayoutDashboard,
   Menu,
@@ -29,6 +30,7 @@ const TABS: { page: Page; label: string; icon: typeof LayoutDashboard }[] = [
 const MORE: { page: Page; label: string; icon: typeof LayoutDashboard }[] = [
   { page: "accounts", label: "Hesaplar", icon: Landmark },
   { page: "rates", label: "Kurlar", icon: Coins },
+  { page: "pnl", label: "Kâr/Zarar", icon: TrendingUp },
   { page: "analysis", label: "Analiz", icon: Activity },
   { page: "plan", label: "Ödeme Takvimi", icon: CalendarRange },
   { page: "debt", label: "Borç Planı", icon: TrendingDown },

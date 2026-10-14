@@ -167,6 +167,15 @@ pub fn clean_account(a: &Account) -> CoreResult<AccountRow> {
         }
         _ => None,
     };
+    let opening_cost_cents = match a.opening_cost.flatten() {
+        None => None,
+        Some(_) if !foreign => return Err("Açılış maliyeti yalnız döviz/altın hesaplarında girilebilir.".into()),
+        Some(_) if a.opening_balance <= 0.0 => {
+            return Err("Açılış maliyeti için açılış bakiyesi sıfırdan büyük olmalıdır.".into())
+        }
+        Some(v) if !v.is_finite() || v <= 0.0 => return Err("Açılış maliyeti sıfırdan büyük olmalıdır.".into()),
+        Some(v) => Some(to_cents(v)?),
+    };
     Ok(AccountRow {
         name,
         kind: a.kind.clone(),
@@ -194,6 +203,7 @@ pub fn clean_account(a: &Account) -> CoreResult<AccountRow> {
         },
         opening_installments: if card { clean_opening_installments(&a.opening_installments)? } else { "[]".into() },
         currency,
+        opening_cost_cents,
         funding_income_id: if card || loan {
             a.funding_income_id.clone().filter(|s| !s.is_empty())
         } else {
@@ -347,6 +357,7 @@ pub fn seed_new_user(s: &mut dyn DataStore, today: &str) -> CoreResult<()> {
         opening_period_spending: None,
         opening_installments: Vec::new(),
         currency: fx::TRY.into(),
+        opening_cost: None,
     };
     s.insert_account(&db::new_id(), &clean_account(&account)?)
 }
@@ -402,7 +413,11 @@ pub fn create_account(s: &mut dyn DataStore, input: AccountInput) -> CoreResult<
     get_account(s, &id)
 }
 
-pub fn update_account(s: &mut dyn DataStore, account: Account) -> CoreResult<Account> {
+pub fn update_account(s: &mut dyn DataStore, mut account: Account) -> CoreResult<Account> {
+    // Alanı göndermeyen (eski) istemci açılış maliyetini silmesin
+    if account.opening_cost.is_none() {
+        account.opening_cost = Some(get_account(s, &account.id)?.opening_cost.flatten());
+    }
     let row = clean_account(&account)?;
     let old = account_meta(s, &account.id).map_err(|_| "Hesap bulunamadı.".to_string())?;
     let used = s.account_usage(&account.id)? > 0;

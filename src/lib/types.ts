@@ -46,6 +46,8 @@ export interface Account {
   openingInstallments: OpeningInstallment[];
   /** "TRY" ya da döviz/altın kodu (yalnız banka/nakit TL dışı olabilir); açılış bakiyesi bu birimde */
   currency: string;
+  /** Yalnız döviz/altın: açılış bakiyesinin TL maliyeti (kâr/zarar); boşsa açılış günü kuru */
+  openingCost: number | null;
 }
 
 /** Kart eklenirken girilen, devam eden taksitli harcama. */
@@ -232,4 +234,73 @@ export interface RateQuote {
   prevBuy?: number | null;
   /** Fiyat eski (kaynağa ulaşılamıyor olabilir) */
   stale: boolean;
+}
+
+/** Kâr/zarar raporu (Rust finans-core::pnl). Tutarlar kuruş, kurlar ×1e6, yüzdeler baz puan, miktar en küçük birim. */
+export interface AccountPnl {
+  accountId: string;
+  name: string;
+  currency: string;
+  qtyMinor: number;
+  costCents: number | null;
+  avgCostMicros: number | null;
+  rateMicros: number | null;
+  rateObservedAt: string | null;
+  valueCents: number | null;
+  unrealizedCents: number | null;
+  unrealizedBp: number | null;
+  realCostCents: number | null;
+  realUnrealizedCents: number | null;
+  realUnrealizedBp: number | null;
+  inflationBp: number | null;
+  costUnknown: boolean;
+  inconsistentSince: string | null;
+  rateStale: boolean;
+  noRate: boolean;
+  cpiApprox: boolean;
+}
+export interface RealizedItem {
+  transactionId: string;
+  date: string;
+  accountId: string;
+  kind: "expense" | "transfer";
+  qtyMinor: number;
+  currency: string;
+  proceedsCents: number;
+  costCents: number | null;
+  pnlCents: number | null;
+  realPnlCents: number | null;
+  costUnknown: boolean;
+  cpiApprox: boolean;
+}
+export interface MonthTotal {
+  month: string;
+  pnlCents: number;
+  realPnlCents: number | null;
+  /** Maliyeti bilinmeyen satış toplama girmedi */
+  partial: boolean;
+}
+export interface PnlTotals {
+  costCents: number;
+  valueCents: number;
+  unrealizedCents: number;
+  unrealizedBp: number | null;
+  realUnrealizedCents: number | null;
+  realUnrealizedBp: number | null;
+  inflationBp: number | null;
+  realizedCents: number;
+  realRealizedCents: number | null;
+  partial: boolean;
+}
+export interface CpiInfo {
+  status: "ok" | "noKey" | "unavailable";
+  latestMonth: string | null;
+  message: string | null;
+}
+export interface PnlReport {
+  accounts: AccountPnl[];
+  realized: RealizedItem[];
+  months: MonthTotal[];
+  totals: PnlTotals;
+  cpi: CpiInfo;
 }

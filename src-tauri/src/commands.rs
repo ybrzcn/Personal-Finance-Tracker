@@ -31,6 +31,9 @@ pub struct AppConfig {
     /// Hesap ve veri yeri (sunucu adresi, oturum, mod)
     #[serde(default)]
     pub client: ClientConfig,
+    /// TCMB EVDS API anahtarı (TÜFE); yalnız bu cihazda, sunucuya ve yedeğe gitmez
+    #[serde(default)]
+    pub evds_api_key: Option<String>,
 }
 
 /// Masaüstü istemci durumu. Token düz metin olarak uygulama veri klasöründeki config.json'da durur.
@@ -437,3 +440,15 @@ pub fn save_export(app: tauri::AppHandle, name: String, contents: String) -> Cmd
     Ok(path.display().to_string())
 }
 
+/// EVDS anahtarı girilmiş mi (anahtarın kendisi arayüze dönmez)
+#[tauri::command]
+pub fn evds_key_set(state: State<'_, AppState>) -> bool {
+    read_config(&state.config_path).evds_api_key.is_some_and(|k| !k.trim().is_empty())
+}
+
+#[tauri::command]
+pub fn set_evds_key(state: State<'_, AppState>, key: Option<String>) -> CmdResult<()> {
+    let mut config = read_config(&state.config_path);
+    config.evds_api_key = key.map(|k| k.trim().to_string()).filter(|k| !k.is_empty());
+    write_config(&state.config_path, &config)
+}

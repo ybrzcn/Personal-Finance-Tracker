@@ -51,6 +51,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
       : "",
   );
   const [currency, setCurrency] = useState(account?.currency ?? TRY);
+  const [openingCost, setOpeningCost] = useState(account?.openingCost != null ? amountToInput(account.openingCost) : "");
   const [openingDate, setOpeningDate] = useState(account?.openingDate ?? todayISO());
   const [limit, setLimit] = useState(account?.creditLimit != null ? amountToInput(account.creditLimit) : "");
   const [rate, setRate] = useState(percentInput(account?.interestRate ?? null));
@@ -73,6 +74,8 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
   const cash = kind === "cash";
   const loan = kind === "loan";
   const foreign = isForeign(currency) && (kind === "bank" || kind === "cash");
+  // Açılış maliyeti yalnız açılış bakiyesi varken anlamlı
+  const openingPositive = foreign && (parseQuantity(opening, qtyDecimals(currency)) ?? 0) > 0;
   const sd = Number(statementDay);
   const dd = Number(dueDay);
   const preview = useMemo(() => {
@@ -121,6 +124,8 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
       const termValue = Number.parseInt(term, 10);
       if (loan && (!termValue || termValue < 1)) throw "Kalan vade (ay) girin.";
       if (loan && !firstDue) throw "Sonraki taksit tarihini girin.";
+      const costValue = openingPositive && openingCost.trim() ? parseAmount(openingCost) : null;
+      if (openingPositive && openingCost.trim() && (costValue === null || costValue <= 0)) throw "Geçerli bir açılış maliyeti girin.";
       input = {
         name,
         kind,
@@ -143,6 +148,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
         openingPeriodSpending: account?.openingPeriodSpending ?? null,
         openingInstallments: account?.openingInstallments ?? [],
         currency: foreign ? currency : TRY,
+        openingCost: openingPositive ? costValue : null,
       };
     } catch (err) {
       return setError(errorMessage(err));
@@ -310,6 +316,18 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
                 onChange={(e) => setOpeningDate(e.target.value)}
               />
             </div>
+          </div>
+        )}
+
+        {openingPositive && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label" htmlFor="acc-opening-cost">
+                Açılış maliyeti (TL)
+              </label>
+              <MoneyInput id="acc-opening-cost" placeholder="İsteğe bağlı" value={openingCost} onValueChange={setOpeningCost} />
+            </div>
+            <p className="self-end pb-2 text-xs text-zinc-500">Kâr/zarar için. Boşsa açılış günündeki kur kullanılır.</p>
           </div>
         )}
 

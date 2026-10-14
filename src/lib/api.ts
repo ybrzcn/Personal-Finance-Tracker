@@ -13,6 +13,7 @@ import type {
   Budget,
   Category,
   CategoryInput,
+  PnlReport,
   RateQuote,
   RecurringInput,
   RecurringItem,
@@ -71,6 +72,11 @@ export interface Api {
   rateAt(code: string, date: string): Promise<RateQuote | null>;
   /** Kur geçmişi (yalnız Postgres'li sunucu) */
   rateHistory(code: string, from: string, to: string): Promise<RateQuote[]>;
+  /** Döviz/altın kâr/zarar raporu; `from`/`to` gerçekleşenleri sınırlar (Rust'ta hesaplanır) */
+  pnlReport(from: string | null, to: string | null): Promise<PnlReport>;
+  /** Masaüstü yerel mod: EVDS anahtarı girilmiş mi */
+  evdsKeySet(): Promise<boolean>;
+  setEvdsKey(key: string | null): Promise<void>;
 }
 
 export interface AppInfo {
@@ -136,6 +142,9 @@ const tauriApi: Api = {
   uninstallApp: (includeCustomDatabase) => invoke<void>("uninstall_app", { includeCustomDatabase }),
   latestRates: () => invoke<RateQuote[]>("rates_latest"),
   rateAt: (code, date) => invoke<RateQuote | null>("rate_at", { code, date }),
+  pnlReport: (from, to) => invoke<PnlReport>("pnl_report", { from, to }),
+  evdsKeySet: () => invoke<boolean>("evds_key_set"),
+  setEvdsKey: (key) => invoke<void>("set_evds_key", { key }),
   rateHistory: async () => {
     throw "Kur geçmişi yalnızca sunucuya bağlıyken görülebilir.";
   },
@@ -454,6 +463,15 @@ const localApi: Api = {
   },
   async rateHistory() {
     throw "Kur geçmişi yalnızca sunucuya bağlıyken görülebilir.";
+  },
+  async pnlReport() {
+    throw "Bu özellik sunucu ya da masaüstü uygulaması gerektirir.";
+  },
+  async evdsKeySet() {
+    return false;
+  },
+  async setEvdsKey() {
+    throw "Bu özellik yalnız masaüstü uygulamasında.";
   },
 };
 
