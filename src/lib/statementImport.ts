@@ -2,7 +2,7 @@ import { toCents } from "./cards";
 import { detectDelimiter, norm, parseCsv, parseDate } from "./csv";
 import type { StatementFile } from "./fileio";
 import { parseAmount } from "./format";
-import type { Account, Category, CategoryType, Transaction } from "./types";
+import type { Account, Category, CategoryRule, CategoryType, Transaction } from "./types";
 
 /** Banka ekstresi (CSV / TXT) satırları. İlk 30 satır içinde başlık aranır. */
 export function readTable(text: string): string[][] {
@@ -250,12 +250,62 @@ const historyKey = (description: string) =>
     .slice(0, 2)
     .join(" ");
 
+/** Kural kelimesinin karşılaştırmada kullanılan biçimi ("MARKET-Örnek Şube" → "market ornek sube"). */
+export const normalizeRuleWord = (word: string) => words(word).trim();
+
+/**
+ * Kullanıcı kuralının kelimelerinden açıklamada geçen en uzununun uzunluğu; yoksa 0.
+ * Son kelimesi 4 harf ve üstüyse kelime başından eşleşir, Türkçe ekler de tutar ("kira" → "Ev kirası");
+ * daha kısaysa tam kelime aranır ("bim" "BİMEKS"i tutmaz).
+ */
+function longestMatch(w: string, ruleWords: string[]): number {
+  let best = 0;
+  for (const k of ruleWords) {
+    const n = normalizeRuleWord(k);
+    if (!n || n.length <= best) continue;
+    const prefix = n.slice(n.lastIndexOf(" ") + 1).length >= 4;
+    if (w.includes(prefix ? ` ${n}` : ` ${n} `)) best = n.length;
+  }
+  return best;
+}
+
+/**
+ * Kullanıcı kurallarından uyan kategori. Birden çok kural uyarsa en uzun kelimesi eşleşen kazanır
+ * ("getir yemek" → Restoran, "getir" → Market'i yener); eşitlikte listede önce gelen. Kategorisi silinmiş kural atlanır.
+ */
+export function matchUserRule(description: string, type: CategoryType, rules: CategoryRule[], categories: Category[]): string | null {
+  const w = words(description);
+  let best: string | null = null;
+  let bestLen = 0;
+  for (const r of rules) {
+    if (r.type !== type || !categories.some((c) => c.id === r.categoryId && c.type === type)) continue;
+    const len = longestMatch(w, r.words);
+    if (len > bestLen) {
+      best = r.categoryId;
+      bestLen = len;
+    }
+  }
+  return best;
+}
+
+/** Kural formundaki önizleme: verilen kelimelerden birini içeren, o türdeki işlemler (yeniden eskiye). */
+export function transactionsMatching(ruleWords: string[], type: CategoryType, txs: Transaction[]): Transaction[] {
+  if (!ruleWords.some((k) => normalizeRuleWord(k))) return [];
+  return txs
+    .filter((t) => t.type === type && t.description && longestMatch(words(t.description), ruleWords) > 0)
+    .sort((a, b) => b.date.localeCompare(a.date));
+}
+
+/** Kategori önerisi: önce kullanıcı kuralları, sonra geçmiş işlemler, en son hazır anahtar kelime listesi. */
 export function suggestCategory(
   description: string,
   type: CategoryType,
   history: Map<string, string>,
   categories: Category[],
+  rules: CategoryRule[] = [],
 ): string | null {
+  const fromRule = matchUserRule(description, type, rules, categories);
+  if (fromRule) return fromRule;
   const fromHistory = history.get(`${type}:${historyKey(description)}`);
   if (fromHistory && categories.some((c) => c.id === fromHistory)) return fromHistory;
   const w = words(description);
@@ -275,12 +325,12 @@ export function matchesCategoryRule(description: string, categoryName: string): 
 }
 
 /** Kategorisiz gelir/gider işlemleri için öneriler: işlem id → kategori id. */
-export function suggestForUncategorized(txs: Transaction[], categories: Category[]): Map<string, string> {
+export function suggestForUncategorized(txs: Transaction[], categories: Category[], rules: CategoryRule[] = []): Map<string, string> {
   const history = buildHistory(txs);
   const out = new Map<string, string>();
   for (const t of txs) {
     if (t.categoryId || t.type === "transfer" || !t.description) continue;
-    const c = suggestCategory(t.description, t.type, history, categories);
+    const c = suggestCategory(t.description, t.type, history, categories, rules);
     if (c) out.set(t.id, c);
   }
   return out;
@@ -304,6 +354,7 @@ export function buildImportRows(
   accounts: Account[],
   existing: Transaction[],
   categories: Category[],
+  rules: CategoryRule[] = [],
 ): { rows: ImportRow[]; skipped: number } {
   const history = buildHistory(existing);
   const seen = new Set(
@@ -369,7 +420,7 @@ export function buildImportRows(
       amount,
       type,
       toAccountId,
-      categoryId: type === "transfer" ? null : suggestCategory(description, type, history, categories),
+      categoryId: type === "transfer" ? null : suggestCategory(description, type, history, categories, rules),
       installments,
       include,
       note,

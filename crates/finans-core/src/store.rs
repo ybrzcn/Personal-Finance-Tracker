@@ -962,6 +962,7 @@ pub const SETTING_KEYS: &[&str] = &[
     "debtCells",
     "subscriptionOverrides",
     "forecastCategoryIds",
+    "categoryRules",
 ];
 
 pub fn get_settings(conn: &Connection) -> CoreResult<serde_json::Map<String, serde_json::Value>> {

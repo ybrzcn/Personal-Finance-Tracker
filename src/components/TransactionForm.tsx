@@ -73,7 +73,7 @@ function AccountSelect({
 export function TransactionForm({ transaction, defaults, hints, onClose, onSaved }: Props) {
   const { categories, accounts, accountById, transactions, addTransaction, updateTransaction } = useData();
   const { confirm } = useUI();
-  const { formatMoney } = useSettings();
+  const { formatMoney, settings } = useSettings();
   const editing = !!transaction;
   const init: Partial<TransactionInput> = transaction ?? defaults ?? {};
 
@@ -129,7 +129,7 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
   const onDescription = (v: string) => {
     setDescription(v);
     if (categoryTouched.current || type === "transfer" || !v.trim()) return;
-    const id = suggestCategory(v, type, history, categories);
+    const id = suggestCategory(v, type, history, categories, settings.categoryRules);
     if (id) {
       setCategoryId(id);
       setSuggestedName(categories.find((c) => c.id === id)?.name ?? null);

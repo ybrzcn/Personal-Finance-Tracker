@@ -400,7 +400,7 @@ checksum = "c6e8948ce679d00a02a94739ea185595dca7118ed04feb991127e443bd3d761f"
 
 [[package]]
 name = "finans-core"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "calamine",
  "pdf-extract",
@@ -412,7 +412,7 @@ dependencies = [
 
 [[package]]
 name = "finans-server"
-version = "1.0.2"
+version = "1.0.3"
 dependencies = [
  "argon2",
  "axum",

@@ -4,9 +4,14 @@ import type { ParsedCsvRow } from "./csv";
 import { todayISO } from "./format";
 import { newId } from "./id";
 import type { DataSet } from "./api";
-import type { Account, AccountKind, AnalysisSettings, Backup, Budget, Category, DebtPlanSettings, RecurringItem, Transaction, TxType } from "./types";
+import type { Account, AccountKind, AnalysisSettings, Backup, Budget, Category, CategoryRule, DebtPlanSettings, RecurringItem, Transaction, TxType } from "./types";
 
-export function createBackup(data: DataSet, debtPlan?: DebtPlanSettings, analysis?: AnalysisSettings): Backup {
+export function createBackup(
+  data: DataSet,
+  debtPlan?: DebtPlanSettings,
+  analysis?: AnalysisSettings,
+  categoryRules?: CategoryRule[],
+): Backup {
   return {
     app: "finans",
     version: 3,
@@ -14,7 +19,19 @@ export function createBackup(data: DataSet, debtPlan?: DebtPlanSettings, analysi
     ...data,
     ...(debtPlan ? { debtPlan } : {}),
     ...(analysis ? { analysis } : {}),
+    ...(categoryRules ? { categoryRules } : {}),
   };
+}
+
+/** Yedekteki kategori kurallarını doğrular; geçersiz kurallar ve kelimesi kalmayanlar atlanır. */
+function parseCategoryRules(v: unknown): CategoryRule[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  return v.flatMap((r): CategoryRule[] => {
+    if (!isObj(r) || typeof r.id !== "string" || typeof r.categoryId !== "string" || !isCategoryType(r.type) || !Array.isArray(r.words))
+      return [];
+    const words = r.words.filter((w): w is string => typeof w === "string" && w.trim() !== "").map((w) => w.trim());
+    return words.length ? [{ id: r.id, words, type: r.type as CategoryRule["type"], categoryId: r.categoryId }] : [];
+  });
 }
 
 /** Yedekteki analiz ayarlarını doğrular; geçersiz girdiler atlanır. */
@@ -169,6 +186,7 @@ export function parseBackup(text: string): Backup {
     .map((b) => ({ categoryId: b.categoryId as string, amount: b.amount as number }));
   const debtPlan = parseDebtPlan(data.debtPlan);
   const analysis = parseAnalysis(data.analysis);
+  const categoryRules = parseCategoryRules(data.categoryRules);
   return {
     app: "finans",
     version: 3,
@@ -180,6 +198,7 @@ export function parseBackup(text: string): Backup {
     budgets,
     ...(debtPlan ? { debtPlan } : {}),
     ...(analysis ? { analysis } : {}),
+    ...(categoryRules ? { categoryRules } : {}),
   };
 }
 

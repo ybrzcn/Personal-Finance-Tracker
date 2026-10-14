@@ -138,6 +138,8 @@ export interface Backup {
   debtPlan?: DebtPlanSettings;
   /** Analiz ayarları (abonelik düzeltmeleri, tahmin edilen kategoriler); eski yedeklerde yok */
   analysis?: AnalysisSettings;
+  /** Kullanıcının otomatik kategori kuralları; eski yedeklerde yok */
+  categoryRules?: CategoryRule[];
 }
 
 export type SubscriptionPeriod = "monthly" | "yearly";
@@ -150,7 +152,7 @@ export interface SubscriptionOverride {
 }
 
 /** Veritabanında saklanan, cihazlar arasında taşınan uygulama ayarları */
-export type AppDataSettings = DebtPlanSettings & AnalysisSettings;
+export type AppDataSettings = DebtPlanSettings & AnalysisSettings & CategoryRuleSettings;
 export type AppSettingKey = keyof AppDataSettings;
 export const APP_SETTING_KEYS: AppSettingKey[] = [
   "debtBudget",
@@ -159,7 +161,21 @@ export const APP_SETTING_KEYS: AppSettingKey[] = [
   "debtCells",
   "subscriptionOverrides",
   "forecastCategoryIds",
+  "categoryRules",
 ];
+
+/** "Açıklamada şu kelimelerden biri geçerse → bu kategori" kuralı. */
+export interface CategoryRule {
+  id: string;
+  /** Tam kelime ya da kelime grubu olarak aranır (büyük/küçük harf ve Türkçe karakter farkı gözetilmez) */
+  words: string[];
+  type: CategoryType;
+  categoryId: string;
+}
+
+export interface CategoryRuleSettings {
+  categoryRules: CategoryRule[];
+}
 
 export interface AnalysisSettings {
   /** Abonelik anahtarı → düzeltme */

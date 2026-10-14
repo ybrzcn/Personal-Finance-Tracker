@@ -23,7 +23,7 @@ const PRESETS: RangePreset[] = ["thisMonth", "lastMonth", "last30", "thisYear", 
 
 export function Transactions() {
   const { transactions, categories, categoryById, accounts, accountById, addTransaction, deleteTransaction, latest, restore } = useData();
-  const { formatMoney } = useSettings();
+  const { formatMoney, settings } = useSettings();
   const { openTransactionForm, confirm, toast, accountFilter, setAccountFilter } = useUI();
 
   const [query, setQuery] = useState("");
@@ -117,7 +117,10 @@ export function Transactions() {
     }
   };
 
-  const suggestions = useMemo(() => suggestForUncategorized(transactions, categories), [transactions, categories]);
+  const suggestions = useMemo(
+    () => suggestForUncategorized(transactions, categories, settings.categoryRules),
+    [transactions, categories, settings.categoryRules],
+  );
 
   const autoCategorize = async () => {
     const counts = new Map<string, number>();

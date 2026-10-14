@@ -130,9 +130,14 @@ export function SettingsPage() {
 
   const exportJson = () =>
     run(async () => {
-      const { debtBudget, debtBudgetOverrides, debtRules, debtCells, subscriptionOverrides, forecastCategoryIds } = settings;
+      const { debtBudget, debtBudgetOverrides, debtRules, debtCells, subscriptionOverrides, forecastCategoryIds, categoryRules } = settings;
       const json = JSON.stringify(
-        createBackup(snapshot(), { debtBudget, debtBudgetOverrides, debtRules, debtCells }, { subscriptionOverrides, forecastCategoryIds }),
+        createBackup(
+          snapshot(),
+          { debtBudget, debtBudgetOverrides, debtRules, debtCells },
+          { subscriptionOverrides, forecastCategoryIds },
+          categoryRules,
+        ),
         null,
         2,
       );
@@ -176,7 +181,12 @@ export function SettingsPage() {
       // Ayarlar yazılamazsa run() hatayı gösterir; başarı mesajı çıkmaz
       if (backup.debtPlan) await update(backup.debtPlan);
       if (backup.analysis) await update(backup.analysis);
-      toast(backup.debtPlan || backup.analysis ? "Yedek, ayarlarıyla (borç planı, analiz) birlikte geri yüklendi." : "Yedek başarıyla geri yüklendi.");
+      if (backup.categoryRules) await update({ categoryRules: backup.categoryRules });
+      toast(
+        backup.debtPlan || backup.analysis || backup.categoryRules
+          ? "Yedek, ayarlarıyla (borç planı, analiz, kategori kuralları) birlikte geri yüklendi."
+          : "Yedek başarıyla geri yüklendi.",
+      );
     });
 
   const importCsv = () =>
@@ -314,7 +324,7 @@ export function SettingsPage() {
         recurring: [],
         budgets: [],
       });
-      // Borç planı kuralları ve analiz düzeltmeleri silinen hesaplara/kategorilere bağlıydı
+      // Borç planı kuralları, analiz düzeltmeleri ve kategori kuralları silinen hesaplara/kategorilere bağlıydı
       await update({
         debtBudget: 0,
         debtBudgetOverrides: {},
@@ -322,6 +332,7 @@ export function SettingsPage() {
         debtCells: {},
         subscriptionOverrides: {},
         forecastCategoryIds: null,
+        categoryRules: [],
       });
       setAccountFilter("all");
       try {

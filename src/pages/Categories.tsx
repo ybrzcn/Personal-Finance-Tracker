@@ -1,10 +1,11 @@
-import { Pencil, Plus, Tags, Trash2 } from "lucide-react";
-import { useMemo } from "react";
-import { CategoryDot, EmptyState, PageHeader } from "../components/common";
+import { ArrowRight, Pencil, Plus, Tags, Trash2, Wand2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { CategoryRuleForm } from "../components/CategoryRuleForm";
+import { CategoryDot, CategoryLabel, EmptyState, PageHeader } from "../components/common";
 import { errorMessage } from "../lib/api";
 import { spreadInstallments } from "../lib/cards";
 import { todayISO } from "../lib/format";
-import type { Category, CategoryType } from "../lib/types";
+import type { Category, CategoryRule, CategoryType } from "../lib/types";
 import { useData } from "../state/data";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
@@ -15,9 +16,11 @@ interface Usage {
 }
 
 export function Categories() {
-  const { categories, transactions, budgets, deleteCategory } = useData();
-  const { formatMoney } = useSettings();
+  const { categories, categoryById, transactions, budgets, deleteCategory } = useData();
+  const { formatMoney, settings, update } = useSettings();
   const { openCategoryForm, confirm, toast, setPage } = useUI();
+  // Kural formu: undefined kapalı, null yeni kural
+  const [ruleForm, setRuleForm] = useState<CategoryRule | null | undefined>(undefined);
   const limitBy = useMemo(() => new Map(budgets.map((b) => [b.categoryId, b.amount])), [budgets]);
   // Bu ayki harcama (taksitler aylara bölünmüş) — bütçe limitiyle birlikte gösterilir
   const thisMonth = todayISO().slice(0, 7);
@@ -64,6 +67,26 @@ export function Categories() {
     try {
       await deleteCategory(c.id);
       toast("Kategori silindi.");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    }
+  };
+
+  const removeRule = async (r: CategoryRule) => {
+    const ok = await confirm({
+      title: "Kuralı sil",
+      message: (
+        <>
+          <strong>{r.words.join(", ")}</strong> kuralı silinecek. İşlemlerin kategorisi değişmez.
+        </>
+      ),
+      confirmLabel: "Sil",
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      await update({ categoryRules: settings.categoryRules.filter((x) => x.id !== r.id) });
+      toast("Kural silindi.");
     } catch (e) {
       toast(errorMessage(e), "error");
     }
@@ -131,6 +154,67 @@ export function Categories() {
         <Column type="income" title="Gelir Kategorileri" />
         <Column type="expense" title="Gider Kategorileri" />
       </div>
+      <section className="card mt-4 overflow-hidden">
+        <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 dark:border-zinc-800">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-semibold">Otomatik kategori kuralları</h2>
+              <span className="text-xs text-zinc-500">{settings.categoryRules.length}</span>
+            </div>
+            <p className="mt-0.5 text-xs text-zinc-500">
+              Açıklamada kelime geçerse kategori kendiliğinden seçilir. Kurallarınız geçmişten öğrenilen önerilerden önce gelir.
+            </p>
+          </div>
+          <button className="btn-ghost shrink-0 px-2 py-1 text-xs" onClick={() => setRuleForm(null)}>
+            <Plus size={14} /> Kural ekle
+          </button>
+        </div>
+        {settings.categoryRules.length === 0 ? (
+          <EmptyState
+            icon={Wand2}
+            title="Henüz kural yok"
+            hint="Örneğin “sinema, konser” geçen giderler Eğlence’ye gitsin. Elle girerken, ekstre aktarırken ve kategorisiz önerilerinde uygulanır."
+          />
+        ) : (
+          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
+            {settings.categoryRules.map((r) => {
+              const cat = categoryById.get(r.categoryId);
+              const missing = !cat || cat.type !== r.type;
+              return (
+                <li key={r.id} className="group flex items-center gap-3 px-5 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${r.type === "income" ? "bg-emerald-500" : "bg-rose-500"}`} title={r.type === "income" ? "Gelir" : "Gider"} />
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="flex min-w-0 flex-wrap gap-1">
+                      {r.words.map((w) => (
+                        <span key={w} className="rounded-md bg-zinc-100 px-1.5 py-0.5 text-xs font-medium dark:bg-zinc-800">
+                          {w}
+                        </span>
+                      ))}
+                    </span>
+                    <ArrowRight size={14} className="shrink-0 text-zinc-400" />
+                    {missing ? (
+                      <span className="text-sm italic text-rose-600 dark:text-rose-400">Kategori silinmiş, kural uygulanmıyor</span>
+                    ) : (
+                      <CategoryLabel category={cat} />
+                    )}
+                  </div>
+                  <div className="flex gap-0.5 opacity-40 transition group-hover:opacity-100 focus-within:opacity-100">
+                    <button className="icon-btn" title="Düzenle" aria-label="Kuralı düzenle" onClick={() => setRuleForm(r)}>
+                      <Pencil size={15} />
+                    </button>
+                    <button className="icon-btn hover:!text-rose-600" title="Sil" aria-label="Kuralı sil" onClick={() => removeRule(r)}>
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+      {ruleForm !== undefined && (
+        <CategoryRuleForm rule={ruleForm ?? undefined} onClose={() => setRuleForm(undefined)} onSaved={(m) => toast(m)} />
+      )}
     </>
   );
 }

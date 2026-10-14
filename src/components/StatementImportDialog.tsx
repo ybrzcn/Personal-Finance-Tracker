@@ -40,7 +40,7 @@ const COLUMN_LABELS: { key: keyof ColumnMap; label: string; required?: boolean }
 
 export function StatementImportDialog({ accountId: initialAccountId, onClose, onSaved }: Props) {
   const { accounts, categories, transactions, latest, restore, updateAccount } = useData();
-  const { formatMoney } = useSettings();
+  const { formatMoney, settings } = useSettings();
   const active = accounts.filter((a) => !a.archived && a.kind !== "loan");
   const [accountId, setAccountId] = useState(initialAccountId ?? active[0]?.id ?? "");
   const account = accounts.find((a) => a.id === accountId);
@@ -61,7 +61,7 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
   const rebuild = (t: string[][], h: number, m: ColumnMap, s: SignMode, accId: string) => {
     const acc = accounts.find((a) => a.id === accId);
     if (!acc) return;
-    const res = buildImportRows(t, h, m, s, acc, accounts, transactions, categories);
+    const res = buildImportRows(t, h, m, s, acc, accounts, transactions, categories, settings.categoryRules);
     setRows(res.rows);
     setSkipped(res.skipped);
   };

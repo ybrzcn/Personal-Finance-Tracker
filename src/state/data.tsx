@@ -125,7 +125,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
           confirmedSettings.current = { ...confirmedSettings.current, [key]: value };
         } catch (e) {
           // Yalnız bu hâlâ son yazımsa geri alınır; yerine veritabanındaki son doğrulanmış değer konur
-          if (settingWrites.current[key] === seq) setAppSettings((s) => ({ ...s, [key]: confirmedSettings.current[key] }));
+          // Daha önce hiç kaydedilmemiş anahtar silinir; `undefined` bırakılırsa varsayılanın üzerine yazar
+          if (settingWrites.current[key] === seq)
+            setAppSettings((s) => {
+              const { [key]: _, ...rest } = s;
+              const prev = confirmedSettings.current[key];
+              return prev === undefined ? rest : { ...rest, [key]: prev };
+            });
           throw e;
         }
       },
