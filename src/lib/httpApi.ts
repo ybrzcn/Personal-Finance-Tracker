@@ -1,5 +1,5 @@
 import type { Api } from "./api";
-import type { Account, Budget, Category, PnlReport, RateQuote, RecurringItem, Transaction } from "./types";
+import type { Account, Budget, Category, FundHit, PnlReport, RateQuote, RecurringItem, Transaction } from "./types";
 
 /** Oturum düşünce (401) yayınlanır; giriş kapısı giriş ekranına döner. */
 export const UNAUTHORIZED_EVENT = "finans:unauthorized";
@@ -86,7 +86,8 @@ export function createHttpApi(opts: HttpOptions = {}): Api {
     latestRates: (refresh) => r<RateQuote[]>("GET", `/api/rates/latest${refresh ? "?refresh=1" : ""}`),
     rateAt: (code, date) => r<RateQuote | null>("GET", `/api/rates/at?code=${id(code)}&date=${id(date)}`),
     rateHistory: (code, from, to) => r<RateQuote[]>("GET", `/api/rates/history?code=${id(code)}&from=${id(from)}&to=${id(to)}`),
-    pnlReport: (from, to) => r<PnlReport>("GET", `/api/pnl?from=${id(from ?? "")}&to=${id(to ?? "")}`),
+    pnlReport: (from, to, kind) => r<PnlReport>("GET", `/api/pnl?from=${id(from ?? "")}&to=${id(to ?? "")}&kind=${id(kind ?? "all")}`),
+    fundsSearch: (q) => r<FundHit[]>("GET", `/api/funds/search?q=${id(q)}`),
     evdsKeySet: async () => false,
     setEvdsKey: desktopOnly,
   };

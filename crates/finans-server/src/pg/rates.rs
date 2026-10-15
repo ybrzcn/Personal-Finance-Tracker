@@ -10,7 +10,8 @@ fn quote(r: &postgres::Row) -> Quote {
     Quote { code: r.get(0), source: r.get(1), observed_at: r.get(2), buy: r.get(3), sell: r.get(4) }
 }
 
-/// Her kod için, kendinden önceki son satırla alış ve satışı aynıysa eklemez. Tek işlemde.
+/// Her kod için, kendinden önceki son satırla alış ve satışı aynıysa eklemez (fonlar hariç: günde bir fiyat,
+/// her gün yazılır; yoksa fiyatı değişmeyen fon eski tarihli görünür). Tek işlemde.
 pub fn insert_if_changed(pool: &Pool, quotes: &[Quote]) -> Result<u64, String> {
     let mut c = pool.get().map_err(|e| e.to_string())?;
     let mut tx = c.transaction().map_err(|e| e.to_string())?;
@@ -20,7 +21,7 @@ pub fn insert_if_changed(pool: &Pool, quotes: &[Quote]) -> Result<u64, String> {
             .execute(
                 "INSERT INTO fx_rates (code, source, observed_at, buy, sell)
                  SELECT $1, $2, $3::text::timestamptz, $4, $5
-                 WHERE NOT EXISTS (
+                 WHERE $2 = 'tefas' OR NOT EXISTS (
                      SELECT 1 FROM (SELECT buy, sell FROM fx_rates
                                     WHERE code = $1 AND observed_at <= $3::text::timestamptz
                                     ORDER BY observed_at DESC LIMIT 1) last
@@ -46,9 +47,28 @@ pub fn latest(pool: &Pool) -> Result<Vec<(Quote, Option<i64>)>, String> {
                            -- Bir önceki günün (İstanbul) son fiyatı; oturum saat diliminden bağımsız
                            AND p.observed_at < (date_trunc('day', r.observed_at AT TIME ZONE 'Europe/Istanbul') AT TIME ZONE 'Europe/Istanbul')
                          ORDER BY p.observed_at DESC LIMIT 1)
-                 FROM (SELECT DISTINCT ON (code) * FROM fx_rates ORDER BY code, observed_at DESC) r"
+                 FROM (SELECT DISTINCT ON (code) * FROM fx_rates WHERE source <> 'tefas' ORDER BY code, observed_at DESC) r"
             ),
             &[],
+        )
+        .map_err(|e| e.to_string())?;
+    Ok(rows.iter().map(|r| (quote(r), r.get(5))).collect())
+}
+
+/// Verilen kodların son fiyatı ve bir önceki günün (İstanbul) son alışı
+pub fn latest_for(pool: &Pool, codes: &[String]) -> Result<Vec<(Quote, Option<i64>)>, String> {
+    let mut c = pool.get().map_err(|e| e.to_string())?;
+    let rows = c
+        .query(
+            &format!(
+                "SELECT {COLUMNS},
+                        (SELECT p.buy FROM fx_rates p
+                         WHERE p.code = r.code
+                           AND p.observed_at < (date_trunc('day', r.observed_at AT TIME ZONE 'Europe/Istanbul') AT TIME ZONE 'Europe/Istanbul')
+                         ORDER BY p.observed_at DESC LIMIT 1)
+                 FROM (SELECT DISTINCT ON (code) * FROM fx_rates WHERE code = ANY($1) ORDER BY code, observed_at DESC) r"
+            ),
+            &[&codes],
         )
         .map_err(|e| e.to_string())?;
     Ok(rows.iter().map(|r| (quote(r), r.get(5))).collect())

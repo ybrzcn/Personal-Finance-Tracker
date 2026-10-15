@@ -1,11 +1,11 @@
 import { Check, Trash2 } from "lucide-react";
-import { useMemo, useState, type FormEvent } from "react";
-import { errorMessage } from "../lib/api";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { api, errorMessage } from "../lib/api";
 import { closingOnOrAfter, closingOnOrBefore, dueDateFor, shiftClosing, toCents } from "../lib/cards";
 import { addDays, amountToInput, formatDate, parseAmount, parseQuantity, todayISO } from "../lib/format";
-import { GROUP_LABEL, INSTRUMENTS, isForeign, qtyDecimals, qtyRule, TRY, unitOf, type FxGroup } from "../lib/fx";
+import { fundCode, fundUnit, GROUP_LABEL, INSTRUMENTS, isForeign, isFund, qtyDecimals, qtyRule, TRY, unitLabel, type FxGroup } from "../lib/fx";
 import { annuityPaymentCents, DEFAULT_LOAN_TAX, effectiveMonthlyRate } from "../lib/loans";
-import { ACCOUNT_KIND_LABEL, type Account, type AccountInput, type AccountKind } from "../lib/types";
+import { ACCOUNT_KIND_LABEL, type Account, type AccountInput, type AccountKind, type FundHit } from "../lib/types";
 import { useData } from "../state/data";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
@@ -19,11 +19,15 @@ interface Props {
   onSaved(message: string): void;
 }
 
-const KINDS: AccountKind[] = ["bank", "credit_card", "loan", "cash"];
+/** Formdaki tür: "fund" veride bank + FON:XXX birimidir */
+type FormKind = AccountKind | "fund";
+const KINDS: FormKind[] = ["bank", "credit_card", "loan", "cash", "fund"];
+const KIND_LABEL: Record<FormKind, string> = { ...ACCOUNT_KIND_LABEL, fund: "Yatırım fonu" };
 const percentInput = (n: number | null) => (n === null ? "" : String(n).replace(".", ","));
 const isDay = (n: number) => Number.isInteger(n) && n >= 1 && n <= 31;
 
-const OPENING_LABEL: Record<AccountKind, string> = {
+const OPENING_LABEL: Record<FormKind, string> = {
+  fund: "Pay adedi",
   bank: "Açılış bakiyesi",
   cash: "Açılış bakiyesi",
   credit_card: "Açılış borcu",
@@ -41,7 +45,13 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
   const incomes = recurring.filter((r) => r.type === "income");
 
   const [name, setName] = useState(account?.name ?? "");
-  const [kind, setKind] = useState<AccountKind>(account?.kind ?? "bank");
+  const [formKind, setFormKind] = useState<FormKind>(account && isFund(account.currency) ? "fund" : (account?.kind ?? "bank"));
+  const kind: AccountKind = formKind === "fund" ? "bank" : formKind;
+  const fund = formKind === "fund";
+  const [fundQuery, setFundQuery] = useState(account && isFund(account.currency) ? (fundCode(account.currency) ?? "") : "");
+  const [fundHits, setFundHits] = useState<FundHit[]>([]);
+  const [fundPick, setFundPick] = useState<FundHit | null>(null);
+  const [fundError, setFundError] = useState<string | null>(null);
   const [color, setColor] = useState(account?.color ?? PALETTE[accounts.length % PALETTE.length]);
   const [opening, setOpening] = useState(
     account && account.openingBalance !== 0
@@ -50,7 +60,8 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
         : amountToInput(account.openingBalance)
       : "",
   );
-  const [currency, setCurrency] = useState(account?.currency ?? TRY);
+  // Fon hesabı başka türe çevrilirse birimi TL'den başlar
+  const [currency, setCurrency] = useState(account && !isFund(account.currency) ? account.currency : TRY);
   const [openingCost, setOpeningCost] = useState(account?.openingCost != null ? amountToInput(account.openingCost) : "");
   const [openingDate, setOpeningDate] = useState(account?.openingDate ?? todayISO());
   const [limit, setLimit] = useState(account?.creditLimit != null ? amountToInput(account.creditLimit) : "");
@@ -73,9 +84,39 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
   const card = kind === "credit_card";
   const cash = kind === "cash";
   const loan = kind === "loan";
-  const foreign = isForeign(currency) && (kind === "bank" || kind === "cash");
+  // Fon hesabının fonu değiştirilemez; başka türden çevrilen hesapta fon seçilir
+  const fundLocked = !!account && isFund(account.currency);
+  const unitCode = fund ? (fundLocked ? account.currency : fundPick ? fundUnit(fundPick.code) : "") : currency;
+  const foreign = fund || (isForeign(currency) && (kind === "bank" || kind === "cash"));
   // Açılış maliyeti yalnız açılış bakiyesi varken anlamlı
-  const openingPositive = foreign && (parseQuantity(opening, qtyDecimals(currency)) ?? 0) > 0;
+  const openingPositive = foreign && (parseQuantity(opening, qtyDecimals(unitCode || currency)) ?? 0) > 0;
+
+  // Fon arama (Rust'ta): yazdıkça, 300 ms gecikmeli
+  useEffect(() => {
+    if (!fund || fundLocked) return;
+    const q = fundQuery.trim();
+    // Fon kodları Latin harfli: "i" → "I" (toLocaleUpperCase("tr") "İ" yapar)
+    if (q.length < 2 || fundPick?.code === q.toUpperCase()) {
+      setFundHits([]);
+      setFundError(null);
+      return;
+    }
+    let live = true;
+    const t = setTimeout(() => {
+      api
+        .fundsSearch(q)
+        .then((h) => {
+          if (!live) return;
+          setFundHits(h);
+          setFundError(h.length ? null : "TEFAS'ta bu kodla fon bulunamadı.");
+        })
+        .catch((e) => live && setFundError(errorMessage(e)));
+    }, 300);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
+  }, [fund, fundLocked, fundQuery, fundPick]);
   const sd = Number(statementDay);
   const dd = Number(dueDay);
   const preview = useMemo(() => {
@@ -117,9 +158,10 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
     setError(null);
     let input: AccountInput;
     try {
-      const openingValue = opening.trim() ? (foreign ? parseQuantity(opening, qtyDecimals(currency)) : parseAmount(opening)) : 0;
+      if (fund && !unitCode) throw "Listeden bir fon seçin (TEFAS'ta bu kodla fon bulunamadı).";
+      const openingValue = opening.trim() ? (foreign ? parseQuantity(opening, qtyDecimals(unitCode || currency)) : parseAmount(opening)) : 0;
       if (openingValue === null)
-        throw `Geçerli bir ${OPENING_LABEL[kind].toLocaleLowerCase("tr")} girin${foreign ? ` (${qtyRule(currency)})` : ""}.`;
+        throw `Geçerli bir ${OPENING_LABEL[formKind].toLocaleLowerCase("tr")} girin${foreign ? ` (${qtyRule(unitCode || currency)})` : ""}.`;
       if (card && (!isDay(sd) || !isDay(dd))) throw "Kesim ve son ödeme günü 1 ile 31 arasında olmalıdır.";
       const termValue = Number.parseInt(term, 10);
       if (loan && (!termValue || termValue < 1)) throw "Kalan vade (ay) girin.";
@@ -147,7 +189,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
         fundingIncomeId: (card || loan) && fundingIncomeId ? fundingIncomeId : null,
         openingPeriodSpending: account?.openingPeriodSpending ?? null,
         openingInstallments: account?.openingInstallments ?? [],
-        currency: foreign ? currency : TRY,
+        currency: fund ? unitCode : foreign ? currency : TRY,
         openingCost: openingPositive ? costValue : null,
       };
     } catch (err) {
@@ -231,29 +273,29 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
 
         <div>
           <span className="label">Tür</span>
-          <div className="grid grid-cols-4 gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-800/70">
+          <div className="grid grid-cols-3 gap-1 rounded-xl bg-zinc-100 p-1 sm:grid-cols-5 dark:bg-zinc-800/70">
             {KINDS.map((k) => (
               <button
                 key={k}
                 type="button"
-                disabled={used && k !== kind}
+                disabled={used && k !== formKind}
                 onClick={() => {
-                  setKind(k);
+                  setFormKind(k);
                   // Kart ve kredi yalnız TL
                   if (k === "credit_card" || k === "loan") setCurrency(TRY);
                 }}
                 className={`rounded-lg py-1.5 text-sm font-medium transition disabled:opacity-40 ${
-                  kind === k ? "bg-white shadow-sm dark:bg-zinc-900" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                  formKind === k ? "bg-white shadow-sm dark:bg-zinc-900" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
                 }`}
               >
-                {ACCOUNT_KIND_LABEL[k]}
+                {KIND_LABEL[k]}
               </button>
             ))}
           </div>
           {used && <p className="mt-1 text-xs text-zinc-500">İşlemi olan hesabın türü değiştirilemez.</p>}
         </div>
 
-        {(kind === "bank" || kind === "cash") && (
+        {!fund && (kind === "bank" || kind === "cash") && (
           <div>
             <label className="label" htmlFor="acc-currency">
               Para birimi
@@ -275,11 +317,69 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
           </div>
         )}
 
+        {fund && (
+          <div className="relative">
+            <label className="label" htmlFor="acc-fund">
+              Fon
+            </label>
+            <input
+              id="acc-fund"
+              className="input uppercase"
+              placeholder="Kod ya da ad (ör. AFT)"
+              autoComplete="off"
+              disabled={fundLocked}
+              value={fundQuery}
+              role="combobox"
+              aria-expanded={fundHits.length > 0}
+              aria-controls="acc-fund-list"
+              onChange={(e) => {
+                setFundQuery(e.target.value);
+                setFundPick(null);
+              }}
+            />
+            {fundHits.length > 0 && (
+              <ul
+                id="acc-fund-list"
+                role="listbox"
+                className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-zinc-200 bg-white text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-900"
+              >
+                {fundHits.map((h) => (
+                  <li
+                    key={h.code}
+                    role="option"
+                    aria-selected={false}
+                    className="cursor-pointer px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                    onClick={() => {
+                      setFundPick(h);
+                      setFundQuery(h.code);
+                      setFundHits([]);
+                      setFundError(null);
+                      if (!name.trim()) setName(`${h.code} · ${h.name}`.slice(0, 60));
+                    }}
+                  >
+                    <span className="font-medium">{h.code}</span> <span className="text-zinc-500">{h.name}</span>
+                    <span className="block text-xs text-zinc-400">
+                      {h.kindLabel} · {h.price.toLocaleString("tr-TR", { maximumFractionDigits: 6 })} ₺ ({h.date})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {fundPick && (
+              <p className="mt-1 text-xs text-zinc-500">
+                {fundPick.name} · {fundPick.kindLabel}
+              </p>
+            )}
+            {fundError && !fundPick && <p className="mt-1 text-xs text-amber-600">{fundError}</p>}
+            {fundLocked && <p className="mt-1 text-xs text-zinc-500">Fon hesabının fonu değiştirilemez.</p>}
+          </div>
+        )}
+
         {!card && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label" htmlFor="acc-opening">
-                {OPENING_LABEL[kind]}
+                {OPENING_LABEL[formKind]}
               </label>
               {foreign ? (
                 <div className="relative">
@@ -292,7 +392,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
                     onChange={(e) => setOpening(e.target.value)}
                   />
                   <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-zinc-400">
-                    {unitOf(currency) === "currency" ? currency : unitOf(currency) === "gram" ? "gram" : "adet"}
+                    {unitLabel(unitCode || currency)}
                   </span>
                 </div>
               ) : (
@@ -327,7 +427,9 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
               </label>
               <MoneyInput id="acc-opening-cost" placeholder="İsteğe bağlı" value={openingCost} onValueChange={setOpeningCost} />
             </div>
-            <p className="self-end pb-2 text-xs text-zinc-500">Kâr/zarar için. Boşsa açılış günündeki kur kullanılır.</p>
+            <p className="self-end pb-2 text-xs text-zinc-500">
+              {fund ? "Kâr/zarar için. Boşsa açılış günündeki fon fiyatı kullanılır." : "Kâr/zarar için. Boşsa açılış günündeki kur kullanılır."}
+            </p>
           </div>
         )}
 

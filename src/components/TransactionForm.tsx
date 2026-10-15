@@ -5,7 +5,7 @@ import { errorMessage } from "../lib/api";
 import { installmentPostings } from "../lib/cards";
 import { cashAdvancePlan } from "../lib/loans";
 import { amountToInput, daysBetween, formatDateShort, formatMonthYear, parseAmount, parseDecimal, parseQuantity, todayISO } from "../lib/format";
-import { defaultSide, formatQty, formatRate, isForeign, qtyDecimals, qtyRule, tlAmount, TRY, unitDivisor, unitOf } from "../lib/fx";
+import { defaultSide, formatQty, formatRate, isForeign, isFund, qtyDecimals, qtyRule, tlAmount, TRY, unitDivisor, unitLabel } from "../lib/fx";
 import { shiftMonth } from "../lib/recurring";
 import { buildHistory, suggestCategory } from "../lib/statementImport";
 import type { Account, Transaction, TransactionInput, TxType } from "../lib/types";
@@ -561,12 +561,14 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
                 <label className="label" htmlFor="tx-account">
                   Hesap
                 </label>
-                {/* Gelir/giderde kredi hesabı seçilmez (kredi taksiti "Taksit öde" ile girilir) */}
+                {/* Gelir/giderde kredi hesabı (taksit "Taksit öde" ile) ve fon hesabı (alım-satım transferle) seçilmez */}
                 <AccountSelect
                   id="tx-account"
                   value={accountId}
                   onChange={setAccountId}
-                  options={selectable(transaction?.accountId ?? "").filter((a) => a.kind !== "loan" || a.id === transaction?.accountId)}
+                  options={selectable(transaction?.accountId ?? "").filter(
+                    (a) => (a.kind !== "loan" && !isFund(a.currency)) || a.id === transaction?.accountId,
+                  )}
                 />
               </div>
               <div>
@@ -851,7 +853,7 @@ function FxFields(props: {
   autoFocus?: boolean;
 }) {
   const { idPrefix, label, code, qty, onQty, rate, onRate, placeholder, invalid, autoFocus } = props;
-  const unit = unitOf(code) === "currency" ? code : unitOf(code) === "gram" ? "gram" : "adet";
+  const unit = unitLabel(code);
   return (
     <div className="grid grid-cols-2 gap-3">
       <div>
@@ -871,7 +873,7 @@ function FxFields(props: {
       </div>
       <div>
         <label className="label" htmlFor={`${idPrefix}-rate`}>
-          Kur (1 {unit} = ₺)
+          {isFund(code) ? "Fiyat" : "Kur"} (1 {unit} = ₺)
         </label>
         <input
           id={`${idPrefix}-rate`}

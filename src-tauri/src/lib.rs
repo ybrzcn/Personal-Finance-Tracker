@@ -15,7 +15,7 @@ pub fn run() {
     // macOS: standart uygulama menüsü (⌘Q Çık, ⌘W Kapat, ⌘H Gizle, Düzen menüsünde ⌘C/⌘V/⌘Z ...).
     // Windows'ta pencereye menü çubuğu eklenmemesi için yalnızca macOS'ta uygulanır.
     #[cfg(target_os = "macos")]
-    let builder = builder.menu(|handle| tauri::menu::Menu::default(handle));
+    let builder = builder.menu(tauri::menu::Menu::default);
 
     builder
         .plugin(tauri_plugin_dialog::init())
@@ -52,8 +52,8 @@ pub fn run() {
                 if let Ok(Some(monitor)) = win.current_monitor() {
                     let screen = monitor.size().to_logical::<f64>(monitor.scale_factor());
                     // Büyük ekranlarda da derli toplu açılsın: en fazla 1280×820, küçük ekranlarda ekranın ~%85'i
-                    let width = (screen.width * 0.85).min(1280.0).max(720.0);
-                    let height = (screen.height * 0.85).min(820.0).max(560.0);
+                    let width = (screen.width * 0.85).clamp(720.0, 1280.0);
+                    let height = (screen.height * 0.85).clamp(560.0, 820.0);
                     let _ = win.set_size(tauri::LogicalSize::new(width, height));
                 }
                 let _ = win.center();
@@ -107,6 +107,8 @@ pub fn run() {
             commands::save_export,
             rates::rates_latest,
             rates::rate_at,
+            rates::funds_search,
+            rates::rate_history,
             pnl::pnl_report,
             commands::evds_key_set,
             commands::set_evds_key,

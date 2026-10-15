@@ -12,7 +12,7 @@ use crate::rates::RatesState;
 pub struct CpiState(pub LiveCpi);
 
 #[tauri::command]
-pub async fn pnl_report(app: tauri::AppHandle, from: Option<String>, to: Option<String>) -> Result<PnlReport, String> {
+pub async fn pnl_report(app: tauri::AppHandle, from: Option<String>, to: Option<String>, kind: Option<String>) -> Result<PnlReport, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let st = app.state::<AppState>();
         // Veri kilit altında okunur; kur ve TÜFE (ağ) kilit dışında
@@ -20,8 +20,11 @@ pub async fn pnl_report(app: tauri::AppHandle, from: Option<String>, to: Option<
             let mut conn = st.conn.lock().map_err(|_| "Veritabanı bağlantısı kullanılamıyor.".to_string())?;
             sqlite::run(&mut conn, |s| Ok((store::list_accounts(s)?, store::list_transactions(s)?)))?
         };
+        let filter = pnl::AssetFilter::parse(kind.as_deref())?;
         let live = &app.state::<RatesState>().0;
-        let rates = pnl::current_rates(&live.latest());
+        let mut views = live.latest();
+        views.extend(live.funds_latest(&pnl::fund_codes(&accounts), false));
+        let rates = pnl::current_rates(&views);
         let opening = pnl::opening_rates(&accounts, |code, d| live.at(code, d));
         let key = read_config(&st.config_path).evds_api_key;
         let cpi = app.state::<CpiState>().0.get(key.as_deref());
@@ -35,6 +38,7 @@ pub async fn pnl_report(app: tauri::AppHandle, from: Option<String>, to: Option<
             today: &today,
             from: from.as_deref().filter(|s| !s.is_empty()),
             to: to.as_deref().filter(|s| !s.is_empty()),
+            filter,
         })
     })
     .await

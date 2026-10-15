@@ -1,7 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, errorMessage } from "../lib/api";
 import { todayISO } from "../lib/format";
+import { isFund } from "../lib/fx";
 import type { RateQuote } from "../lib/types";
+import { useData } from "./data";
 
 interface RatesCtx {
   rates: Map<string, RateQuote>;
@@ -21,10 +23,20 @@ export function RatesProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const busy = useRef<Promise<void> | null>(null);
+  // Süren istekten sonra bir kez daha yüklenecek mi (true: kaynaklardan yenileyerek)
+  const again = useRef<boolean | null>(null);
+  const busyRefresh = useRef(false);
 
-  const load = useCallback((refresh: boolean) => {
-    // Aynı anda gelen yenilemeler tek isteği paylaşır
-    busy.current ??= api
+  const load = useCallback((refresh: boolean, fresh = false): Promise<void> => {
+    // Aynı anda gelen yenilemeler tek isteği paylaşır; yeni fon hesabı ya da yenileme isteği süren
+    // (eski) isteğin sonucuyla yetinmez, onun ardından bir kez daha yüklenir
+    if (busy.current && (fresh || (refresh && !busyRefresh.current))) {
+      again.current = (again.current ?? false) || refresh;
+      return busy.current.then(() => busy.current ?? undefined);
+    }
+    if (busy.current) return busy.current;
+    busyRefresh.current = refresh;
+    busy.current = api
       .latestRates(refresh)
       .then((r) => {
         setList(r);
@@ -34,6 +46,9 @@ export function RatesProvider({ children }: { children: ReactNode }) {
       .finally(() => {
         setLoading(false);
         busy.current = null;
+        const next = again.current;
+        again.current = null;
+        if (next !== null) void load(next);
       });
     return busy.current;
   }, []);
@@ -43,6 +58,20 @@ export function RatesProvider({ children }: { children: ReactNode }) {
     const t = setInterval(() => void load(false), POLL_MS);
     return () => clearInterval(t);
   }, [load]);
+
+  // Fon hesabı eklenince/silinince fon fiyatları da listeye girsin
+  const { accounts } = useData();
+  const fundKey = accounts
+    .filter((a) => isFund(a.currency))
+    .map((a) => a.currency)
+    .sort()
+    .join(",");
+  const firstFundKey = useRef(fundKey);
+  useEffect(() => {
+    if (firstFundKey.current === fundKey) return;
+    firstFundKey.current = fundKey;
+    void load(false, true);
+  }, [fundKey, load]);
 
   const rates = useMemo(() => new Map(list.map((q) => [q.code, q])), [list]);
   // refresh ve rateAt kurlar değişince yeniden oluşmaz: bunlara bağlı efektler (sayfa açılışında yenile)

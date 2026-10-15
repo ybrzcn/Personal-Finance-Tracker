@@ -1,6 +1,6 @@
 [package]
 name = "finans-server"
-version = "1.3.1"
+version = "1.4.0"
 edition = "2021"
 license = "MIT"
 description = "Finans sunucusu: hesaplar ve kullanıcı verisi (SQLite ya da Postgres) üzerinde REST API"

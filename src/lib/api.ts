@@ -14,6 +14,8 @@ import type {
   Budget,
   Category,
   CategoryInput,
+  FundHit,
+  PnlKind,
   PnlReport,
   RateQuote,
   RecurringInput,
@@ -71,10 +73,12 @@ export interface Api {
   latestRates(refresh: boolean): Promise<RateQuote[]>;
   /** Bir günün kuru; yoksa null */
   rateAt(code: string, date: string): Promise<RateQuote | null>;
-  /** Kur geçmişi (yalnız Postgres'li sunucu) */
+  /** Kur geçmişi (Postgres'li sunucu; masaüstünde yalnız fonlar) */
   rateHistory(code: string, from: string, to: string): Promise<RateQuote[]>;
-  /** Döviz/altın kâr/zarar raporu; `from`/`to` gerçekleşenleri sınırlar (Rust'ta hesaplanır) */
-  pnlReport(from: string | null, to: string | null): Promise<PnlReport>;
+  /** Kâr/zarar raporu; `from`/`to` gerçekleşenleri, `kind` varlıkları sınırlar (Rust'ta hesaplanır) */
+  pnlReport(from: string | null, to: string | null, kind?: PnlKind): Promise<PnlReport>;
+  /** TEFAS fon arama (kod ya da ad; Rust'ta) */
+  fundsSearch(q: string): Promise<FundHit[]>;
   /** Masaüstü yerel mod: EVDS anahtarı girilmiş mi */
   evdsKeySet(): Promise<boolean>;
   setEvdsKey(key: string | null): Promise<void>;
@@ -141,14 +145,13 @@ const tauriApi: Api = {
   appInfo: () => invoke<AppInfo>("app_info"),
   uninstallPlan: () => invoke<UninstallPlan>("uninstall_plan"),
   uninstallApp: (includeCustomDatabase) => invoke<void>("uninstall_app", { includeCustomDatabase }),
-  latestRates: () => invoke<RateQuote[]>("rates_latest"),
+  latestRates: (refresh) => invoke<RateQuote[]>("rates_latest", { refresh }),
   rateAt: (code, date) => invoke<RateQuote | null>("rate_at", { code, date }),
-  pnlReport: (from, to) => invoke<PnlReport>("pnl_report", { from, to }),
+  pnlReport: (from, to, kind) => invoke<PnlReport>("pnl_report", { from, to, kind: kind ?? null }),
+  fundsSearch: (q) => invoke<FundHit[]>("funds_search", { q }),
   evdsKeySet: () => invoke<boolean>("evds_key_set"),
   setEvdsKey: (key) => invoke<void>("set_evds_key", { key }),
-  rateHistory: async () => {
-    throw "Kur geçmişi yalnızca sunucuya bağlıyken görülebilir.";
-  },
+  rateHistory: (code, from, to) => invoke<RateQuote[]>("rate_history", { code, from, to }),
 };
 
 // ---------------------------------------------------------------------------
@@ -471,6 +474,9 @@ const localApi: Api = {
     throw "Kur geçmişi yalnızca sunucuya bağlıyken görülebilir.";
   },
   async pnlReport() {
+    throw NEEDS_BACKEND;
+  },
+  async fundsSearch() {
     throw NEEDS_BACKEND;
   },
   async evdsKeySet() {

@@ -23,6 +23,35 @@ pub struct CurrentRate {
     pub stale: bool,
 }
 
+/// Raporun kapsadığı varlıklar
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AssetFilter {
+    All,
+    /// Döviz ve altın
+    Fx,
+    /// Yatırım fonları
+    Fund,
+}
+
+impl AssetFilter {
+    pub fn parse(s: Option<&str>) -> CoreResult<Self> {
+        match s.unwrap_or("") {
+            "" | "all" => Ok(AssetFilter::All),
+            "fx" => Ok(AssetFilter::Fx),
+            "fund" => Ok(AssetFilter::Fund),
+            other => Err(format!("Geçersiz varlık türü: {other}")),
+        }
+    }
+
+    pub fn matches(self, currency: &str) -> bool {
+        match self {
+            AssetFilter::All => true,
+            AssetFilter::Fx => !fx::is_fund(currency),
+            AssetFilter::Fund => fx::is_fund(currency),
+        }
+    }
+}
+
 pub struct PnlInput<'a> {
     pub accounts: &'a [Account],
     pub transactions: &'a [Transaction],
@@ -36,6 +65,8 @@ pub struct PnlInput<'a> {
     /// Gerçekleşenler ve aylık özet için aralık (dahil); boşsa tüm zamanlar
     pub from: Option<&'a str>,
     pub to: Option<&'a str>,
+    /// Süzgeç: hesaplar ve gerçekleşenler bu varlıklarla sınırlanır (yürüyüş tüm hesaplarla yapılır)
+    pub filter: AssetFilter,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -143,7 +174,7 @@ pub struct OpeningNeed {
 }
 
 fn foreign(a: &Account) -> bool {
-    a.currency != fx::TRY && fx::find(&a.currency).is_some()
+    a.currency != fx::TRY && fx::unit_of(&a.currency).is_some()
 }
 
 /// Açılış maliyeti girilmemiş, açılış bakiyesi olan TL dışı hesaplar: açılış günü kuru gerekir.
@@ -174,4 +205,12 @@ pub fn current_rates(views: &[RateView]) -> HashMap<String, CurrentRate> {
             Some((v.code.clone(), CurrentRate { buy: rate_from_f64(v.buy).ok()?, observed_at: v.observed_at.clone(), stale: v.stale }))
         })
         .collect()
+}
+
+/// Hesaplardaki fon birimleri (`FON:XXX`), benzersiz ve sıralı
+pub fn fund_codes(accounts: &[Account]) -> Vec<String> {
+    let mut v: Vec<String> = accounts.iter().filter(|a| fx::is_fund(&a.currency)).map(|a| a.currency.clone()).collect();
+    v.sort();
+    v.dedup();
+    v
 }

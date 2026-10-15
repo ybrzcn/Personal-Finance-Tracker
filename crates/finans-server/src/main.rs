@@ -229,7 +229,7 @@ async fn serve(config: Config) {
                 tokio::time::sleep(std::time::Duration::from_secs(60)).await;
             }
         });
-        println!("kurlar: Postgres'te toplanıyor (Harem 15 dk, TCMB günlük)");
+        println!("kurlar: Postgres'te toplanıyor (Harem 15 dk, TCMB günlük, TEFAS izlenen fonlar günlük)");
     } else {
         println!("kurlar: saklanmıyor (SQLite modu; istekte canlı çekilir)");
     }

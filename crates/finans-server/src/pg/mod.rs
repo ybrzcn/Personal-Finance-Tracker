@@ -3,6 +3,7 @@
 
 mod auth;
 pub mod cpi;
+pub mod funds;
 mod data;
 pub mod rates;
 
@@ -26,6 +27,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (1, include_str!("migrations/0001_init.sql")),
     (2, include_str!("migrations/0002_doviz.sql")),
     (3, include_str!("migrations/0003_kar_zarar.sql")),
+    (4, include_str!("migrations/0004_fonlar.sql")),
 ];
 
 fn make_tls() -> MakeRustlsConnect {

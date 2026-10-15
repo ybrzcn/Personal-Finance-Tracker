@@ -132,6 +132,9 @@ pub fn clean_account(a: &Account) -> CoreResult<AccountRow> {
     };
     let unit = fx::unit_of(&currency).ok_or_else(|| format!("Bilinmeyen para birimi: {currency}"))?;
     let foreign = currency != fx::TRY;
+    if fx::is_fund(&currency) && a.kind != "bank" {
+        return Err("Fon hesabı yalnız banka türünde olabilir.".into());
+    }
     if foreign && !matches!(a.kind.as_str(), "bank" | "cash") {
         return Err("Kredi kartı ve kredi hesapları yalnızca TL olabilir.".into());
     }
@@ -278,7 +281,10 @@ pub fn check_transaction(
 ) -> CoreResult<()> {
     validate_tx_kind(kind)?;
     let archived_err = || Err("Arşivlenmiş hesaba yeni işlem eklenemez.".to_string());
-    let AccountMeta { kind: acc_kind, archived, .. } = account_meta(s, account_id)?;
+    let AccountMeta { kind: acc_kind, archived, currency: acc_currency } = account_meta(s, account_id)?;
+    if kind != "transfer" && fx::is_fund(&acc_currency) {
+        return Err("Fon hesabında gelir/gider olmaz; alım-satım transferle yapılır.".into());
+    }
     if is_new && archived {
         return archived_err();
     }
@@ -427,6 +433,9 @@ pub fn update_account(s: &mut dyn DataStore, mut account: Account) -> CoreResult
     if old.currency != row.currency && used {
         return Err("Bu hesapta işlem bulunduğu için para birimi değiştirilemez.".into());
     }
+    if old.currency != row.currency && fx::is_fund(&row.currency) && s.list_recurring()?.iter().any(|r| r.account_id.as_deref() == Some(account.id.as_str())) {
+        return Err("Bu hesaba bağlı düzenli gelir/gider olduğu için fon hesabına çevrilemez.".into());
+    }
     s.update_account(&account.id, &row)?;
     get_account(s, &account.id)
 }
@@ -558,6 +567,9 @@ fn clean_recurring(s: &mut dyn DataStore, r: &RecurringItem) -> CoreResult<Recur
         Some(id) => account_meta(s, id)?.currency,
         None => fx::TRY.to_string(),
     };
+    if fx::is_fund(&currency) {
+        return Err("Fon hesabına düzenli gelir/gider bağlanamaz.".into());
+    }
     let orig_amount = if currency == fx::TRY {
         None
     } else {

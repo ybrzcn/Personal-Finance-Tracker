@@ -1,7 +1,7 @@
 import { cardSummary, toCents } from "./cards";
 import { newId } from "./id";
 import { DEFAULT_LOAN_TAX, liabilityBalanceCents } from "./loans";
-import { instrumentByCode, isForeign, rateMicros, tlCents, toMinor, TRY } from "./fx";
+import { instrumentByCode, isForeign, isFund, rateMicros, tlCents, toMinor, TRY } from "./fx";
 import type { Account, Category, RateQuote, Transaction, TransactionInput } from "./types";
 
 export const DEFAULT_ACCOUNT_NAME = "Genel Hesap";
@@ -143,8 +143,9 @@ export function normalizeAccount(a: Account): Account {
   const name = a.name.trim();
   if (!name) throw "Hesap adı boş olamaz.";
   const currency = a.currency || TRY;
-  if (currency !== TRY && !instrumentByCode.has(currency)) throw `Bilinmeyen para birimi: ${currency}`;
+  if (currency !== TRY && !instrumentByCode.has(currency) && !isFund(currency)) throw `Bilinmeyen para birimi: ${currency}`;
   const foreign = currency !== TRY;
+  if (isFund(currency) && a.kind !== "bank") throw "Fon hesabı yalnız banka türünde olabilir.";
   if (foreign && a.kind !== "bank" && a.kind !== "cash") throw "Kredi kartı ve kredi hesapları yalnızca TL olabilir.";
   if ([...name].length > 60) throw "Hesap adı en fazla 60 karakter olabilir.";
   if (!["bank", "cash", "credit_card", "loan"].includes(a.kind)) throw "Geçersiz hesap türü.";

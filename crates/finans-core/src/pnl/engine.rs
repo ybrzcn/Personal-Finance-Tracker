@@ -223,6 +223,9 @@ pub fn report(input: &PnlInput) -> CoreResult<PnlReport> {
         }
         accounts.push(account_row(a, acc[a.id.as_str()].1, h, input, series)?);
     }
+    // Süzgeç yürüyüşten sonra: fondan dövize transferde maliyet doğru taşınsın
+    accounts.retain(|a| input.filter.matches(&a.currency));
+    realized.retain(|r| input.filter.matches(&r.currency));
     realized.sort_by(|x, y| (&x.date, &x.transaction_id).cmp(&(&y.date, &y.transaction_id)));
     let months = months(&realized, input)?;
     let totals = totals(&accounts, &realized)?;

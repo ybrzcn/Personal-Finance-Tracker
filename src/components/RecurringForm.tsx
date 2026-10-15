@@ -2,7 +2,7 @@ import { Plus, Trash2, X } from "lucide-react";
 import { useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
 import { errorMessage } from "../lib/api";
 import { amountToInput, formatDate, formatDateShort, formatMonthYear, parseAmount, parseQuantity, todayISO } from "../lib/format";
-import { isForeign, qtyDecimals, qtyRule, tlAmount, unitOf } from "../lib/fx";
+import { isForeign, isFund, qtyDecimals, qtyRule, tlAmount, unitOf } from "../lib/fx";
 import { clampedDate } from "../lib/cards";
 import { amountAt, occurrenceIn, shiftMonth, shiftWeekend, withAmountFrom } from "../lib/recurring";
 import type { AmountChange, CategoryType, MonthException, RecurringItem, WeekendShift } from "../lib/types";
@@ -98,7 +98,7 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
     requestAnimationFrame(() => document.getElementById(field)?.focus());
   };
   const bad = (field: string) => (errorField === field ? "border-rose-500 focus:border-rose-500 focus:ring-rose-500/20" : "");
-  const [accountId, setAccountId] = useState(item?.accountId ?? accounts.find((a) => a.kind === "bank" && !a.archived)?.id ?? "");
+  const [accountId, setAccountId] = useState(item?.accountId ?? accounts.find((a) => a.kind === "bank" && !a.archived && !isFund(a.currency))?.id ?? "");
   // Yeni maaşta kategori "Maaş" ile gelir
   const [categoryId, setCategoryId] = useState(
     item?.categoryId ?? (defaultType === "income" ? (categories.find((c) => c.type === "income" && c.name === "Maaş")?.id ?? "") : ""),
@@ -328,7 +328,8 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
             <select id="rec-account" className="input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
               <option value="">—</option>
               {accounts
-                .filter((a) => !a.archived || a.id === accountId)
+                // Fon hesabına düzenli gelir/gider bağlanamaz
+                .filter((a) => (!a.archived || a.id === accountId) && !isFund(a.currency))
                 .map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}

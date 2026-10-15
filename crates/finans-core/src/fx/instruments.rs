@@ -1,4 +1,4 @@
-//! Desteklenen para birimleri. Arayüzdeki `src/lib/fx.ts` listesiyle aynı sırada tutulur.
+//! Desteklenen para birimleri ve yatırım fonu birimi (FON:XXX). Arayüzdeki `src/lib/fx.ts` listesiyle aynı sırada tutulur.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Unit {
@@ -8,6 +8,8 @@ pub enum Unit {
     Gram,
     /// Adetli altın (çeyrek, Ata...): en küçük birim 1 adet
     Piece,
+    /// Yatırım fonu payı: en küçük birim 1 pay
+    Share,
 }
 
 impl Unit {
@@ -16,7 +18,7 @@ impl Unit {
         match self {
             Unit::Currency => 100,
             Unit::Gram => 1000,
-            Unit::Piece => 1,
+            Unit::Piece | Unit::Share => 1,
         }
     }
 }
@@ -25,6 +27,7 @@ impl Unit {
 pub enum Source {
     Tcmb,
     Harem,
+    Tefas,
 }
 
 impl Source {
@@ -32,6 +35,7 @@ impl Source {
         match self {
             Source::Tcmb => "tcmb",
             Source::Harem => "harem",
+            Source::Tefas => "tefas",
         }
     }
 }
@@ -100,12 +104,35 @@ pub fn find(code: &str) -> Option<&'static Instrument> {
     INSTRUMENTS.iter().find(|i| i.code == code)
 }
 
-/// TRY dahil geçerli para biriminin birimi; bilinmeyen kod için None.
+/// Yatırım fonu birimi öneki: hesabın birimi `FON:<TEFAS kodu>`
+pub const FUND_PREFIX: &str = "FON:";
+
+/// `FON:AFT` → `AFT`. Kod 3 karakter, büyük harf ya da rakam; değilse None.
+pub fn fund_code(code: &str) -> Option<&str> {
+    code.strip_prefix(FUND_PREFIX).filter(|c| c.len() == 3 && c.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()))
+}
+
+pub fn is_fund(code: &str) -> bool {
+    fund_code(code).is_some()
+}
+
+/// TRY dahil geçerli birimin türü; bilinmeyen kod için None.
 pub fn unit_of(code: &str) -> Option<Unit> {
     if code == TRY {
         Some(Unit::Currency)
+    } else if is_fund(code) {
+        Some(Unit::Share)
     } else {
         find(code).map(|i| i.unit)
+    }
+}
+
+/// Fiyat kaynağı (TRY ve bilinmeyen kod için None).
+pub fn source_of(code: &str) -> Option<Source> {
+    if is_fund(code) {
+        Some(Source::Tefas)
+    } else {
+        find(code).map(|i| i.source)
     }
 }
 

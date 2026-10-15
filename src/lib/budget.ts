@@ -147,9 +147,11 @@ export function cardBudgetMonth(closingDate: string, dueDate: string, recurring:
   return salary ? salaryMonthFor(salary, dueDate) : closingDate.slice(0, 7);
 }
 
-/** Ana maaş: aktif düzenli gelirler içinde tutarı en büyük olan. */
+/** Ana maaş: aktif TL düzenli gelirler içinde tutarı en büyük olan (döviz/altın hesabına yatan gelir TL ödemeleri karşılamaz). */
 export function primarySalary(recurring: RecurringItem[], date: string): RecurringItem | undefined {
-  return activeIncomes(recurring).sort((a, b) => amountAt(b, date) - amountAt(a, date))[0];
+  return activeIncomes(recurring)
+    .filter((r) => r.origAmount == null)
+    .sort((a, b) => amountAt(b, date) - amountAt(a, date))[0];
 }
 
 /** `date` tarihinden önce (veya o gün) yatan son maaşın tarihi. */

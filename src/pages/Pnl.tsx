@@ -4,7 +4,7 @@ import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis
 import { api, errorMessage } from "../lib/api";
 import { formatDate, todayISO } from "../lib/format";
 import { currencyLabel, formatQty, formatRate, unitDivisor } from "../lib/fx";
-import type { AccountPnl, PnlReport } from "../lib/types";
+import type { AccountPnl, PnlKind, PnlReport } from "../lib/types";
 import { backend } from "../lib/platform";
 import { useAuth } from "../state/auth";
 import { useData } from "../state/data";
@@ -14,6 +14,7 @@ import { useUI } from "../state/ui";
 
 type Period = "thisMonth" | "thisYear" | "lastYear" | "all";
 const PERIOD_LABEL: Record<Period, string> = { thisMonth: "Bu ay", thisYear: "Bu yıl", lastYear: "Geçen yıl", all: "Tümü" };
+const KIND_LABEL: Record<PnlKind, string> = { all: "Tümü", fx: "Döviz ve altın", fund: "Fonlar" };
 
 function periodRange(p: Period): [string | null, string | null] {
   const t = todayISO();
@@ -38,6 +39,7 @@ export function PnlPage() {
   // Anahtar masaüstünde yerel modda Ayarlar'dan, diğer durumlarda sunucuda verilir
   const localDesktop = backend === "tauri" && mode !== "server";
   const [period, setPeriod] = useState<Period>("thisYear");
+  const [kind, setKind] = useState<PnlKind>("all");
   const [report, setReport] = useState<PnlReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -49,13 +51,13 @@ export function PnlPage() {
     setError(null);
     try {
       const [from, to] = periodRange(period);
-      setReport(await api.pnlReport(from, to));
+      setReport(await api.pnlReport(from, to, kind));
     } catch (e) {
       setError(errorMessage(e));
     } finally {
       setLoading(false);
     }
-  }, [period, transactions]);
+  }, [period, kind, transactions]);
   useEffect(() => {
     void refresh().then(load);
   }, [refresh, load]);
@@ -69,6 +71,18 @@ export function PnlPage() {
         <button className="btn-secondary ml-auto gap-2 px-3 py-1.5 text-xs" onClick={() => void refresh().then(load)} disabled={loading}>
           <RefreshCw size={14} /> Yenile
         </button>
+      </div>
+      <div className="flex rounded-lg bg-zinc-100 p-0.5 text-xs dark:bg-zinc-800/60" role="group" aria-label="Varlıklar">
+        {(Object.keys(KIND_LABEL) as PnlKind[]).map((k) => (
+          <button
+            key={k}
+            aria-pressed={kind === k}
+            onClick={() => setKind(k)}
+            className={`flex-1 rounded-md px-3 py-1.5 ${kind === k ? "bg-white text-zinc-900 shadow-sm dark:bg-zinc-950 dark:text-zinc-100" : "text-zinc-500"}`}
+          >
+            {KIND_LABEL[k]}
+          </button>
+        ))}
       </div>
       {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">{error}</p>}
       {report && t && (

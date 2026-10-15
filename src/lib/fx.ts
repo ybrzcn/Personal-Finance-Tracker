@@ -1,7 +1,7 @@
 /** Döviz ve altın: para birimi listesi (Rust'taki `fx::INSTRUMENTS` ile aynı sırada), miktar ve kur hesapları. */
 
 export const TRY = "TRY";
-export type FxUnit = "currency" | "gram" | "piece";
+export type FxUnit = "currency" | "gram" | "piece" | "share";
 export type FxGroup = "doviz" | "altin" | "maden";
 
 export interface Instrument {
@@ -32,16 +32,26 @@ export const INSTRUMENTS: Instrument[] = [
 ];
 
 export const instrumentByCode = new Map(INSTRUMENTS.map((i) => [i.code, i]));
-const DIVISOR: Record<FxUnit, number> = { currency: 100, gram: 1000, piece: 1 };
+/** Yatırım fonu birimi öneki (Rust `fx::FUND_PREFIX`) */
+export const FUND_PREFIX = "FON:";
+const FUND_RE = /^FON:[A-Z0-9]{3}$/;
+export const isFund = (code: string | null | undefined): boolean => !!code && FUND_RE.test(code);
+export const fundCode = (code: string): string | null => (isFund(code) ? code.slice(FUND_PREFIX.length) : null);
+export const fundUnit = (code: string): string => `${FUND_PREFIX}${code}`;
+
+const DIVISOR: Record<FxUnit, number> = { currency: 100, gram: 1000, piece: 1, share: 1 };
 
 /** 1 birimdeki en küçük birim sayısı */
 export const unitDivisor = (code: string): number => DIVISOR[unitOf(code)];
-export const unitOf = (code: string): FxUnit => instrumentByCode.get(code)?.unit ?? "currency";
+export const unitOf = (code: string): FxUnit => (isFund(code) ? "share" : (instrumentByCode.get(code)?.unit ?? "currency"));
 export const isForeign = (code: string | null | undefined): boolean => !!code && code !== TRY;
-export const qtyDecimals = (code: string): number => ({ currency: 2, gram: 3, piece: 0 })[unitOf(code)];
+export const qtyDecimals = (code: string): number => ({ currency: 2, gram: 3, piece: 0, share: 0 })[unitOf(code)];
 /** Miktar alanı hata mesajı için: birimin kabul ettiği hane */
-export const qtyRule = (code: string): string => ({ currency: "en çok 2 ondalık", gram: "en çok 3 ondalık", piece: "tam sayı" })[unitOf(code)];
-export const currencyLabel = (code: string): string => (code === TRY ? "Türk lirası" : (instrumentByCode.get(code)?.name ?? code));
+export const qtyRule = (code: string): string => ({ currency: "en çok 2 ondalık", gram: "en çok 3 ondalık", piece: "tam sayı", share: "tam sayı" })[unitOf(code)];
+/** Miktar alanının birim etiketi */
+export const unitLabel = (code: string): string => ({ currency: code, gram: "gram", piece: "adet", share: "pay" })[unitOf(code)];
+export const currencyLabel = (code: string): string =>
+  code === TRY ? "Türk lirası" : isFund(code) ? `${fundCode(code)} fonu` : (instrumentByCode.get(code)?.name ?? code);
 
 export const toMinor = (value: number, code: string): number => Math.round(value * DIVISOR[unitOf(code)]);
 export const rateMicros = (rate: number): number => Math.round(rate * 1_000_000);
@@ -60,6 +70,7 @@ const fmt = (d: number) => new Intl.NumberFormat("tr-TR", { minimumFractionDigit
 
 export function formatQty(value: number, code: string): string {
   const u = unitOf(code);
+  if (u === "share") return `${fmt(0).format(value)} pay`;
   if (u === "piece") return `${fmt(0).format(value)} adet`;
   if (u === "gram") return `${fmt(3).format(value)} g`;
   return `${fmt(2).format(value)} ${code}`;

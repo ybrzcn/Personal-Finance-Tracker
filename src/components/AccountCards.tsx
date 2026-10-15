@@ -1,7 +1,7 @@
-import { AlertTriangle, Banknote, CalendarClock, CreditCard, FileUp, HandCoins, Landmark, List, Pencil, Plus, Wallet } from "lucide-react";
+import { AlertTriangle, Banknote, CalendarClock, CreditCard, FileUp, HandCoins, Landmark, List, Pencil, Plus, TrendingUp, Wallet } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { bankSummary, fxValueCents, nativeBalanceMinor } from "../lib/accounts";
-import { formatQty, formatRate, isForeign, unitDivisor } from "../lib/fx";
+import { formatQty, formatRate, isForeign, isFund, unitDivisor } from "../lib/fx";
 import { cardStatements, cardSummary, type Statement, type StatementStatus } from "../lib/cards";
 import { daysBetween, formatDateShort, todayISO } from "../lib/format";
 import { loanSummary } from "../lib/loans";
@@ -92,7 +92,7 @@ function CardShell({ account, icon, children, footer }: { account: Account; icon
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{account.name}</div>
           <div className="text-xs text-zinc-500">
-            {ACCOUNT_KIND_LABEL[account.kind]}
+            {isFund(account.currency) ? "Yatırım fonu" : ACCOUNT_KIND_LABEL[account.kind]}
             {account.archived && " · Arşivlendi"}
           </div>
         </div>
@@ -107,6 +107,52 @@ function CardShell({ account, icon, children, footer }: { account: Account; icon
 }
 
 const rate = (r: number) => `%${r.toLocaleString("tr-TR")}`;
+
+/** Fon hesabı: değer ve kâr/zarar Rust'taki rapordan (kartta hesap yok). */
+export function FundAccountCard({ account }: { account: Account }) {
+  const { formatMoney } = useSettings();
+  const { showAccountTransactions } = useUI();
+  const { byAccount, error } = usePnlSummary();
+  const p = byAccount.get(account.id);
+  return (
+    <CardShell
+      account={account}
+      icon={<TrendingUp size={18} />}
+      footer={
+        <>
+          <span className="ml-auto" />
+          <IconAction title="İşlemler" onClick={() => showAccountTransactions(account.id)} icon={<List size={16} />} />
+        </>
+      }
+    >
+      <div>
+        <div className="text-2xl font-semibold tracking-tight tabular-nums">{p ? formatQty(p.qtyMinor, account.currency) : "—"}</div>
+        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-500 tabular-nums">
+          {p && p.valueCents !== null && p.rateMicros !== null ? (
+            <>
+              ≈ {formatMoney(p.valueCents / 100)} · fiyat {formatRate(p.rateMicros / 1_000_000)}
+              {p.rateObservedAt && ` · ${formatDateShort(p.rateObservedAt.slice(0, 10))}`}
+              {p.rateStale && (
+                <span title="Fiyat eski: TEFAS'a ulaşılamıyor olabilir" className="text-amber-600 dark:text-amber-400">
+                  <AlertTriangle size={12} />
+                </span>
+              )}
+            </>
+          ) : (
+            (error ?? "TL karşılığı: — (fiyat alınamadı)")
+          )}
+        </div>
+        {p && p.qtyMinor > 0 && p.unrealizedCents !== null && (
+          <div className={`mt-0.5 text-xs tabular-nums ${p.unrealizedCents >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
+            k/z {p.unrealizedCents > 0 ? "+" : ""}
+            {formatMoney(p.unrealizedCents / 100)}
+            {p.unrealizedBp !== null && ` (%${(p.unrealizedBp / 100).toLocaleString("tr-TR", { maximumFractionDigits: 1 })})`}
+          </div>
+        )}
+      </div>
+    </CardShell>
+  );
+}
 
 export function BankAccountCard({ account }: { account: Account }) {
   const { transactions } = useData();

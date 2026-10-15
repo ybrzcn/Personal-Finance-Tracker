@@ -225,7 +225,7 @@ export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
 /** Kur: 1 birimin TL fiyatı */
 export interface RateQuote {
   code: string;
-  source: "tcmb" | "harem";
+  source: "tcmb" | "harem" | "tefas";
   /** ISO zaman (UTC) */
   observedAt: string;
   buy: number;
@@ -304,3 +304,19 @@ export interface PnlReport {
   totals: PnlTotals;
   cpi: CpiInfo;
 }
+
+/** TEFAS fon arama sonucu (Rust `fx::funds::FundHit`) */
+export interface FundHit {
+  /** TEFAS kodu (öneksiz) */
+  code: string;
+  name: string;
+  kind: "YAT" | "BYF";
+  kindLabel: string;
+  /** Son fiyat (1 pay, TL) */
+  price: number;
+  /** Fiyat günü YYYY-MM-DD */
+  date: string;
+}
+
+/** Kâr/zarar süzgeci */
+export type PnlKind = "all" | "fx" | "fund";

@@ -1,10 +1,11 @@
 import { FileUp, Landmark, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
-import { BankAccountCard, CreditCardCard, LoanCard } from "../components/AccountCards";
+import { BankAccountCard, CreditCardCard, FundAccountCard, LoanCard } from "../components/AccountCards";
 import { EmptyState, PageHeader, SummaryTile, type TileTone } from "../components/common";
 import { DueIncomeBanner } from "../components/DueIncomeBanner";
 import { netPosition } from "../lib/accounts";
 import { expectedIncomeThisMonth } from "../lib/budget";
+import { isFund } from "../lib/fx";
 import { monthName } from "../lib/recurring";
 import { todayISO } from "../lib/format";
 import { useData } from "../state/data";
@@ -33,7 +34,8 @@ export function Accounts() {
     .join(" · ");
   const visible = accounts.filter((a) => showArchived || !a.archived);
   const cards = visible.filter((a) => a.kind === "credit_card");
-  const banks = visible.filter((a) => a.kind === "bank" || a.kind === "cash");
+  const banks = visible.filter((a) => (a.kind === "bank" || a.kind === "cash") && !isFund(a.currency));
+  const funds = visible.filter((a) => isFund(a.currency));
   const loans = visible.filter((a) => a.kind === "loan");
   const hasArchived = accounts.some((a) => a.archived);
 
@@ -137,6 +139,16 @@ export function Accounts() {
                 ))}
               </div>
             </div>
+          )}
+          {funds.length > 0 && (
+            <section>
+              <h2 className="mb-3 text-sm font-semibold">Yatırımlar</h2>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {funds.map((a) => (
+                  <FundAccountCard key={a.id} account={a} />
+                ))}
+              </div>
+            </section>
           )}
         </div>
       )}

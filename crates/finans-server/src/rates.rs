@@ -7,9 +7,11 @@ use std::sync::Mutex;
 
 use axum::http::StatusCode;
 use finans_core::fx::live::{LiveRates, REFRESH_SECS};
+use finans_core::fx::amount::rate_from_f64;
+use finans_core::fx::funds::{quotes_of, FundCache, FundHit, FundSource, TEFAS};
 use finans_core::fx::sources::{fetch_harem, fetch_tcmb_on, fetch_tcmb_today, tcmb_archive_start, Quote, RateView, TcmbDay};
 use finans_core::fx::time::*;
-use finans_core::fx::{find, Source};
+use finans_core::fx::{is_fund, source_of, Source};
 
 use finans_core::CoreResult;
 
@@ -40,6 +42,10 @@ struct Fetch {
     archive_days: HashMap<i64, bool>,
     /// Arşive ulaşılamadı: bu zamana kadar yeniden denenmez
     archive_down_until: i64,
+    /// TEFAS toplayıcısı: son deneme, o günün fiyatı alındı mı, son temizlik günü
+    tefas_at: i64,
+    tefas_day: Option<i64>,
+    purge_day: Option<i64>,
     last_error: Option<String>,
 }
 
@@ -48,6 +54,8 @@ pub struct StoredRates {
     fetch: Mutex<Fetch>,
     /// TCMB arşivinden bir günü çeker (doğrulamada sahte kaynak verilebilir)
     fetch_day: fn(i64) -> CoreResult<Option<TcmbDay>>,
+    /// Fon fiyatı önbelleği (TEFAS)
+    pub(crate) funds: FundCache,
 }
 
 fn db_down(e: String) -> ApiError {
@@ -69,13 +77,35 @@ fn remember(f: &mut Fetch, day: i64, published: bool) {
 
 impl StoredRates {
     pub fn new(pool: Pool) -> Self {
-        Self::with_archive_fetcher(pool, fetch_tcmb_on)
+        Self::with_sources(pool, fetch_tcmb_on, TEFAS)
     }
 
     /// Arşiv kaynağı verilerek kurulur (doğrulama için; `LiveRates::with_archive_fetcher` gibi).
     #[allow(dead_code)]
     pub fn with_archive_fetcher(pool: Pool, fetch_day: fn(i64) -> CoreResult<Option<TcmbDay>>) -> Self {
-        StoredRates { pool, fetch: Mutex::new(Fetch::default()), fetch_day }
+        Self::with_sources(pool, fetch_day, TEFAS)
+    }
+
+    /// Arşiv ve fon kaynakları verilerek kurulur (doğrulama için).
+    pub fn with_sources(pool: Pool, fetch_day: fn(i64) -> CoreResult<Option<TcmbDay>>, fund_src: FundSource) -> Self {
+        StoredRates { pool, fetch: Mutex::new(Fetch::default()), fetch_day, funds: FundCache::new(fund_src) }
+    }
+
+    /// Fon fiyatlarını (görünüm) tabloya yazar
+    fn save_views(&self, views: &[RateView]) {
+        let quotes: Vec<Quote> = views
+            .iter()
+            .filter_map(|v| {
+                Some(Quote {
+                    code: v.code.clone(),
+                    source: v.source.clone(),
+                    observed_at: v.observed_at.clone(),
+                    buy: rate_from_f64(v.buy).ok()?,
+                    sell: rate_from_f64(v.sell).ok()?,
+                })
+            })
+            .collect();
+        self.save(&quotes);
     }
 
     fn log_once(f: &mut Fetch, e: String) {
@@ -148,6 +178,48 @@ impl StoredRates {
             },
         );
         self.pull(claimed);
+        self.collect_funds();
+    }
+
+    /// Fonlar: hafta içi 18:00'den sonra, o günün fiyatı gelene kadar saatte bir (açılışta bir kez); izlenenler yazılır.
+    /// Günde bir: 90 gündür istenmeyen fonlar izlemeden çıkar.
+    fn collect_funds(&self) {
+        let now = unix_now();
+        let today = istanbul_today(now);
+        let due = {
+            let mut f = self.lock();
+            let due = f.tefas_at == 0
+                || (weekday(today) < 5 && istanbul_minute(now) >= 18 * 60 && f.tefas_day != Some(today) && now - f.tefas_at >= TCMB_RETRY);
+            if due {
+                f.tefas_at = now;
+            }
+            due
+        };
+        if due {
+            match pg::funds::tracked(&self.pool) {
+                Ok(tracked) if !tracked.is_empty() => {
+                    let lists = self.funds.lists(true, now);
+                    let quotes: Vec<Quote> = quotes_of(&lists).into_iter().filter(|q| tracked.contains(&q.code)).collect();
+                    if quotes.iter().any(|q| q.observed_at.starts_with(&ymd(today))) {
+                        self.lock().tefas_day = Some(today);
+                    }
+                    self.save(&quotes);
+                }
+                Ok(_) => {}
+                Err(e) => Self::log_once(&mut self.lock(), format!("izlenen fonlar okunamadı: {e}")),
+            }
+        }
+        let purge = {
+            let mut f = self.lock();
+            let p = f.purge_day != Some(today);
+            f.purge_day = Some(today);
+            p
+        };
+        if purge {
+            if let Err(e) = pg::funds::purge(&self.pool, 90) {
+                Self::log_once(&mut self.lock(), format!("fon listesi temizlenemedi: {e}"));
+            }
+        }
     }
 
     fn latest(&self, refresh: bool) -> Result<Vec<RateView>, ApiError> {
@@ -165,11 +237,26 @@ impl StoredRates {
 
     /// Gün `day` (İstanbul) için son fiyat. Döviz: tabloda o güne ait yayın yoksa TCMB arşivinden çekilip yazılır.
     fn at(&self, code: &str, day: i64) -> Result<Option<RateView>, ApiError> {
-        let inst = find(code).ok_or_else(|| ApiError::from(format!("Bilinmeyen para birimi: {code}")))?;
+        let source = source_of(code).ok_or_else(|| ApiError::from(format!("Bilinmeyen para birimi: {code}")))?;
         let now = unix_now();
         let until = iso_utc(istanbul_to_unix(day + 1, 0, 0, 0));
         let since = iso_utc(istanbul_to_unix(day - 10, 0, 0, 0));
-        if inst.source == Source::Tcmb {
+        if source == Source::Tefas {
+            // Tablodaki fon satırları seyrek olabilir (izleme başlamadan önce yalnız istenen günler yazılır):
+            // yalnız tam o güne ait satır kesindir; değilse önbellek/TEFAS, ulaşılamazsa tablodaki son satır
+            let stored = pg::rates::last_between(&self.pool, code, &since, &until).map_err(db_down)?;
+            if let Some(q) = stored.as_ref().filter(|q| q.observed_at.starts_with(&ymd(day))) {
+                return Ok(Some(RateView::from_quote(q, None, now)));
+            }
+            return match self.funds.at(code, day, now) {
+                Ok(Some(v)) => {
+                    self.save_views(std::slice::from_ref(&v));
+                    Ok(Some(v))
+                }
+                Ok(None) | Err(_) => Ok(stored.map(|q| RateView::from_quote(&q, None, now))),
+            };
+        }
+        if source == Source::Tcmb {
             // `day`'den geriye en yakın iş günü yayını çekilmemişse arşivden alınır (yalnız değişen yazıldığı için
             // tabloda satır olmaması "çekilmedi" ya da "değişmedi" olabilir; çekilen günler bellekte tutulur).
             // Ağ isteği kilit dışında.
@@ -213,15 +300,44 @@ impl StoredRates {
         Ok(q.map(|q| RateView::from_quote(&q, None, now)))
     }
 
+    /// İstenen fonları izlemeye alır; tabloda olmayanları (ya da yenilemede hepsini) önbellekten/TEFAS'tan alıp yazar.
+    pub fn funds_latest(&self, codes: &[String], refresh: bool) -> Result<Vec<RateView>, ApiError> {
+        let mut codes: Vec<String> = codes.iter().filter(|c| is_fund(c)).cloned().collect();
+        codes.sort();
+        codes.dedup();
+        if codes.is_empty() {
+            return Ok(Vec::new());
+        }
+        pg::funds::touch(&self.pool, &codes).map_err(db_down)?;
+        let now = unix_now();
+        let mut stored = pg::rates::latest_for(&self.pool, &codes).map_err(db_down)?;
+        let missing: Vec<String> = codes.iter().filter(|c| !stored.iter().any(|(q, _)| &q.code == *c)).cloned().collect();
+        if refresh || !missing.is_empty() {
+            let want = if refresh { codes.clone() } else { missing };
+            self.save_views(&self.funds.latest(&want, refresh, now));
+            // Listedeki son 14 gün de yazılır (grafik için; liste az önce alındı, yeni istek gitmez)
+            let recent: Vec<Quote> = quotes_of(&self.funds.lists(false, now)).into_iter().filter(|q| want.contains(&q.code)).collect();
+            self.save(&recent);
+            stored = pg::rates::latest_for(&self.pool, &codes).map_err(db_down)?;
+        }
+        Ok(stored.iter().map(|(q, prev)| RateView::from_quote(q, *prev, now)).collect())
+    }
+
     fn history(&self, code: &str, from: i64, to: i64) -> Result<Vec<RateView>, ApiError> {
         let now = unix_now();
-        let rows = pg::rates::history(
-            &self.pool,
-            code,
-            &iso_utc(istanbul_to_unix(from, 0, 0, 0)),
-            &iso_utc(istanbul_to_unix(to + 1, 0, 0, 0)),
-        )
-        .map_err(db_down)?;
+        let (since, until) = (iso_utc(istanbul_to_unix(from, 0, 0, 0)), iso_utc(istanbul_to_unix(to + 1, 0, 0, 0)));
+        let mut rows = pg::rates::history(&self.pool, code, &since, &until).map_err(db_down)?;
+        if is_fund(code) {
+            // Tabloda biriken geçmiş yetmezse en çok 3 ay geriye TEFAS'tan tamamlanır; yalnız tablodaki ilk günden
+            // önceki kısım çekilir (istek sınırına sığsın)
+            let first_needed = from.max(to.min(istanbul_today(now)) - 91);
+            let first = rows.first().and_then(|q| parse_iso_utc(&q.observed_at)).map(istanbul_today);
+            if first.is_none_or(|d| d > first_needed + 7) {
+                let last = first.map_or(to, |d| d - 1);
+                self.save_views(&self.funds.history(code, first_needed, last, now).map_err(ApiError::from)?);
+                rows = pg::rates::history(&self.pool, code, &since, &until).map_err(db_down)?;
+            }
+        }
         Ok(rows.iter().map(|q| RateView::from_quote(q, None, now)).collect())
     }
 }
@@ -240,6 +356,22 @@ impl RateService {
         }
     }
 
+    pub fn funds_search(&self, q: &str) -> Result<Vec<FundHit>, ApiError> {
+        match self {
+            RateService::Stored(s) => s.funds.search(q, unix_now()),
+            RateService::Live(l) => l.funds_search(q),
+        }
+        .map_err(ApiError::from)
+    }
+
+    /// `FON:XXX` kodlarının güncel fiyatı
+    pub fn funds_latest(&self, codes: &[String], refresh: bool) -> Result<Vec<RateView>, ApiError> {
+        match self {
+            RateService::Stored(s) => s.funds_latest(codes, refresh),
+            RateService::Live(l) => Ok(l.funds_latest(codes, refresh)),
+        }
+    }
+
     pub fn at(&self, code: &str, date: &str) -> Result<Option<RateView>, ApiError> {
         let day = parse_ymd(date).ok_or_else(|| ApiError::from(format!("Geçersiz tarih: {date}")))?;
         match self {
@@ -252,7 +384,7 @@ impl RateService {
         let (Some(f), Some(t)) = (parse_ymd(from), parse_ymd(to)) else {
             return Err(ApiError::from("Geçersiz tarih aralığı.".to_string()));
         };
-        if find(code).is_none() {
+        if source_of(code).is_none() {
             return Err(ApiError::from(format!("Bilinmeyen para birimi: {code}")));
         }
         if t < f || t - f > 3660 {
@@ -260,6 +392,7 @@ impl RateService {
         }
         match self {
             RateService::Stored(s) => s.history(code, f, t),
+            RateService::Live(l) if is_fund(code) => l.history(code, from, to).map_err(ApiError::from),
             RateService::Live(_) => Err(not_found()),
         }
     }

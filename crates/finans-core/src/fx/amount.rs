@@ -19,6 +19,9 @@ pub fn value_to_minor(value: f64, unit: Unit) -> CoreResult<i64> {
     if unit == Unit::Piece && value.fract() != 0.0 {
         return Err("Adetli altın tam sayı olmalıdır.".into());
     }
+    if unit == Unit::Share && value.fract() != 0.0 {
+        return Err("Pay adedi tam sayı olmalı.".into());
+    }
     let minor = (value * unit.divisor() as f64).round();
     if minor < 1.0 {
         return Err("Miktar çok küçük.".into());
@@ -33,6 +36,9 @@ pub fn signed_value_to_minor(value: f64, unit: Unit) -> CoreResult<i64> {
     }
     if unit == Unit::Piece && value.fract() != 0.0 {
         return Err("Adetli altın tam sayı olmalıdır.".into());
+    }
+    if unit == Unit::Share && value.fract() != 0.0 {
+        return Err("Pay adedi tam sayı olmalı.".into());
     }
     Ok((value * unit.divisor() as f64).round() as i64)
 }

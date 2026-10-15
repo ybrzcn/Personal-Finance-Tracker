@@ -20,6 +20,7 @@ pub fn router() -> Router<Arc<AppState>> {
 struct PnlQuery {
     from: Option<String>,
     to: Option<String>,
+    kind: Option<String>,
 }
 
 fn date(v: Option<String>) -> Result<Option<String>, ApiError> {
@@ -32,12 +33,15 @@ fn date(v: Option<String>) -> Result<Option<String>, ApiError> {
 
 async fn report(State(s): State<Arc<AppState>>, user: AuthUser, Query(q): Query<PnlQuery>) -> Result<Json<PnlReport>, ApiError> {
     let (from, to) = (date(q.from)?, date(q.to)?);
+    let filter = pnl::AssetFilter::parse(q.kind.as_deref()).map_err(ApiError::from)?;
     // Veri tek işlemde okunur; kur ve TÜFE (ağ) veritabanı işlemi dışında toplanır
     let (accounts, txs) =
         with_user_db(&s, &user, |c| Ok((store::list_accounts(c)?, store::list_transactions(c)?))).await?;
     let out = blocking(move || {
         let today = ymd(istanbul_today(unix_now()));
-        let rates = pnl::current_rates(&s.rates.latest(false)?);
+        let mut views = s.rates.latest(false)?;
+        views.extend(s.rates.funds_latest(&pnl::fund_codes(&accounts), false)?);
+        let rates = pnl::current_rates(&views);
         let opening = pnl::opening_rates(&accounts, |code, d| s.rates.at(code, d).map_err(|e| e.message));
         let cpi = s.cpi.get();
         pnl::report(&PnlInput {
@@ -49,6 +53,7 @@ async fn report(State(s): State<Arc<AppState>>, user: AuthUser, Query(q): Query<
             today: &today,
             from: from.as_deref(),
             to: to.as_deref(),
+            filter,
         })
         .map_err(ApiError::from)
     })

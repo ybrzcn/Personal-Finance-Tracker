@@ -3,8 +3,9 @@ import { useEffect, useState } from "react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, errorMessage } from "../lib/api";
 import { addDays, todayISO } from "../lib/format";
-import { formatRate, GROUP_LABEL, INSTRUMENTS, type FxGroup } from "../lib/fx";
+import { formatRate, fundCode, GROUP_LABEL, INSTRUMENTS, isFund, type FxGroup } from "../lib/fx";
 import type { RateQuote } from "../lib/types";
+import { useData } from "../state/data";
 import { useRates } from "../state/rates";
 
 const time = (iso: string) => new Date(iso).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
@@ -12,6 +13,9 @@ const time = (iso: string) => new Date(iso).toLocaleString("tr-TR", { day: "2-di
 export function RatesPage() {
   const { rates, loading, error, refresh } = useRates();
   const [open, setOpen] = useState<string | null>(null);
+  const { accounts } = useData();
+  const funds = [...new Set(accounts.filter((a) => !a.archived && isFund(a.currency)).map((a) => a.currency))].sort();
+  const names = new Map(accounts.filter((a) => isFund(a.currency)).map((a) => [a.currency, a.name]));
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -24,7 +28,7 @@ export function RatesPage() {
         </button>
       </div>
       {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">{error}</p>}
-      <p className="text-xs text-zinc-500">Döviz: TCMB (iş günü 15:30). Altın ve gümüş: Harem Altın (15 dakikada bir). Değerler 1 birimin TL fiyatıdır.</p>
+      <p className="text-xs text-zinc-500">Döviz: TCMB (iş günü 15:30). Altın ve gümüş: Harem Altın (15 dakikada bir). Fonlar: TEFAS (günde bir; resmî olmayan servis). Değerler 1 birimin TL fiyatıdır.</p>
       {(["doviz", "altin", "maden"] as FxGroup[]).map((g) => (
         <section key={g} className="card overflow-hidden p-0">
           <h2 className="border-b border-zinc-100 px-4 py-2 text-sm font-semibold dark:border-zinc-800">{GROUP_LABEL[g]}</h2>
@@ -74,6 +78,59 @@ export function RatesPage() {
           </table>
         </section>
       ))}
+      {funds.length > 0 && (
+        <section className="card overflow-hidden p-0">
+          <h2 className="border-b border-zinc-100 px-4 py-2 text-sm font-semibold dark:border-zinc-800">Fonlarım</h2>
+          <table className="w-full text-sm tabular-nums">
+            <thead className="text-xs text-zinc-500">
+              <tr>
+                <th className="px-4 py-2 text-left font-medium">Fon</th>
+                <th className="px-2 py-2 text-right font-medium">Fiyat</th>
+                <th className="px-2 py-2 text-right font-medium">Günlük</th>
+                <th className="px-4 py-2 text-right font-medium">Fiyat günü</th>
+              </tr>
+            </thead>
+            <tbody>
+              {funds.map((code) => {
+                const q = rates.get(code);
+                const change = q?.prevBuy ? ((q.buy - q.prevBuy) / q.prevBuy) * 100 : null;
+                return [
+                  <tr
+                    key={code}
+                    className="cursor-pointer border-t border-zinc-100 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/40"
+                    onClick={() => setOpen(open === code ? null : code)}
+                  >
+                    <td className="px-4 py-2">
+                      {names.get(code) ?? fundCode(code)}
+                    </td>
+                    <td className="px-2 py-2 text-right">{q ? formatRate(q.buy) : "—"}</td>
+                    <td className={`px-2 py-2 text-right ${change === null ? "text-zinc-400" : change >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                      {change === null ? "—" : `${change >= 0 ? "+" : ""}${change.toLocaleString("tr-TR", { maximumFractionDigits: 2 })}%`}
+                    </td>
+                    <td className="px-4 py-2 text-right text-xs text-zinc-500">
+                      {q ? (
+                        <span className="inline-flex items-center gap-1">
+                          {q.stale && <AlertTriangle size={12} className="text-amber-500" aria-label="Fiyat eski" />}
+                          {q.observedAt.slice(0, 10)}
+                        </span>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  </tr>,
+                  open === code && (
+                    <tr key={`${code}-h`}>
+                      <td colSpan={4} className="px-4 pb-4">
+                        <History code={code} />
+                      </td>
+                    </tr>
+                  ),
+                ];
+              })}
+            </tbody>
+          </table>
+        </section>
+      )}
     </div>
   );
 }
