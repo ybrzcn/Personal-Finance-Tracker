@@ -1,3 +1,4 @@
+import { GoalsSummary } from "../components/GoalsSummary";
 import { ArrowRight, CalendarCheck, PieChart, Plus, Receipt } from "lucide-react";
 import { useMemo, useState } from "react";
 import { dueText, paymentHints } from "../components/AccountCards";
@@ -341,6 +342,8 @@ export function Dashboard() {
         )}
 
         {accounts.some((a) => a.kind === "credit_card" || a.kind === "loan") && <UpcomingPayments />}
+
+        <GoalsSummary />
 
         <section className={`card col-span-2 px-5 py-4 ${transactions.length > 0 ? "" : "lg:col-span-4"}`}>
           <div className="flex items-baseline justify-between gap-3">

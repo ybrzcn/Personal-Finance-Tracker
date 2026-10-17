@@ -1,4 +1,5 @@
 mod commands;
+mod goals;
 mod maintenance;
 mod networth;
 mod pnl;
@@ -112,6 +113,11 @@ pub fn run() {
             rates::rate_history,
             pnl::pnl_report,
             networth::networth_report,
+            goals::list_goals,
+            goals::create_goal,
+            goals::update_goal,
+            goals::delete_goal,
+            goals::goals_report,
             commands::evds_key_set,
             commands::set_evds_key,
         ])

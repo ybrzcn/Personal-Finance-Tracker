@@ -4,9 +4,9 @@
 use std::collections::HashSet;
 
 use crate::data_store::DataStore;
-use crate::db::{self, Account, AccountInput, Budget, Category, CategoryInput, RecurringItem, Transaction, TransactionInput};
+use crate::db::{self, Account, AccountInput, Budget, Category, CategoryInput, Goal, GoalInput, RecurringItem, Transaction, TransactionInput};
 use crate::fx::{self, amount as fxa};
-use crate::rows::{AccountMeta, AccountRow, RecurringRow, TransactionRow};
+use crate::rows::{AccountMeta, AccountRow, GoalRow, RecurringRow, TransactionRow};
 use crate::CoreResult;
 
 // ---------------------------------------------------------------------------
@@ -430,6 +430,11 @@ pub fn update_account(s: &mut dyn DataStore, mut account: Account) -> CoreResult
     if old.kind != row.kind && used {
         return Err("Bu hesapta işlem bulunduğu için türü değiştirilemez.".into());
     }
+    if row.kind != "bank" && row.kind != "cash" {
+        if let Some((_, gname)) = s.goal_of_account(&account.id)? {
+            return Err(format!("Bu hesap '{gname}' hedefine bağlı olduğu için kart ya da krediye çevrilemez."));
+        }
+    }
     if old.currency != row.currency && used {
         return Err("Bu hesapta işlem bulunduğu için para birimi değiştirilemez.".into());
     }
@@ -681,6 +686,79 @@ pub fn set_budget(s: &mut dyn DataStore, category_id: &str, amount: Option<f64>)
     upsert_budget(s, category_id, amount)
 }
 
+// Birikim hedefleri
+
+/// `own_id`: kaydedilen hedef (kendi hesapları "başka hedefe bağlı" sayılmaz). `today` yoksa (geri yükleme)
+/// tarih geleceğe göre denetlenmez; `prev_date` düzenlenen hedefin değişmeyen eski tarihidir.
+fn clean_goal(s: &mut dyn DataStore, own_id: &str, g: &GoalInput, today: Option<&str>, prev_date: Option<&str>) -> CoreResult<GoalRow> {
+    let name = clean_name(&g.name, "Hedef adı")?;
+    let currency = g.currency.trim().to_string();
+    if fx::is_fund(&currency) {
+        return Err("Hedef birimi fon olamaz; TL, döviz ya da altın seçin.".into());
+    }
+    if currency != fx::TRY && fx::find(&currency).is_none() {
+        return Err(format!("Bilinmeyen birim: {currency}"));
+    }
+    if !g.target.is_finite() || g.target <= 0.0 {
+        return Err("Hedef tutarı sıfırdan büyük olmalıdır.".into());
+    }
+    let target_minor = fxa::value_to_minor(g.target, fx::unit_or_try(Some(&currency)))?;
+    let target_date = match g.target_date.as_deref().map(str::trim).filter(|d| !d.is_empty()) {
+        None => None,
+        Some(d) => {
+            validate_date(d)?;
+            if let Some(t) = today {
+                if d <= t && prev_date != Some(d) {
+                    return Err("Hedef tarihi bugünden sonra olmalıdır.".into());
+                }
+            }
+            Some(d.to_string())
+        }
+    };
+    let mut account_ids: Vec<String> = Vec::new();
+    for id in &g.account_ids {
+        if account_ids.contains(id) {
+            continue;
+        }
+        let Some(a) = s.get_account(id)? else { return Err("Hesap bulunamadı.".into()) };
+        if a.kind != "bank" && a.kind != "cash" {
+            return Err(format!(
+                "{} hesabı hedefe bağlanamaz; yalnız vadesiz, nakit, döviz/altın ve fon hesapları bağlanabilir.",
+                a.name
+            ));
+        }
+        if let Some((gid, gname)) = s.goal_of_account(id)? {
+            if gid != own_id {
+                return Err(format!("{} hesabı zaten '{gname}' hedefine bağlı.", a.name));
+            }
+        }
+        account_ids.push(id.clone());
+    }
+    Ok(GoalRow { name, currency, target_minor, target_date, color: clean_color(&g.color), archived: g.archived, account_ids })
+}
+
+pub fn list_goals(s: &mut dyn DataStore) -> CoreResult<Vec<Goal>> {
+    s.list_goals()
+}
+
+pub fn create_goal(s: &mut dyn DataStore, input: GoalInput, today: &str) -> CoreResult<Goal> {
+    let id = db::new_id();
+    let row = clean_goal(s, &id, &input, Some(today), None)?;
+    s.insert_goal(&id, &row, None)?;
+    s.get_goal(&id)?.ok_or_else(|| "Hedef kaydedilemedi.".into())
+}
+
+pub fn update_goal(s: &mut dyn DataStore, goal: Goal, today: &str) -> CoreResult<Goal> {
+    let prev = s.get_goal(&goal.id)?.ok_or("Hedef bulunamadı.")?;
+    let row = clean_goal(s, &goal.id, &GoalInput::from(&goal), Some(today), prev.target_date.as_deref())?;
+    s.update_goal(&goal.id, &row)?;
+    s.get_goal(&goal.id)?.ok_or_else(|| "Hedef bulunamadı.".into())
+}
+
+pub fn delete_goal(s: &mut dyn DataStore, id: &str) -> CoreResult<()> {
+    s.delete_goal(id)
+}
+
 // Yedekleme / Geri yükleme
 
 /// Tüm veriyi verilen içerikle değiştirir. Çağıran bunu tek bir veritabanı işleminde çalıştırır
@@ -692,6 +770,7 @@ pub fn restore_data(
     transactions: Vec<Transaction>,
     recurring: Vec<RecurringItem>,
     budgets: Vec<Budget>,
+    goals: Vec<Goal>,
 ) -> CoreResult<()> {
     s.clear_all()?;
 
@@ -747,6 +826,26 @@ pub fn restore_data(
         if s.get_category(&b.category_id)?.is_some_and(|c| c.kind == "expense") {
             upsert_budget(s, &b.category_id, Some(b.amount))?;
         }
+    }
+    // Hedefler: yedekte olmayan ya da bağlanamayan (kart/kredi) hesaba ve önceki bir hedefe bağlı hesaba bağlantı atlanır
+    let mut linked: HashSet<String> = HashSet::new();
+    for (i, g) in goals.iter().enumerate() {
+        let mut input = GoalInput::from(g);
+        let mut keep = Vec::new();
+        for a in &input.account_ids {
+            if linked.contains(a) {
+                continue;
+            }
+            if s.get_account(a)?.is_some_and(|x| x.kind == "bank" || x.kind == "cash") {
+                keep.push(a.clone());
+            }
+        }
+        input.account_ids = keep;
+        let id = if g.id.trim().is_empty() { db::new_id() } else { g.id.clone() };
+        let row = clean_goal(s, &id, &input, None, None).map_err(|e| format!("{}. hedef: {e}", i + 1))?;
+        linked.extend(row.account_ids.iter().cloned());
+        let created = Some(g.created_at.as_str()).filter(|c| !c.trim().is_empty());
+        s.insert_goal(&id, &row, created).map_err(|e| format!("{}. hedef eklenemedi: {e}", i + 1))?;
     }
     // Silinmiş düzenli gelire işaret eden finansman bağlantılarını temizle
     s.clear_dangling_funding()

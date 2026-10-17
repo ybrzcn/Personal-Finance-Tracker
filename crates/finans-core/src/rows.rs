@@ -69,3 +69,14 @@ pub struct AccountMeta {
     pub archived: bool,
     pub currency: String,
 }
+
+pub struct GoalRow {
+    pub name: String,
+    pub currency: String,
+    pub target_minor: i64,
+    pub target_date: Option<String>,
+    pub color: String,
+    pub archived: bool,
+    /// Tekrarsız, doğrulanmış hesaplar
+    pub account_ids: Vec<String>,
+}

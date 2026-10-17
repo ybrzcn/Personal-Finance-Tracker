@@ -168,6 +168,7 @@ export function SettingsPage() {
             <p className="mt-2">
               <strong>{backup.transactions.length} işlem</strong>, <strong>{backup.accounts.length} hesap</strong>,{" "}
               <strong>{backup.categories.length} kategori</strong>
+              {backup.goals?.length ? <>, <strong>{backup.goals.length} hedef</strong></> : null}
             </p>
             <p className="mt-2 text-xs text-zinc-500">İpucu: Devam etmeden önce mevcut verinin yedeğini almak isteyebilirsiniz.</p>
           </>
@@ -176,7 +177,7 @@ export function SettingsPage() {
         danger: true,
       });
       if (!ok) return;
-      await restore(backup);
+      await restore({ ...backup, goals: backup.goals ?? [] });
       // Borç planı ayarları yedekte varsa onlar da geri yüklenir (eski yedeklerde yoksa mevcutlar kalır)
       // Ayarlar yazılamazsa run() hatayı gösterir; başarı mesajı çıkmaz
       if (backup.debtPlan) await update(backup.debtPlan);
@@ -324,6 +325,7 @@ export function SettingsPage() {
         transactions: [],
         recurring: [],
         budgets: [],
+        goals: [],
       });
       // Borç planı kuralları, analiz düzeltmeleri ve kategori kuralları silinen hesaplara/kategorilere bağlıydı
       await update({

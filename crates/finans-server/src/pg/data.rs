@@ -1,9 +1,9 @@
 //! `DataStore`'un Postgres uygulaması. Her sorgu `user_id` ile süzülür (RLS ayrıca korur).
 
 use finans_core::data_store::DataStore;
-use finans_core::db::{cents_to_f64, Account, Budget, Category, RecurringItem, Transaction};
+use finans_core::db::{cents_to_f64, Account, Budget, Category, Goal, RecurringItem, Transaction};
 use finans_core::fx::amount::stored_to_api;
-use finans_core::rows::{AccountMeta, AccountRow, RecurringRow, TransactionRow};
+use finans_core::rows::{AccountMeta, AccountRow, GoalRow, RecurringRow, TransactionRow};
 use finans_core::CoreResult;
 use postgres::Row;
 
@@ -118,6 +118,53 @@ impl PgStore<'_, '_> {
 
     fn count(&mut self, sql: &str, params: &[&(dyn postgres::types::ToSql + Sync)]) -> CoreResult<i64> {
         Ok(self.tx.query_one(sql, params).map_err(pg_err)?.get(0))
+    }
+
+    fn goals_where(&mut self, filter: &str, id: Option<&str>) -> CoreResult<Vec<Goal>> {
+        let sql = format!(
+            "SELECT id, name, currency, target_minor, target_date::text, color, archived, \
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') \
+             FROM goals WHERE user_id = $1 {filter} ORDER BY created_at, id"
+        );
+        let rows = match id {
+            Some(id) => self.tx.query(&sql, &[&self.user_id, &id]),
+            None => self.tx.query(&sql, &[&self.user_id]),
+        }
+        .map_err(pg_err)?;
+        let mut goals: Vec<Goal> = rows
+            .iter()
+            .map(|r| {
+                let currency: String = r.get(2);
+                let unit = finans_core::fx::unit_or_try(Some(&currency));
+                Goal {
+                    id: r.get(0),
+                    name: r.get(1),
+                    target: finans_core::fx::amount::minor_to_value(r.get(3), unit),
+                    currency,
+                    target_date: r.get(4),
+                    color: r.get(5),
+                    archived: r.get(6),
+                    account_ids: Vec::new(),
+                    created_at: r.get(7),
+                }
+            })
+            .collect();
+        let links = self.list("SELECT goal_id, account_id FROM goal_accounts WHERE user_id = $1 ORDER BY account_id", |r| {
+            (r.get::<_, String>(0), r.get::<_, String>(1))
+        })?;
+        for g in &mut goals {
+            g.account_ids = links.iter().filter(|(gid, _)| *gid == g.id).map(|(_, a)| a.clone()).collect();
+        }
+        Ok(goals)
+    }
+
+    fn link_accounts(&mut self, id: &str, ids: &[String]) -> CoreResult<()> {
+        let u = self.user_id.clone();
+        self.exec("DELETE FROM goal_accounts WHERE user_id = $1 AND goal_id = $2", &[&u, &id])?;
+        for a in ids {
+            self.exec("INSERT INTO goal_accounts (user_id, account_id, goal_id) VALUES ($1, $2, $3)", &[&u, a, &id])?;
+        }
+        Ok(())
     }
 }
 
@@ -366,6 +413,56 @@ impl DataStore for PgStore<'_, '_> {
         Ok(())
     }
 
+    fn list_goals(&mut self) -> CoreResult<Vec<Goal>> {
+        self.goals_where("", None)
+    }
+
+    fn get_goal(&mut self, id: &str) -> CoreResult<Option<Goal>> {
+        Ok(self.goals_where("AND id = $2", Some(id))?.into_iter().next())
+    }
+
+    fn insert_goal(&mut self, id: &str, r: &GoalRow, created_at: Option<&str>) -> CoreResult<()> {
+        let u = self.user_id.clone();
+        self.exec(
+            "INSERT INTO goals (user_id, id, name, currency, target_minor, target_date, color, archived, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6::text::date, $7, $8, COALESCE($9::text::timestamptz, now()))",
+            &[&u, &id, &r.name, &r.currency, &r.target_minor, &r.target_date, &r.color, &r.archived, &created_at],
+        )?;
+        self.link_accounts(id, &r.account_ids)
+    }
+
+    fn update_goal(&mut self, id: &str, r: &GoalRow) -> CoreResult<u64> {
+        let u = self.user_id.clone();
+        let n = self.exec(
+            "UPDATE goals SET name = $3, currency = $4, target_minor = $5, target_date = $6::text::date, color = $7, archived = $8
+             WHERE user_id = $1 AND id = $2",
+            &[&u, &id, &r.name, &r.currency, &r.target_minor, &r.target_date, &r.color, &r.archived],
+        )?;
+        if n > 0 {
+            self.link_accounts(id, &r.account_ids)?;
+        }
+        Ok(n)
+    }
+
+    fn delete_goal(&mut self, id: &str) -> CoreResult<()> {
+        let u = self.user_id.clone();
+        self.exec("DELETE FROM goals WHERE user_id = $1 AND id = $2", &[&u, &id])?;
+        Ok(())
+    }
+
+    fn goal_of_account(&mut self, account_id: &str) -> CoreResult<Option<(String, String)>> {
+        let u = self.user_id.clone();
+        Ok(self
+            .tx
+            .query_opt(
+                "SELECT g.id, g.name FROM goal_accounts ga JOIN goals g ON g.user_id = ga.user_id AND g.id = ga.goal_id
+                 WHERE ga.user_id = $1 AND ga.account_id = $2",
+                &[&u, &account_id],
+            )
+            .map_err(pg_err)?
+            .map(|r| (r.get(0), r.get(1))))
+    }
+
     fn list_settings(&mut self) -> CoreResult<Vec<(String, String)>> {
         self.list("SELECT key, value::text FROM settings WHERE user_id = $1", |r| (r.get(0), r.get(1)))
     }
@@ -382,7 +479,7 @@ impl DataStore for PgStore<'_, '_> {
 
     fn clear_all(&mut self) -> CoreResult<()> {
         let u = self.user_id.clone();
-        for table in ["budgets", "recurring_items", "transactions", "accounts", "categories"] {
+        for table in ["goal_accounts", "goals", "budgets", "recurring_items", "transactions", "accounts", "categories"] {
             self.exec(&format!("DELETE FROM {table} WHERE user_id = $1"), &[&u])?;
         }
         Ok(())

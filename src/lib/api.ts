@@ -15,6 +15,9 @@ import type {
   Category,
   CategoryInput,
   FundHit,
+  Goal,
+  GoalInput,
+  GoalsReport,
   PnlKind,
   NetWorthReport,
   PnlReport,
@@ -79,6 +82,12 @@ export interface Api {
   /** Kâr/zarar raporu; `from`/`to` gerçekleşenleri, `kind` varlıkları sınırlar (Rust'ta hesaplanır) */
   pnlReport(from: string | null, to: string | null, kind?: PnlKind): Promise<PnlReport>;
   netWorthReport(): Promise<NetWorthReport>;
+  listGoals(): Promise<Goal[]>;
+  createGoal(input: GoalInput): Promise<Goal>;
+  updateGoal(goal: Goal): Promise<Goal>;
+  deleteGoal(id: string): Promise<void>;
+  /** Hedeflerin ilerlemesi (Rust'ta hesaplanır) */
+  goalsReport(): Promise<GoalsReport>;
   /** TEFAS fon arama (kod ya da ad; Rust'ta) */
   fundsSearch(q: string): Promise<FundHit[]>;
   /** Masaüstü yerel mod: EVDS anahtarı girilmiş mi */
@@ -113,6 +122,7 @@ export interface DataSet {
   transactions: Transaction[];
   recurring: RecurringItem[];
   budgets: Budget[];
+  goals: Goal[];
 }
 
 const tauriApi: Api = {
@@ -134,8 +144,8 @@ const tauriApi: Api = {
   deleteRecurring: (id) => invoke<void>("delete_recurring", { id }),
   listBudgets: () => invoke<Budget[]>("list_budgets"),
   setBudget: (categoryId, amount) => invoke<void>("set_budget", { categoryId, amount }),
-  restore: ({ categories, accounts, transactions, recurring, budgets }) =>
-    invoke<void>("restore_data", { categories, accounts, transactions, recurring, budgets }),
+  restore: ({ categories, accounts, transactions, recurring, budgets, goals }) =>
+    invoke<void>("restore_data", { categories, accounts, transactions, recurring, budgets, goals }),
   getSettings: () => invoke<Partial<AppDataSettings>>("get_settings"),
   setSetting: (key, value) => invoke<void>("set_setting", { key, value }),
   dataLocation: () => invoke<string>("data_location"),
@@ -151,6 +161,11 @@ const tauriApi: Api = {
   rateAt: (code, date) => invoke<RateQuote | null>("rate_at", { code, date }),
   pnlReport: (from, to, kind) => invoke<PnlReport>("pnl_report", { from, to, kind: kind ?? null }),
   netWorthReport: () => invoke<NetWorthReport>("networth_report"),
+  listGoals: () => invoke<Goal[]>("list_goals"),
+  createGoal: (input) => invoke<Goal>("create_goal", { input }),
+  updateGoal: (goal) => invoke<Goal>("update_goal", { goal }),
+  deleteGoal: (id) => invoke<void>("delete_goal", { id }),
+  goalsReport: () => invoke<GoalsReport>("goals_report"),
   fundsSearch: (q) => invoke<FundHit[]>("funds_search", { q }),
   evdsKeySet: () => invoke<boolean>("evds_key_set"),
   setEvdsKey: (key) => invoke<void>("set_evds_key", { key }),
@@ -183,7 +198,7 @@ export const DEFAULT_CATEGORIES: CategoryInput[] = [
 
 const STORAGE_KEY = "finans-data-v1";
 
-type LocalData = DataSet & { settings?: Partial<AppDataSettings> };
+type LocalData = Omit<DataSet, "goals"> & { settings?: Partial<AppDataSettings> };
 
 /** v1 localStorage verisini (hesapsız) v2'ye taşır. */
 function upgradeLocal(raw: Partial<LocalData> & { transactions?: Partial<Transaction>[] }): LocalData {
@@ -480,6 +495,21 @@ const localApi: Api = {
     throw NEEDS_BACKEND;
   },
   async netWorthReport() {
+    throw NEEDS_BACKEND;
+  },
+  async listGoals() {
+    return [];
+  },
+  async createGoal() {
+    throw NEEDS_BACKEND;
+  },
+  async updateGoal() {
+    throw NEEDS_BACKEND;
+  },
+  async deleteGoal() {
+    throw NEEDS_BACKEND;
+  },
+  async goalsReport() {
     throw NEEDS_BACKEND;
   },
   async fundsSearch() {

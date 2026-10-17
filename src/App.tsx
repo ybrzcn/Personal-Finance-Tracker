@@ -6,6 +6,7 @@ import { isMac, isMobile, isTauri } from "./lib/platform";
 import { Accounts } from "./pages/Accounts";
 import { AnalysisPage } from "./pages/Analysis";
 import { BudgetPage } from "./pages/Budget";
+import { GoalsPage } from "./pages/Goals";
 import { RatesPage } from "./pages/Rates";
 import { PnlPage } from "./pages/Pnl";
 import { CashPlanPage } from "./pages/CashPlan";
@@ -99,6 +100,7 @@ export default function App() {
               {page === "rates" && <RatesPage />}
               {page === "pnl" && <PnlPage />}
               {page === "budget" && <BudgetPage />}
+              {page === "goals" && <GoalsPage />}
               {page === "analysis" && <AnalysisPage />}
               {page === "plan" && <CashPlanPage />}
               {page === "debt" && <DebtPlannerPage />}

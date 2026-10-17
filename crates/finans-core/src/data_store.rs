@@ -1,8 +1,8 @@
 //! Kullanıcı verisinin ilkel okuma/yazma işlemleri. Geçerlilik kararı vermez (o `store.rs`'in işi);
 //! SQLite (`sqlite.rs`) ve Postgres (finans-server) uygular. Her çağrı dizisi tek bir veritabanı işleminde çalışır.
 
-use crate::db::{Account, Budget, Category, RecurringItem, Transaction};
-use crate::rows::{AccountMeta, AccountRow, RecurringRow, TransactionRow};
+use crate::db::{Account, Budget, Category, Goal, RecurringItem, Transaction};
+use crate::rows::{AccountMeta, AccountRow, GoalRow, RecurringRow, TransactionRow};
 use crate::CoreResult;
 
 pub trait DataStore {
@@ -45,10 +45,21 @@ pub trait DataStore {
     fn upsert_budget(&mut self, category_id: &str, amount_cents: i64) -> CoreResult<()>;
     fn delete_budget(&mut self, category_id: &str) -> CoreResult<()>;
 
+    /// Hedefler (oluşturma sırasıyla) ve hesap listeleri; `target` hedef biriminde
+    fn list_goals(&mut self) -> CoreResult<Vec<Goal>>;
+    fn get_goal(&mut self, id: &str) -> CoreResult<Option<Goal>>;
+    /// Hedef ve hesap bağlantıları; `created_at` yoksa şimdi
+    fn insert_goal(&mut self, id: &str, row: &GoalRow, created_at: Option<&str>) -> CoreResult<()>;
+    /// Hedef ve hesap bağlantılarını değiştirir; değişen hedef satırı sayısı
+    fn update_goal(&mut self, id: &str, row: &GoalRow) -> CoreResult<u64>;
+    fn delete_goal(&mut self, id: &str) -> CoreResult<()>;
+    /// Hesabın bağlı olduğu hedef: (id, ad)
+    fn goal_of_account(&mut self, account_id: &str) -> CoreResult<Option<(String, String)>>;
+
     /// (anahtar, JSON metni)
     fn list_settings(&mut self) -> CoreResult<Vec<(String, String)>>;
     fn upsert_setting(&mut self, key: &str, json: &str) -> CoreResult<()>;
 
-    /// Geri yükleme öncesi: bütçeler, düzenli kayıtlar, işlemler, hesaplar ve kategoriler silinir (ayarlar kalır).
+    /// Geri yükleme öncesi: hedefler, bütçeler, düzenli kayıtlar, işlemler, hesaplar ve kategoriler silinir (ayarlar kalır).
     fn clear_all(&mut self) -> CoreResult<()>;
 }

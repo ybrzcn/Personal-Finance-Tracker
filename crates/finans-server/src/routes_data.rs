@@ -8,7 +8,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use finans_core::db::{
-    Account, AccountInput, Budget, Category, CategoryInput, RecurringItem, Transaction, TransactionInput,
+    Account, AccountInput, Budget, Category, CategoryInput, Goal, RecurringItem, Transaction, TransactionInput,
 };
 use finans_core::store;
 use serde::Deserialize;
@@ -112,11 +112,14 @@ struct RestoreBody {
     transactions: Vec<Transaction>,
     recurring: Vec<RecurringItem>,
     budgets: Vec<Budget>,
+    /// Eski yedeklerde yok
+    #[serde(default)]
+    goals: Vec<Goal>,
 }
 
 async fn restore(State(s): S, user: AuthUser, Json(b): Json<RestoreBody>) -> R<StatusCode> {
     with_user_db(&s, &user, move |c| {
-        store::restore_data(c, b.categories, b.accounts, b.transactions, b.recurring, b.budgets)
+        store::restore_data(c, b.categories, b.accounts, b.transactions, b.recurring, b.budgets, b.goals)
     })
     .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -131,6 +134,7 @@ async fn export(State(s): S, user: AuthUser) -> R<Json<Value>> {
             "transactions": store::list_transactions(c)?,
             "recurring": store::list_recurring(c)?,
             "budgets": store::list_budgets(c)?,
+            "goals": store::list_goals(c)?,
             "settings": store::get_settings(c)?,
         }))
     })

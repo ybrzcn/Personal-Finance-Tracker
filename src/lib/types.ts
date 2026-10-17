@@ -152,6 +152,8 @@ export interface Backup {
   analysis?: AnalysisSettings;
   /** Kullanıcının otomatik kategori kuralları; eski yedeklerde yok */
   categoryRules?: CategoryRule[];
+  /** Birikim hedefleri; eski yedeklerde yok */
+  goals?: Goal[];
 }
 
 export type SubscriptionPeriod = "monthly" | "yearly";
@@ -357,4 +359,43 @@ export interface NetWorthAccount {
 export interface NetWorthReport {
   points: NetWorthPoint[];
   accounts: NetWorthAccount[];
+}
+
+/** Birikim hedefi; `target` hedef biriminde (TL, döviz ya da altın miktarı) */
+export interface Goal {
+  id: string;
+  name: string;
+  currency: string;
+  target: number;
+  targetDate: string | null;
+  color: string;
+  archived: boolean;
+  accountIds: string[];
+  createdAt: string;
+}
+export type GoalInput = Omit<Goal, "id" | "createdAt">;
+export type GoalStatus = "reached" | "on_track" | "behind" | "unknown";
+export interface GoalAccountValue {
+  accountId: string;
+  /** Bugünkü değer hedef biriminde; kur yoksa null */
+  value: number | null;
+  archived: boolean;
+}
+export interface GoalProgress {
+  goalId: string;
+  current: number;
+  target: number;
+  percent: number;
+  remaining: number;
+  requiredPerMonth: number | null;
+  pacePerMonth: number | null;
+  projectedDate: string | null;
+  status: GoalStatus;
+  dateOverdue: boolean;
+  unvaluedCount: number;
+  accounts: GoalAccountValue[];
+  series: { date: string; value: number }[];
+}
+export interface GoalsReport {
+  goals: GoalProgress[];
 }

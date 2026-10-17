@@ -109,7 +109,7 @@ fn minor(v: f64, unit: Unit) -> i64 {
 }
 
 /// TS `tlCents` (işaret korunur)
-fn value_cents(qty: i64, rate: i64, unit: Unit) -> i64 {
+pub(crate) fn value_cents(qty: i64, rate: i64, unit: Unit) -> i64 {
     if qty == 0 {
         return 0;
     }
@@ -118,7 +118,7 @@ fn value_cents(qty: i64, rate: i64, unit: Unit) -> i64 {
     qty.signum() * ((num + den / 2) / den) as i64
 }
 
-fn tl_balance(a: &Account, txs: &[Transaction], d: &str) -> i64 {
+pub(crate) fn tl_balance(a: &Account, txs: &[Transaction], d: &str) -> i64 {
     let mut b = js_cents(a.opening_balance);
     for t in txs.iter().filter(|t| t.date.as_str() <= d) {
         let c = js_cents(t.amount);
@@ -132,7 +132,7 @@ fn tl_balance(a: &Account, txs: &[Transaction], d: &str) -> i64 {
     b
 }
 
-fn qty_at(a: &Account, unit: Unit, txs: &[Transaction], d: &str) -> i64 {
+pub(crate) fn qty_at(a: &Account, unit: Unit, txs: &[Transaction], d: &str) -> i64 {
     let mut q = minor(a.opening_balance, unit);
     for t in txs.iter().filter(|t| t.date.as_str() <= d) {
         if t.account_id == a.id {

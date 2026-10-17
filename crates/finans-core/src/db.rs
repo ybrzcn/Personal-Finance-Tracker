@@ -275,6 +275,54 @@ pub struct Budget {
     pub amount: f64,
 }
 
+/// Birikim hedefi. `target` hedef biriminde (TL, döviz ya da altın miktarı); `account_ids` bağlı varlık hesapları.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Goal {
+    pub id: String,
+    pub name: String,
+    pub currency: String,
+    pub target: f64,
+    pub target_date: Option<String>,
+    pub color: String,
+    #[serde(default)]
+    pub archived: bool,
+    #[serde(default)]
+    pub account_ids: Vec<String>,
+    #[serde(default)]
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GoalInput {
+    pub name: String,
+    pub currency: String,
+    pub target: f64,
+    #[serde(default)]
+    pub target_date: Option<String>,
+    #[serde(default)]
+    pub color: String,
+    #[serde(default)]
+    pub archived: bool,
+    #[serde(default)]
+    pub account_ids: Vec<String>,
+}
+
+impl From<&Goal> for GoalInput {
+    fn from(g: &Goal) -> Self {
+        GoalInput {
+            name: g.name.clone(),
+            currency: g.currency.clone(),
+            target: g.target,
+            target_date: g.target_date.clone(),
+            color: g.color.clone(),
+            archived: g.archived,
+            account_ids: g.account_ids.clone(),
+        }
+    }
+}
+
 impl AccountInput {
     pub fn with_id(self, id: String) -> Account {
         Account {
@@ -423,7 +471,7 @@ ALTER TABLE accounts ADD COLUMN opening_period_cents INTEGER;
 ALTER TABLE accounts ADD COLUMN opening_installments TEXT NOT NULL DEFAULT '[]';
 ";
 
-pub const LATEST_VERSION: i64 = 17;
+pub const LATEST_VERSION: i64 = 18;
 
 const DEFAULT_CATEGORIES: &[(&str, &str, &str)] = &[
     ("Maaş", "income", "#10b981"),
@@ -690,7 +738,30 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         )?;
         tx.commit()?;
     }
-    // Gelecekteki şema değişiklikleri: if version < 18 { ... PRAGMA user_version = 18; }
+    if version < 18 {
+        // v18: birikim hedefleri; her hesap en çok bir hedefe bağlı (birincil anahtar)
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(
+            "CREATE TABLE goals (
+                 id            TEXT PRIMARY KEY,
+                 name          TEXT NOT NULL,
+                 currency      TEXT NOT NULL,
+                 target_minor  INTEGER NOT NULL CHECK (target_minor > 0),
+                 target_date   TEXT,
+                 color         TEXT NOT NULL,
+                 archived      INTEGER NOT NULL DEFAULT 0,
+                 created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+             );
+             CREATE TABLE goal_accounts (
+                 account_id  TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+                 goal_id     TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE
+             );
+             CREATE INDEX goal_accounts_goal ON goal_accounts(goal_id);
+             PRAGMA user_version = 18;",
+        )?;
+        tx.commit()?;
+    }
+    // Gelecekteki şema değişiklikleri: if version < 19 { ... PRAGMA user_version = 19; }
     Ok(())
 }
 

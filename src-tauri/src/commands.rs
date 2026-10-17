@@ -5,7 +5,7 @@ use rusqlite::Connection;
 use tauri::State;
 
 use finans_core::db::{
-    self, Account, AccountInput, Budget, Category, CategoryInput, RecurringItem, Transaction, TransactionInput,
+    self, Account, AccountInput, Budget, Category, CategoryInput, Goal, RecurringItem, Transaction, TransactionInput,
 };
 use finans_core::sqlite::{self, db_err};
 use finans_core::store;
@@ -98,7 +98,7 @@ fn db_path(state: &State<'_, AppState>) -> PathBuf {
 
 pub type CmdResult<T> = Result<T, String>;
 
-fn lock<'a>(state: &'a State<'_, AppState>) -> CmdResult<MutexGuard<'a, Connection>> {
+pub(crate) fn lock<'a>(state: &'a State<'_, AppState>) -> CmdResult<MutexGuard<'a, Connection>> {
     state
         .conn
         .lock()
@@ -200,8 +200,8 @@ pub fn set_budget(state: State<'_, AppState>, category_id: String, amount: Optio
 }
 
 #[tauri::command]
-pub fn restore_data(state: State<'_, AppState>, categories: Vec<Category>, accounts: Vec<Account>, transactions: Vec<Transaction>, recurring: Vec<RecurringItem>, budgets: Vec<Budget>) -> CmdResult<()> {
-    sqlite::run(&mut *lock(&state)?, |s| store::restore_data(s, categories, accounts, transactions, recurring, budgets))
+pub fn restore_data(state: State<'_, AppState>, categories: Vec<Category>, accounts: Vec<Account>, transactions: Vec<Transaction>, recurring: Vec<RecurringItem>, budgets: Vec<Budget>, goals: Option<Vec<Goal>>) -> CmdResult<()> {
+    sqlite::run(&mut *lock(&state)?, |s| store::restore_data(s, categories, accounts, transactions, recurring, budgets, goals.unwrap_or_default()))
 }
 
 #[tauri::command]

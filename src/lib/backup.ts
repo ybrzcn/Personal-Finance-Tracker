@@ -5,7 +5,7 @@ import type { ParsedCsvRow } from "./csv";
 import { todayISO } from "./format";
 import { newId } from "./id";
 import type { DataSet } from "./api";
-import type { Account, AccountKind, AnalysisSettings, Backup, Budget, Category, CategoryRule, DebtPlanSettings, RecurringItem, Transaction, TxType } from "./types";
+import type { Account, AccountKind, AnalysisSettings, Backup, Budget, Category, CategoryRule, DebtPlanSettings, Goal, RecurringItem, Transaction, TxType } from "./types";
 
 export function createBackup(
   data: DataSet,
@@ -195,6 +195,20 @@ export function parseBackup(text: string): Backup {
   const debtPlan = parseDebtPlan(data.debtPlan);
   const analysis = parseAnalysis(data.analysis);
   const categoryRules = parseCategoryRules(data.categoryRules);
+  const goals: Goal[] = (Array.isArray(data.goals) ? data.goals : [])
+    .filter((g: unknown): g is Record<string, unknown> =>
+      isObj(g) && typeof g.id === "string" && typeof g.name === "string" && typeof g.currency === "string" && typeof g.target === "number")
+    .map((g) => ({
+      id: g.id as string,
+      name: g.name as string,
+      currency: g.currency as string,
+      target: g.target as number,
+      targetDate: str(g.targetDate),
+      color: typeof g.color === "string" ? g.color : "#64748b",
+      archived: g.archived === true,
+      accountIds: Array.isArray(g.accountIds) ? g.accountIds.filter((a: unknown): a is string => typeof a === "string") : [],
+      createdAt: typeof g.createdAt === "string" ? g.createdAt : "",
+    }));
   return {
     app: "finans",
     version: 3,
@@ -204,6 +218,7 @@ export function parseBackup(text: string): Backup {
     transactions,
     recurring,
     budgets,
+    goals,
     ...(debtPlan ? { debtPlan } : {}),
     ...(analysis ? { analysis } : {}),
     ...(categoryRules ? { categoryRules } : {}),

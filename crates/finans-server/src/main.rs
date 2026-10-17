@@ -9,6 +9,7 @@ mod cpi;
 mod rates;
 mod routes_auth;
 mod routes_data;
+mod routes_goals;
 mod routes_networth;
 mod routes_pnl;
 mod routes_rates;
@@ -195,6 +196,7 @@ async fn serve(config: Config) {
         .merge(routes_rates::router())
         .merge(routes_pnl::router())
         .merge(routes_networth::router())
+        .merge(routes_goals::router())
         .route("/api/health", get(health))
         // Bilinmeyen API yolları web arayüzüne düşmesin
         .route("/api/{*rest}", any(not_found));

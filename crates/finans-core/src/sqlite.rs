@@ -4,14 +4,22 @@ use rusqlite::{params, Connection, ErrorCode, OptionalExtension};
 
 use crate::data_store::DataStore;
 use crate::db::{
-    row_to_account, row_to_category, row_to_recurring, row_to_transaction, Account, Budget, Category, RecurringItem,
+    row_to_account, row_to_category, row_to_recurring, row_to_transaction, Account, Budget, Category, Goal, RecurringItem,
     Transaction, ACCOUNT_COLUMNS, CATEGORY_COLUMNS, RECURRING_COLUMNS, TRANSACTION_COLUMNS,
 };
-use crate::rows::{AccountMeta, AccountRow, RecurringRow, TransactionRow};
+use crate::fx;
+use crate::rows::{AccountMeta, AccountRow, GoalRow, RecurringRow, TransactionRow};
 use crate::CoreResult;
 
 pub fn db_err(e: rusqlite::Error) -> String {
     match &e {
+        rusqlite::Error::SqliteFailure(f, msg)
+            if f.code == ErrorCode::ConstraintViolation
+                && f.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_PRIMARYKEY
+                && msg.as_deref().is_some_and(|m| m.contains("goal_accounts")) =>
+        {
+            "Bu hesap zaten başka bir hedefe bağlı.".into()
+        }
         rusqlite::Error::SqliteFailure(f, msg)
             if f.code == ErrorCode::ConstraintViolation
                 && f.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
@@ -51,6 +59,50 @@ impl SqliteStore<'_> {
 
     fn count(&self, sql: &str, p: impl rusqlite::Params) -> CoreResult<i64> {
         self.conn.query_row(sql, p, |r| r.get(0)).map_err(db_err)
+    }
+
+    fn goals_where(&self, filter: &str, id: Option<&str>) -> CoreResult<Vec<Goal>> {
+        let sql = format!(
+            "SELECT id, name, currency, target_minor, target_date, color, archived, created_at FROM goals {filter} ORDER BY created_at, id"
+        );
+        let mut stmt = self.conn.prepare(&sql).map_err(db_err)?;
+        let map = |r: &rusqlite::Row| {
+            let currency: String = r.get(2)?;
+            let unit = fx::unit_or_try(Some(&currency));
+            Ok(Goal {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                target: fx::amount::minor_to_value(r.get(3)?, unit),
+                currency,
+                target_date: r.get(4)?,
+                color: r.get(5)?,
+                archived: r.get(6)?,
+                account_ids: Vec::new(),
+                created_at: r.get(7)?,
+            })
+        };
+        let mut goals = match id {
+            Some(id) => stmt.query_map([id], map),
+            None => stmt.query_map([], map),
+        }
+        .map_err(db_err)?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(db_err)?;
+        let links = self.list("SELECT goal_id, account_id FROM goal_accounts ORDER BY account_id", |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+        for g in &mut goals {
+            g.account_ids = links.iter().filter(|(gid, _)| *gid == g.id).map(|(_, a)| a.clone()).collect();
+        }
+        Ok(goals)
+    }
+
+    fn link_accounts(&self, id: &str, ids: &[String]) -> CoreResult<()> {
+        self.conn.execute("DELETE FROM goal_accounts WHERE goal_id = ?1", [id]).map_err(db_err)?;
+        for a in ids {
+            self.conn
+                .execute("INSERT INTO goal_accounts (account_id, goal_id) VALUES (?1, ?2)", [a, id])
+                .map_err(db_err)?;
+        }
+        Ok(())
     }
 }
 
@@ -289,6 +341,55 @@ impl DataStore for SqliteStore<'_> {
         Ok(())
     }
 
+    fn list_goals(&mut self) -> CoreResult<Vec<Goal>> {
+        self.goals_where("", None)
+    }
+
+    fn get_goal(&mut self, id: &str) -> CoreResult<Option<Goal>> {
+        Ok(self.goals_where("WHERE id = ?1", Some(id))?.into_iter().next())
+    }
+
+    fn insert_goal(&mut self, id: &str, r: &GoalRow, created_at: Option<&str>) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "INSERT INTO goals (id, name, currency, target_minor, target_date, color, archived, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, COALESCE(?8, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))",
+                params![id, r.name, r.currency, r.target_minor, r.target_date, r.color, r.archived, created_at],
+            )
+            .map_err(db_err)?;
+        self.link_accounts(id, &r.account_ids)
+    }
+
+    fn update_goal(&mut self, id: &str, r: &GoalRow) -> CoreResult<u64> {
+        let n = self
+            .conn
+            .execute(
+                "UPDATE goals SET name = ?2, currency = ?3, target_minor = ?4, target_date = ?5, color = ?6, archived = ?7 WHERE id = ?1",
+                params![id, r.name, r.currency, r.target_minor, r.target_date, r.color, r.archived],
+            )
+            .map_err(db_err)?;
+        if n > 0 {
+            self.link_accounts(id, &r.account_ids)?;
+        }
+        Ok(n as u64)
+    }
+
+    fn delete_goal(&mut self, id: &str) -> CoreResult<()> {
+        self.conn.execute("DELETE FROM goals WHERE id = ?1", [id]).map_err(db_err)?;
+        Ok(())
+    }
+
+    fn goal_of_account(&mut self, account_id: &str) -> CoreResult<Option<(String, String)>> {
+        self.conn
+            .query_row(
+                "SELECT g.id, g.name FROM goal_accounts ga JOIN goals g ON g.id = ga.goal_id WHERE ga.account_id = ?1",
+                [account_id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(db_err)
+    }
+
     fn list_settings(&mut self) -> CoreResult<Vec<(String, String)>> {
         self.list("SELECT key, value FROM settings", |r| Ok((r.get(0)?, r.get(1)?)))
     }
@@ -304,7 +405,7 @@ impl DataStore for SqliteStore<'_> {
     }
 
     fn clear_all(&mut self) -> CoreResult<()> {
-        for table in ["budgets", "recurring_items", "transactions", "accounts", "categories"] {
+        for table in ["goal_accounts", "goals", "budgets", "recurring_items", "transactions", "accounts", "categories"] {
             self.conn.execute(&format!("DELETE FROM {table}"), []).map_err(db_err)?;
         }
         Ok(())

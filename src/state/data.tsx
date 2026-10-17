@@ -10,6 +10,8 @@ import type {
   Budget,
   Category,
   CategoryInput,
+  Goal,
+  GoalInput,
   RecurringInput,
   RecurringItem,
   Transaction,
@@ -25,6 +27,7 @@ export interface DataCtx {
   transactions: Transaction[];
   recurring: RecurringItem[];
   budgets: Budget[];
+  goals: Goal[];
   /** Veritabanındaki uygulama ayarları (borç planı, analiz); veritabanı değişince yeniden okunur */
   appSettings: Partial<AppDataSettings>;
   /** Ayarı hemen uygular ve veritabanına yazar; yazılamazsa geri alır ve hatayı fırlatır */
@@ -45,6 +48,9 @@ export interface DataCtx {
   updateRecurring(r: RecurringItem): Promise<RecurringItem>;
   deleteRecurring(id: string): Promise<void>;
   setBudget(categoryId: string, amount: number | null): Promise<void>;
+  addGoal(input: GoalInput): Promise<Goal>;
+  updateGoal(g: Goal): Promise<Goal>;
+  deleteGoal(id: string): Promise<void>;
   /** Mevcut veri seti (yedek için) */
   snapshot(): DataSet;
   /** Veritabanından/sunucudan taze okunan veri seti: tümünü değiştiren işlemler (içe aktarma) bunun üstüne kurulur,
@@ -68,6 +74,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [recurring, setRecurring] = useState<RecurringItem[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [goals, setGoals] = useState<Goal[]>([]);
   const [appSettings, setAppSettings] = useState<Partial<AppDataSettings>>({});
   // Ayar yazımları: anahtar başına son yazımın sırası ve veritabanında doğrulanmış son değer
   // (art arda iki değişiklikte eski yazım başarısız olursa yeni değerin üzerine eski değer dönmesin)
@@ -76,12 +83,13 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const reload = useCallback(async () => {
     try {
-      const [cats, accs, txs, recs, buds, sets] = await Promise.all([
+      const [cats, accs, txs, recs, buds, gls, sets] = await Promise.all([
         api.listCategories(),
         api.listAccounts(),
         api.listTransactions(),
         api.listRecurring(),
         api.listBudgets(),
+        api.listGoals(),
         api.getSettings(),
       ]);
       setCategories([...cats].sort(sortCategories));
@@ -89,6 +97,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       setTransactions([...txs].sort(sortTransactions));
       setRecurring([...recs].sort(sortRecurring));
       setBudgets(buds);
+      setGoals(gls);
       setAppSettings(sets);
       confirmedSettings.current = sets;
       setLoadError(null);
@@ -115,6 +124,7 @@ export function DataProvider({ children }: { children: ReactNode }) {
       transactions,
       recurring,
       budgets,
+      goals,
       appSettings,
       async saveSetting(key, value) {
         const seq = (settingWrites.current[key] ?? 0) + 1;
@@ -184,6 +194,8 @@ export function DataProvider({ children }: { children: ReactNode }) {
         setAccounts((xs) => xs.filter((x) => x.id !== id));
         // Veritabanında düzenli kayıtların hesabı boşaltılır (ON DELETE SET NULL); state de aynı olmalı
         setRecurring((xs) => xs.map((r) => (r.accountId === id ? { ...r, accountId: null } : r)));
+        // Hedef bağlantısı da düşer (ON DELETE CASCADE)
+        setGoals((xs) => xs.map((g) => (g.accountIds.includes(id) ? { ...g, accountIds: g.accountIds.filter((a) => a !== id) } : g)));
       },
       async addRecurring(input) {
         const r = await api.createRecurring(input);
@@ -209,23 +221,38 @@ export function DataProvider({ children }: { children: ReactNode }) {
           ...(amount && amount > 0 ? [{ categoryId, amount: Math.round(amount * 100) / 100 }] : []),
         ]);
       },
-      snapshot: () => ({ categories, accounts, transactions, recurring, budgets }),
+      async addGoal(input) {
+        const g = await api.createGoal(input);
+        setGoals((xs) => [...xs, g]);
+        return g;
+      },
+      async updateGoal(goal) {
+        const g = await api.updateGoal(goal);
+        setGoals((xs) => xs.map((x) => (x.id === g.id ? g : x)));
+        return g;
+      },
+      async deleteGoal(id) {
+        await api.deleteGoal(id);
+        setGoals((xs) => xs.filter((x) => x.id !== id));
+      },
+      snapshot: () => ({ categories, accounts, transactions, recurring, budgets, goals }),
       async latest() {
-        const [cats, accs, txs, recs, buds] = await Promise.all([
+        const [cats, accs, txs, recs, buds, gls] = await Promise.all([
           api.listCategories(),
           api.listAccounts(),
           api.listTransactions(),
           api.listRecurring(),
           api.listBudgets(),
+          api.listGoals(),
         ]);
-        return { categories: cats, accounts: accs, transactions: txs, recurring: recs, budgets: buds };
+        return { categories: cats, accounts: accs, transactions: txs, recurring: recs, budgets: buds, goals: gls };
       },
       async restore(data) {
         await api.restore(data);
         await reload();
       },
     }),
-    [loading, loadError, categories, accounts, transactions, recurring, budgets, appSettings, categoryById, accountById, reload],
+    [loading, loadError, categories, accounts, transactions, recurring, budgets, goals, appSettings, categoryById, accountById, reload],
   );
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;
