@@ -4,6 +4,7 @@ pub mod cpi;
 pub mod data_store;
 pub mod db;
 pub mod fx;
+pub mod networth;
 pub mod pnl;
 pub mod rows;
 pub mod sqlite;

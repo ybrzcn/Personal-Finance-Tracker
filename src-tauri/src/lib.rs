@@ -1,5 +1,6 @@
 mod commands;
 mod maintenance;
+mod networth;
 mod pnl;
 mod rates;
 
@@ -110,6 +111,7 @@ pub fn run() {
             rates::funds_search,
             rates::rate_history,
             pnl::pnl_report,
+            networth::networth_report,
             commands::evds_key_set,
             commands::set_evds_key,
         ])

@@ -320,3 +320,41 @@ export interface FundHit {
 
 /** Kâr/zarar süzgeci */
 export type PnlKind = "all" | "fx" | "fund";
+
+/** Net servet geçmişi (Rust: networth) */
+export interface NetWorthByKind {
+  tlCents: number;
+  fxCents: number;
+  fundCents: number;
+  cardCents: number;
+  loanCents: number;
+  overdraftCents: number;
+}
+
+export interface NetWorthPoint {
+  date: string;
+  assetsCents: number;
+  cardDebtCents: number;
+  loanDebtCents: number;
+  overdraftCents: number;
+  /** Bugünkü fiyatla */
+  netCents: number;
+  /** Döviz/altın/fon maliyetle */
+  netCostCents: number;
+  byKind: NetWorthByKind;
+  accounts: { accountId: string; valueCents: number }[];
+  unvaluedCount: number;
+  costPartial: boolean;
+}
+
+export interface NetWorthAccount {
+  accountId: string;
+  name: string;
+  kind: AccountKind;
+  currency: string;
+}
+
+export interface NetWorthReport {
+  points: NetWorthPoint[];
+  accounts: NetWorthAccount[];
+}

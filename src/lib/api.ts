@@ -16,6 +16,7 @@ import type {
   CategoryInput,
   FundHit,
   PnlKind,
+  NetWorthReport,
   PnlReport,
   RateQuote,
   RecurringInput,
@@ -77,6 +78,7 @@ export interface Api {
   rateHistory(code: string, from: string, to: string): Promise<RateQuote[]>;
   /** Kâr/zarar raporu; `from`/`to` gerçekleşenleri, `kind` varlıkları sınırlar (Rust'ta hesaplanır) */
   pnlReport(from: string | null, to: string | null, kind?: PnlKind): Promise<PnlReport>;
+  netWorthReport(): Promise<NetWorthReport>;
   /** TEFAS fon arama (kod ya da ad; Rust'ta) */
   fundsSearch(q: string): Promise<FundHit[]>;
   /** Masaüstü yerel mod: EVDS anahtarı girilmiş mi */
@@ -148,6 +150,7 @@ const tauriApi: Api = {
   latestRates: (refresh) => invoke<RateQuote[]>("rates_latest", { refresh }),
   rateAt: (code, date) => invoke<RateQuote | null>("rate_at", { code, date }),
   pnlReport: (from, to, kind) => invoke<PnlReport>("pnl_report", { from, to, kind: kind ?? null }),
+  netWorthReport: () => invoke<NetWorthReport>("networth_report"),
   fundsSearch: (q) => invoke<FundHit[]>("funds_search", { q }),
   evdsKeySet: () => invoke<boolean>("evds_key_set"),
   setEvdsKey: (key) => invoke<void>("set_evds_key", { key }),
@@ -474,6 +477,9 @@ const localApi: Api = {
     throw "Kur geçmişi yalnızca sunucuya bağlıyken görülebilir.";
   },
   async pnlReport() {
+    throw NEEDS_BACKEND;
+  },
+  async netWorthReport() {
     throw NEEDS_BACKEND;
   },
   async fundsSearch() {

@@ -10,6 +10,8 @@
   --chart-cursor: rgba(115, 114, 108, 0.08);
   --income: #3a9a5b;
   --expense: #d64545;
+  --chart-net: #4338ca;
+  --chart-fg: #27272a;
 }
 
 .dark {
@@ -20,6 +22,8 @@
   --chart-cursor: rgba(163, 162, 156, 0.08);
   --income: #5bb07a;
   --expense: #e06363;
+  --chart-net: #8fb4dc;
+  --chart-fg: #e4e4e7;
 }
 
 html,
