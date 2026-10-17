@@ -60,10 +60,11 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
 
   const header = table[headerRow] ?? [];
 
-  const rebuild = (t: string[][], h: number, m: ColumnMap, s: SignMode, accId: string) => {
+  // Kesim tarihi: devam eden taksit paylarını bu ekstrenin dönemine tarihlemek için
+  const rebuild = (t: string[][], h: number, m: ColumnMap, s: SignMode, accId: string, closing = summary?.closingDate ?? null) => {
     const acc = accounts.find((a) => a.id === accId);
     if (!acc) return;
-    const res = buildImportRows(t, h, m, s, acc, accounts, transactions, categories, settings.categoryRules);
+    const res = buildImportRows(t, h, m, s, acc, accounts, transactions, categories, settings.categoryRules, closing);
     setRows(res.rows);
     setSkipped(res.skipped);
   };
@@ -95,7 +96,7 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
       setHeaderRow(h);
       setMap(m);
       setSign(s);
-      rebuild(t, h, m, s, account.id);
+      rebuild(t, h, m, s, account.id, sum.closingDate);
     } catch (e) {
       setError(errorMessage(e));
     } finally {

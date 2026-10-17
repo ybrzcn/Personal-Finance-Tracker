@@ -1,6 +1,6 @@
 [package]
 name = "finans-core"
-version = "1.6.0"
+version = "1.6.1"
 edition = "2021"
 license = "MIT"
 description = "Finans veri katmanı: SQLite şeması, veri işlemleri ve ekstre okuma (masaüstü ve sunucu ortak)"

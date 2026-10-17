@@ -1,4 +1,4 @@
-import { toCents } from "./cards";
+import { clampedDate, toCents } from "./cards";
 import { detectDelimiter, norm, parseCsv, parseDate } from "./csv";
 import type { StatementFile } from "./fileio";
 import { parseAmount } from "./format";
@@ -37,13 +37,18 @@ function merchantName(raw: string): string {
   return (glued ? glued[1] : first).replace(/\s+/g, " ").trim() || raw.replace(/\s+/g, " ").trim();
 }
 
+// İşlemin altındaki taksit açıklaması: "10.693,00 TL'lik işlemin 6 / 6 taksidi" (iadede "iadenin")
+const INSTALLMENT_LINE_RE = /(\d{1,2})\s*\/\s*(\d{1,2})\s*taksid/i;
+
 /**
  * PDF ekstre metninden tablo üretir: tarihle başlayan her satır bir işlemdir. Satırda birden çok
- * tutar varsa sondaki bakiye kabul edilir ve sondan ikincisi işlem tutarıdır.
+ * tutar varsa sondaki bakiye kabul edilir ve sondan ikincisi işlem tutarıdır. Hemen altındaki
+ * "… k / n taksidi" satırı işlemin taksit sütununa ("k/n") yazılır.
  */
 export function pdfTextToTable(text: string): string[][] {
-  const rows: string[][] = [["Tarih", "Açıklama", "Tutar"]];
-  for (const raw of text.split(/\r?\n/)) {
+  const rows: string[][] = [["Tarih", "Açıklama", "Tutar", "Taksit"]];
+  const lines = text.split(/\r?\n/);
+  for (const [i, raw] of lines.entries()) {
     const line = raw.replace(/\t/g, " ").trim();
     const m = DATE_START_RE.exec(line);
     if (!m || !parseDate(m[1])) continue;
@@ -55,7 +60,14 @@ export function pdfTextToTable(text: string): string[][] {
     if (!amounts.length) continue;
     const pick = amounts.length >= 2 ? amounts[amounts.length - 2] : amounts[0];
     const description = merchantName(rest.slice(0, amounts[0].index));
-    rows.push([m[1].replace(/\s+/g, " "), description, normalizeAmountToken(pick[1] + (pick[2]?.trim() ?? ""))]);
+    const next = (lines[i + 1] ?? "").trim();
+    const inst = DATE_START_RE.test(next) ? null : INSTALLMENT_LINE_RE.exec(next);
+    rows.push([
+      m[1].replace(/\s+/g, " "),
+      description,
+      normalizeAmountToken(pick[1] + (pick[2]?.trim() ?? "")),
+      inst ? `${inst[1]}/${inst[2]}` : "",
+    ]);
   }
   return rows;
 }
@@ -355,8 +367,23 @@ export function buildImportRows(
   existing: Transaction[],
   categories: Category[],
   rules: CategoryRule[] = [],
+  /** Ekstrenin kesim tarihi (özetten); yoksa en son işlem tarihi kullanılır */
+  closingDate: string | null = null,
 ): { rows: ImportRow[]; skipped: number } {
   const history = buildHistory(existing);
+  const own = existing.filter((t) => t.accountId === account.id);
+  // Devam eden taksit payı dönemden önce tarihliyse dönem sonuna (kesim tarihine) alınır; yoksa
+  // ilk alışverişin tarihiyle eski bir ekstreye düşer ve bu dönemin borcunda görünmez
+  const refDate =
+    closingDate ??
+    table
+      .slice(headerRow + 1)
+      .map((r) => parseDate((r[map.date] ?? "").trim()))
+      .reduce<string | null>((max, d) => (d && (!max || d > max) ? d : max), null);
+  const periodStart = refDate
+    ? clampedDate(Number(refDate.slice(0, 4)), Number(refDate.slice(5, 7)) - 2, Number(refDate.slice(8, 10)))
+    : null;
+  const trDate = (iso: string) => `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(0, 4)}`;
   const seen = new Set(
     existing.filter((t) => t.accountId === account.id).map((t) => `${t.date}|${toCents(t.amount)}|${t.type}`),
   );
@@ -366,7 +393,7 @@ export function buildImportRows(
 
   table.slice(headerRow + 1).forEach((r, i) => {
     const cell = (idx: number) => (idx >= 0 ? (r[idx] ?? "").trim() : "");
-    const date = parseDate(cell(map.date));
+    let date = parseDate(cell(map.date));
     const money = (s: string) => parseAmount(s.replace(/^\+/, "").replace(/\s*(TL|TRY)$/i, ""));
     let signed: number | null = null;
     if (map.amount >= 0) {
@@ -384,7 +411,7 @@ export function buildImportRows(
       skipped++;
       return;
     }
-    const description = cell(map.description);
+    let description = cell(map.description);
     const amount = Math.abs(signed);
     let type: ImportRow["type"] = signed < 0 ? "expense" : "income";
     let toAccountId: string | null = null;
@@ -394,6 +421,15 @@ export function buildImportRows(
     // "2/6" gibi değer süren bir taksitin bu ayki payıdır: yeni taksitli alışveriş değil, tek tutar olarak eklenir
     const instCell = cell(map.installments).trim();
     const ongoing = /^\d+\s*\/\s*\d+$/.test(instCell);
+    let originalDate: string | null = null;
+    if (ongoing && account.kind === "credit_card") {
+      description = `${description} (taksit ${instCell.replace(/\s+/g, "")})`;
+      if (refDate && periodStart && date <= periodStart) {
+        originalDate = date;
+        date = refDate;
+        note = `İlk işlem ${trDate(originalDate)}`;
+      }
+    }
     const parsedInst = ongoing ? 1 : Number.parseInt(instCell, 10);
     const installments =
       type === "expense" && account.kind === "credit_card" && Number.isInteger(parsedInst) && parsedInst > 1 && parsedInst <= 36
@@ -411,6 +447,8 @@ export function buildImportRows(
     if (seen.has(`${date}|${toCents(amount)}|${type}`)) {
       include = false;
       note = "Aynı tarih ve tutarda kayıt zaten var";
+    } else if (originalDate && own.some((t) => t.date === originalDate && toCents(t.amount) === toCents(amount) && t.type === type)) {
+      note = `${note}. Aynı tutarda ${trDate(originalDate)} tarihli kayıt var; o kaydı silin`;
     }
 
     rows.push({
