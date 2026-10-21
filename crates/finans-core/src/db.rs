@@ -66,6 +66,9 @@ pub struct Transaction {
     pub to_orig_amount: Option<f64>,
     #[serde(default)]
     pub to_fx_rate: Option<f64>,
+    /// Etiket kimlikleri (veritabanında `transaction_tags`)
+    #[serde(default)]
+    pub tag_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -96,6 +99,9 @@ pub struct TransactionInput {
     pub to_orig_amount: Option<f64>,
     #[serde(default)]
     pub to_fx_rate: Option<f64>,
+    /// Yok (eski istemci) = düzenlemede mevcut etiketler korunur, eklemede etiketsiz
+    #[serde(default)]
+    pub tag_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -323,6 +329,39 @@ impl From<&Goal> for GoalInput {
     }
 }
 
+/// İşlem etiketi; `budget` isteğe bağlı toplam sınır (TL).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tag {
+    pub id: String,
+    pub name: String,
+    pub color: String,
+    #[serde(default)]
+    pub budget: Option<f64>,
+    #[serde(default)]
+    pub archived: bool,
+    #[serde(default)]
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TagInput {
+    pub name: String,
+    #[serde(default)]
+    pub color: String,
+    #[serde(default)]
+    pub budget: Option<f64>,
+    #[serde(default)]
+    pub archived: bool,
+}
+
+impl From<&Tag> for TagInput {
+    fn from(t: &Tag) -> Self {
+        TagInput { name: t.name.clone(), color: t.color.clone(), budget: t.budget, archived: t.archived }
+    }
+}
+
 impl AccountInput {
     pub fn with_id(self, id: String) -> Account {
         Account {
@@ -471,7 +510,7 @@ ALTER TABLE accounts ADD COLUMN opening_period_cents INTEGER;
 ALTER TABLE accounts ADD COLUMN opening_installments TEXT NOT NULL DEFAULT '[]';
 ";
 
-pub const LATEST_VERSION: i64 = 18;
+pub const LATEST_VERSION: i64 = 19;
 
 const DEFAULT_CATEGORIES: &[(&str, &str, &str)] = &[
     ("Maaş", "income", "#10b981"),
@@ -761,7 +800,30 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         )?;
         tx.commit()?;
     }
-    // Gelecekteki şema değişiklikleri: if version < 19 { ... PRAGMA user_version = 19; }
+    if version < 19 {
+        // v19: işlem etiketleri; ad benzersizliği Türkçe kurallarla store.rs'te, dizin eşzamanlı eklemeye karşı
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(
+            "CREATE TABLE tags (
+                 id            TEXT PRIMARY KEY,
+                 name          TEXT NOT NULL,
+                 color         TEXT NOT NULL,
+                 budget_cents  INTEGER CHECK (budget_cents IS NULL OR budget_cents > 0),
+                 archived      INTEGER NOT NULL DEFAULT 0,
+                 created_at    TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+             );
+             CREATE UNIQUE INDEX tags_name_unique ON tags (lower(name));
+             CREATE TABLE transaction_tags (
+                 transaction_id  TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+                 tag_id          TEXT NOT NULL REFERENCES tags(id) ON DELETE CASCADE,
+                 PRIMARY KEY (transaction_id, tag_id)
+             );
+             CREATE INDEX transaction_tags_tag ON transaction_tags (tag_id);
+             PRAGMA user_version = 19;",
+        )?;
+        tx.commit()?;
+    }
+    // Gelecekteki şema değişiklikleri: if version < 20 { ... PRAGMA user_version = 20; }
     Ok(())
 }
 
@@ -860,6 +922,7 @@ pub fn row_to_transaction(r: &Row) -> rusqlite::Result<Transaction> {
         fx_rate: None,
         to_orig_amount: None,
         to_fx_rate: None,
+        tag_ids: Vec::new(),
     };
     let (from_cur, to_cur): (Option<String>, Option<String>) = (r.get(15)?, r.get(16)?);
     (t.orig_amount, t.fx_rate) = crate::fx::amount::stored_to_api(r.get(11)?, r.get(12)?, from_cur.as_deref());

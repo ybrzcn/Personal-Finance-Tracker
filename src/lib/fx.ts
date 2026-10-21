@@ -39,10 +39,6 @@ export const isFund = (code: string | null | undefined): boolean => !!code && FU
 export const fundCode = (code: string): string | null => (isFund(code) ? code.slice(FUND_PREFIX.length) : null);
 export const fundUnit = (code: string): string => `${FUND_PREFIX}${code}`;
 
-const DIVISOR: Record<FxUnit, number> = { currency: 100, gram: 1000, piece: 1, share: 1 };
-
-/** 1 birimdeki en küçük birim sayısı */
-export const unitDivisor = (code: string): number => DIVISOR[unitOf(code)];
 export const unitOf = (code: string): FxUnit => (isFund(code) ? "share" : (instrumentByCode.get(code)?.unit ?? "currency"));
 export const isForeign = (code: string | null | undefined): boolean => !!code && code !== TRY;
 export const qtyDecimals = (code: string): number => ({ currency: 2, gram: 3, piece: 0, share: 0 })[unitOf(code)];
@@ -53,18 +49,6 @@ export const unitLabel = (code: string): string => ({ currency: code, gram: "gra
 export const currencyLabel = (code: string): string =>
   code === TRY ? "Türk lirası" : isFund(code) ? `${fundCode(code)} fonu` : (instrumentByCode.get(code)?.name ?? code);
 
-export const toMinor = (value: number, code: string): number => Math.round(value * DIVISOR[unitOf(code)]);
-export const rateMicros = (rate: number): number => Math.round(rate * 1_000_000);
-
-/** Rust'taki `fx::amount::tl_cents` ile aynı: yarım yukarı, BigInt ile taşmasız. */
-export function tlCents(minor: number, micros: number, code: string): number {
-  // BigInt sabiti (100n) Safari 13 hedefinde derlenmez; BigInt(...) kullanılır
-  const num = BigInt(minor) * BigInt(micros) * BigInt(100);
-  const den = BigInt(DIVISOR[unitOf(code)]) * BigInt(1_000_000);
-  return Number((num + den / BigInt(2)) / den);
-}
-
-export const tlAmount = (value: number, rate: number, code: string): number => tlCents(toMinor(value, code), rateMicros(rate), code) / 100;
 
 const fmt = (d: number) => new Intl.NumberFormat("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
 
@@ -78,7 +62,3 @@ export function formatQty(value: number, code: string): string {
 
 const rateFmt = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 6 });
 export const formatRate = (rate: number): string => rateFmt.format(rate);
-
-export type RateSide = "buy" | "sell";
-/** Varsayılan kur: döviz alımında (TL → döviz) satış, diğer her durumda alış. */
-export const defaultSide = (fromCur: string, toCur: string | null): RateSide => (toCur && !isForeign(fromCur) && isForeign(toCur) ? "sell" : "buy");

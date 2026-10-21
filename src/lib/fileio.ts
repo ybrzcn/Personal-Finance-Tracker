@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { httpRequest } from "./httpApi";
 import { backend, isMobile, isTauri } from "./platform";
+import type { StatementRead } from "./types";
 
 const isAndroid = isMobile && /Android/i.test(navigator.userAgent);
 const isIOS = isMobile && !isAndroid;
@@ -67,16 +68,11 @@ export async function revealInFolder(path: string) {
   await revealItemInDir(path);
 }
 
-/** Rust tarafındaki `StatementFile`: CSV/TXT metni, Excel tablosu veya PDF'ten çıkarılmış metin. */
-export type StatementFile =
-  | { kind: "text"; text: string }
-  | { kind: "table"; rows: string[][] }
-  | { kind: "pdf"; text: string };
 
 export const STATEMENT_EXTENSIONS = ["csv", "txt", "xlsx", "xls", "xlsm", "ods", "pdf"];
 
-/** Banka ekstresi seçtirir. Excel ve PDF masaüstünde ve web'de (sunucuda) okunur; tarayıcıda geliştirme modunda yalnız CSV. */
-export async function openStatementFile(): Promise<{ name: string; file: StatementFile } | null> {
+/** Banka ekstresi seçtirir ve Rust'ta okur (tablo, başlık, sütunlar, özet). */
+export async function openStatementFile(): Promise<{ name: string; file: StatementRead } | null> {
   if (isTauri && !isMobile) {
     const { open } = await import("@tauri-apps/plugin-dialog");
     const path = await open({
@@ -89,7 +85,7 @@ export async function openStatementFile(): Promise<{ name: string; file: Stateme
     const { readFile, stat } = await import("@tauri-apps/plugin-fs");
     if ((await stat(path)).size > MAX_STATEMENT_BYTES) throw "Dosya çok büyük (en fazla 25 MB).";
     const name = path.split(/[\\/]/).pop() ?? path;
-    const file = await invoke<StatementFile>("parse_statement_bytes", await readFile(path), {
+    const file = await invoke<StatementRead>("parse_statement_bytes", await readFile(path), {
       headers: { "x-file-name": encodeURIComponent(name) },
     });
     return { name, file };
@@ -100,7 +96,7 @@ export async function openStatementFile(): Promise<{ name: string; file: Stateme
     if (!file) return null;
     if (file.size > MAX_STATEMENT_BYTES) throw "Dosya çok büyük (en fazla 25 MB).";
     // Baytlar IPC'ye ham gövde olarak gider (base64/JSON kopyası yok)
-    const parsed = await invoke<StatementFile>("parse_statement_bytes", new Uint8Array(await file.arrayBuffer()), {
+    const parsed = await invoke<StatementRead>("parse_statement_bytes", new Uint8Array(await file.arrayBuffer()), {
       headers: { "x-file-name": encodeURIComponent(file.name) },
     });
     return { name: file.name, file: parsed };
@@ -110,11 +106,10 @@ export async function openStatementFile(): Promise<{ name: string; file: Stateme
     const file = await pickFile(STATEMENT_EXTENSIONS);
     if (!file) return null;
     if (file.size > MAX_STATEMENT_BYTES) throw "Dosya çok büyük (en fazla 25 MB).";
-    const parsed = await httpRequest<StatementFile>("POST", `/api/statements/parse?name=${encodeURIComponent(file.name)}`, file);
+    const parsed = await httpRequest<StatementRead>("POST", `/api/statements/parse?name=${encodeURIComponent(file.name)}`, file);
     return { name: file.name, file: parsed };
   }
-  const picked = await openTextFile({ name: "CSV", extensions: ["csv", "txt"] });
-  return picked ? { name: picked.name, file: { kind: "text", text: picked.contents } } : null;
+  return null;
 }
 
 /** Dışa aktarılan dosyanın nereye kaydedildiği (mobilde kullanıcıya söylenir). */

@@ -6,7 +6,7 @@ use std::collections::{BTreeMap, HashMap};
 use super::*;
 use crate::cpi::{month_key, month_label, CpiSeries};
 use crate::fx::amount::{signed_value_to_minor, tl_cents, value_to_minor};
-use crate::fx::Unit;
+use crate::fx::{self, Unit};
 
 /// Sabit TL ölçeği: maliyet × REAL_SCALE / endeks
 const REAL_SCALE: i128 = 1_000_000_000_000;
@@ -197,6 +197,7 @@ pub fn report(input: &PnlInput) -> CoreResult<PnlReport> {
                     account_id: a.id.clone(),
                     kind: t.kind.clone(),
                     qty_minor: q,
+                    qty: fx::qty_of(q, &a.currency),
                     currency: a.currency.clone(),
                     proceeds_cents: to_i64(amount)?,
                     cost_cents: if taken.unknown { None } else { Some(to_i64(taken.cost)?) },
@@ -270,6 +271,7 @@ fn account_row(a: &Account, unit: Unit, h: &Holding, input: &PnlInput, series: O
         name: a.name.clone(),
         currency: a.currency.clone(),
         qty_minor: h.qty,
+        qty: fx::qty_of(h.qty, &a.currency),
         cost_cents: cost.map(to_i64).transpose()?,
         avg_cost_micros: match cost {
             Some(c) if h.qty > 0 => Some(to_i64(div_round(c * unit.divisor() as i128 * 10_000, h.qty as i128))?),

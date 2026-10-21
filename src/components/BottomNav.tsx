@@ -14,6 +14,7 @@ import {
   Plus,
   Settings,
   Sun,
+  Tag as TagIcon,
   Tags,
   TrendingDown,
   X,
@@ -37,6 +38,7 @@ const MORE: { page: Page; label: string; icon: typeof LayoutDashboard }[] = [
   { page: "plan", label: "Ödeme Takvimi", icon: CalendarRange },
   { page: "debt", label: "Borç Planı", icon: TrendingDown },
   { page: "categories", label: "Kategoriler", icon: Tags },
+  { page: "tags", label: "Etiketler", icon: TagIcon },
   { page: "settings", label: "Ayarlar", icon: Settings },
 ];
 

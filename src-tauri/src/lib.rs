@@ -1,9 +1,19 @@
+mod accounts_report;
+mod budget_report;
+mod cashplan;
+mod debt_plan;
+mod analysis;
+mod backup;
+mod forms;
+mod import;
+mod overview;
 mod commands;
 mod goals;
 mod maintenance;
 mod networth;
 mod pnl;
 mod rates;
+mod tags;
 
 use finans_core::db;
 
@@ -84,6 +94,8 @@ pub fn run() {
             commands::list_recurring,
             commands::create_recurring,
             commands::update_recurring,
+            commands::set_recurring_exception,
+            commands::reset_seed,
             commands::delete_recurring,
             commands::list_budgets,
             commands::set_budget,
@@ -112,12 +124,40 @@ pub fn run() {
             rates::funds_search,
             rates::rate_history,
             pnl::pnl_report,
+            accounts_report::accounts_report,
+            budget_report::budget_report,
+            budget_report::income_status,
+            cashplan::cash_plan,
+            cashplan::upcoming_obligations,
+            debt_plan::debt_plan,
+            overview::overview,
+            overview::category_usage,
+            analysis::analysis,
+            forms::preview_transaction,
+            forms::preview_account,
+            forms::preview_recurring,
+            forms::preview_statement_card,
+            forms::preview_statement_totals,
+            forms::preview_category_rule,
+            import::statement_rows,
+            import::category_suggestions,
+            backup::export_csv,
+            backup::export_backup,
+            backup::parse_backup,
+            backup::parse_csv,
+            backup::merge_csv,
             networth::networth_report,
             goals::list_goals,
             goals::create_goal,
             goals::update_goal,
             goals::delete_goal,
             goals::goals_report,
+            tags::list_tags,
+            tags::create_tag,
+            tags::update_tag,
+            tags::delete_tag,
+            tags::tags_report,
+            tags::set_transaction_tags,
             commands::evds_key_set,
             commands::set_evds_key,
         ])

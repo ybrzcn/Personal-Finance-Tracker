@@ -1,15 +1,15 @@
 import { ArrowDown, ArrowUp, Download, Pencil, Plus, Receipt, Search, Sparkles, Trash2, X } from "lucide-react";
-import { useDeferredValue, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { AccountOptions } from "../components/AccountOptions";
+import { PALETTE } from "../components/CategoryForm";
 import { Amount, CategoryLabel, EmptyState, PageHeader, Segmented, txAccountLabel } from "../components/common";
-import { errorMessage } from "../lib/api";
-import { transactionsToCsv } from "../lib/csv";
+import { api, errorMessage } from "../lib/api";
 import { SAVED_HINT, saveTextFile } from "../lib/fileio";
 import { monthName } from "../lib/recurring";
-import { suggestForUncategorized } from "../lib/statementImport";
 import { amountToInput, formatDate, formatDateShort, todayISO } from "../lib/format";
 import { inRange, presetRange, RANGE_LABEL, totals, type RangePreset } from "../lib/stats";
 import { TYPE_LABEL, type Transaction, type TxType } from "../lib/types";
+import { useCategorySuggestions } from "../state/categorySuggestions";
 import { useData } from "../state/data";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
@@ -22,9 +22,9 @@ const PRESETS: RangePreset[] = ["thisMonth", "lastMonth", "last30", "thisYear", 
 
 
 export function Transactions() {
-  const { transactions, categories, categoryById, accounts, accountById, addTransaction, deleteTransaction, latest, restore } = useData();
-  const { formatMoney, settings } = useSettings();
-  const { openTransactionForm, confirm, toast, accountFilter, setAccountFilter } = useUI();
+  const { transactions, categories, categoryById, accounts, accountById, addTransaction, deleteTransaction, latest, restore, tags, tagById, setTransactionTags, currentTagIds } = useData();
+  const { formatMoney } = useSettings();
+  const { openTransactionForm, confirm, toast, accountFilter, setAccountFilter, tagFilter, setTagFilter } = useUI();
 
   const [query, setQuery] = useState("");
   const [type, setType] = useState<TypeFilter>("all");
@@ -55,6 +55,7 @@ export function Transactions() {
       // "Kategorisiz": transferler zaten kategorisiz olduğu için dahil edilmez
       if (categoryId === "none" ? t.categoryId !== null || t.type === "transfer" : categoryId !== "all" && t.categoryId !== categoryId)
         return false;
+      if (tagFilter === "none" ? (t.tagIds?.length ?? 0) > 0 : tagFilter !== "all" && !t.tagIds?.includes(tagFilter)) return false;
       if (!inRange(t.date, range)) return false;
       if (q) {
         const catName = t.categoryId ? categoryById.get(t.categoryId)?.name ?? "" : "";
@@ -67,18 +68,45 @@ export function Transactions() {
     else list.sort((a, b) => a.date.localeCompare(b.date) || a.createdAt.localeCompare(b.createdAt));
     if (sort.dir === "desc") list.reverse();
     return list;
-  }, [transactions, categoryById, accountById, deferredQuery, type, categoryId, accountFilter, from, to, sort]);
+  }, [transactions, categoryById, accountById, deferredQuery, type, categoryId, accountFilter, tagFilter, from, to, sort]);
 
   const sum = useMemo(() => totals(filtered), [filtered]);
-  const hasFilters = query || type !== "all" || categoryId !== "all" || accountFilter !== "all" || from || to;
+  const hasFilters = query || type !== "all" || categoryId !== "all" || accountFilter !== "all" || tagFilter !== "all" || from || to;
 
   const resetFilters = () => {
     setQuery("");
     setType("all");
     setCategoryId("all");
     setAccountFilter("all");
+    setTagFilter("all");
     setFrom("");
     setTo("");
+  };
+
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Toplu işlem yalnız listede görünen seçili işlemlere uygulanır (silinen ya da süzgeç dışına çıkan seçimde kalmaz)
+  const liveSelected = useMemo(() => filtered.filter((t) => selected.has(t.id)).map((t) => t.id), [filtered, selected]);
+  const [menu, setMenu] = useState<"add" | "remove" | null>(null);
+  useEffect(() => setSelected(new Set()), [deferredQuery, type, categoryId, accountFilter, tagFilter, from, to]);
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const allSelected = filtered.length > 0 && filtered.every((t) => selected.has(t.id));
+  const selectedTags = useMemo(() => {
+    const ids = new Set<string>();
+    const live = new Set(liveSelected);
+    for (const t of transactions) if (live.has(t.id)) for (const g of t.tagIds ?? []) ids.add(g);
+    return tags.filter((t) => ids.has(t.id));
+  }, [liveSelected, transactions, tags]);
+  const applyBulk = async (tagId: string, mode: "add" | "remove") => {
+    setMenu(null);
+    const ids = liveSelected;
+    try {
+      const n = await setTransactionTags(ids, mode === "add" ? [tagId] : [], mode === "remove" ? [tagId] : []);
+      const name = tagById.get(tagId)?.name ?? "";
+      toast(mode === "add" ? `${n} işleme '${name}' eklendi.` : `${n} işlemden '${name}' kaldırıldı.`);
+      setSelected(new Set());
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    }
   };
 
   const toggleSort = (key: SortKey) =>
@@ -105,7 +133,8 @@ export function Transactions() {
         label: "Geri al",
         run: async () => {
           try {
-            await addTransaction(input);
+            // Yalnız hâlâ var olan etiketler (arşivliler dahil) geri eklenir
+            await addTransaction({ ...input, tagIds: (input.tagIds ?? []).filter((id) => currentTagIds().has(id)) });
             toast("İşlem geri getirildi.");
           } catch (err) {
             toast(errorMessage(err), "error");
@@ -117,10 +146,8 @@ export function Transactions() {
     }
   };
 
-  const suggestions = useMemo(
-    () => suggestForUncategorized(transactions, categories, settings.categoryRules),
-    [transactions, categories, settings.categoryRules],
-  );
+  // Kategorisiz işlemler için öneriler (Rust)
+  const suggestions = useCategorySuggestions();
 
   const autoCategorize = async () => {
     const counts = new Map<string, number>();
@@ -146,7 +173,7 @@ export function Transactions() {
     if (!ok) return;
     try {
       const data = await latest();
-      await restore({ ...data, transactions: data.transactions.map((t) => ({ ...t, categoryId: suggestions.get(t.id) ?? t.categoryId })) });
+      await restore({ ...data, transactions: data.transactions.map((t) => ({ ...t, categoryId: t.categoryId ?? suggestions.get(t.id) ?? null })) });
       // Geri al: işlemden önceki veri aynen geri yüklenir
       toast(`${suggestions.size} işlem kategorilendi.`, "success", {
         label: "Geri al",
@@ -166,7 +193,7 @@ export function Transactions() {
 
   const exportCsv = async () => {
     try {
-      const saved = await saveTextFile(`finans-islemler-${todayISO()}.csv`, transactionsToCsv(filtered, categoryById, accountById), {
+      const saved = await saveTextFile(`finans-islemler-${todayISO()}.csv`, await api.exportCsv(filtered.map((t) => t.id)), {
         name: "CSV",
         extensions: ["csv"],
       });
@@ -246,6 +273,16 @@ export function Transactions() {
             <option value="all">Tüm hesaplar</option>
             <AccountOptions accounts={accounts} />
           </select>
+          <select className="input w-48" aria-label="Etiket süzgeci" value={tagFilter} onChange={(e) => setTagFilter(e.target.value)}>
+            <option value="all">Tüm etiketler</option>
+            <option value="none">Etiketsiz</option>
+            {tags.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+                {t.archived ? " (arşivli)" : ""}
+              </option>
+            ))}
+          </select>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
@@ -275,6 +312,47 @@ export function Transactions() {
           )}
         </div>
       </div>
+
+      {liveSelected.length > 0 && (
+        <div className="fixed inset-x-3 bottom-20 z-30 flex flex-wrap items-center gap-2 rounded-xl border border-zinc-200 bg-white px-4 py-2 shadow-lg md:sticky md:inset-auto md:top-2 md:mb-3 dark:border-zinc-700 dark:bg-zinc-900">
+          <span className="text-sm font-medium">{liveSelected.length} işlem seçildi</span>
+          <div className="relative">
+            <button className="btn-secondary" onClick={() => setMenu(menu === "add" ? null : "add")}>
+              Etiket ekle ▾
+            </button>
+            {menu === "add" && (
+              <ul role="listbox" className="absolute bottom-full z-40 mb-1 max-h-60 w-56 md:bottom-auto md:top-full md:mb-0 md:mt-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+                {tags.filter((t) => !t.archived).map((t) => (
+                  <li key={t.id} role="option" aria-selected={false} className="cursor-pointer rounded-lg px-2 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={() => applyBulk(t.id, "add")}>
+                    {t.name}
+                  </li>
+                ))}
+                {tags.every((t) => t.archived) && <li className="px-2 py-1.5 text-sm text-zinc-500">Henüz etiket yok; aşağıdan oluştur.</li>}
+                <li>
+                  <TagQuickCreate onCreated={(id) => applyBulk(id, "add")} />
+                </li>
+              </ul>
+            )}
+          </div>
+          <div className="relative">
+            <button className="btn-secondary" disabled={!selectedTags.length} onClick={() => setMenu(menu === "remove" ? null : "remove")}>
+              Etiket kaldır ▾
+            </button>
+            {menu === "remove" && (
+              <ul role="listbox" className="absolute bottom-full z-40 mb-1 max-h-60 w-56 md:bottom-auto md:top-full md:mb-0 md:mt-1 overflow-y-auto rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
+                {selectedTags.map((t) => (
+                  <li key={t.id} role="option" aria-selected={false} className="cursor-pointer rounded-lg px-2 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800" onClick={() => applyBulk(t.id, "remove")}>
+                    {t.name}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <button className="btn-ghost text-xs" onClick={() => setSelected(new Set())}>
+            Seçimi kaldır
+          </button>
+        </div>
+      )}
 
       {/* Filtre özeti */}
       <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 px-1 text-sm">
@@ -318,6 +396,9 @@ export function Transactions() {
             <thead>
               <tr className="border-b border-zinc-200 bg-zinc-50 text-left text-xs font-medium uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60">
                 {/* Telefonda tarih, kategori ve eylem sütunları gizlenir; tarih ve kategori açıklamanın altında */}
+                <th className="w-10 px-3 py-2.5">
+                  <input type="checkbox" aria-label="Tümünü seç" checked={allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(filtered.map((t) => t.id)))} />
+                </th>
                 <th className="hidden w-32 px-4 py-2.5 md:table-cell">
                   <button className="inline-flex items-center gap-1 uppercase" onClick={() => toggleSort("date")}>
                     Tarih <SortIcon k="date" />
@@ -344,6 +425,9 @@ export function Transactions() {
                   onClick={() => openTransactionForm(t)}
                   onKeyDown={(e) => e.key === "Enter" && e.target === e.currentTarget && openTransactionForm(t)}
                 >
+                  <td className="px-3 py-2.5" onClick={(e) => e.stopPropagation()}>
+                    <input type="checkbox" aria-label={`${t.description || "İşlem"} seç`} checked={selected.has(t.id)} onChange={() => toggle(t.id)} />
+                  </td>
                   <td className="hidden whitespace-nowrap px-4 py-2.5 tabular-nums text-zinc-600 md:table-cell dark:text-zinc-400">
                     {formatDate(t.date)}
                   </td>
@@ -360,6 +444,15 @@ export function Transactions() {
                           {t.installments} taksit
                         </span>
                       )}
+                      {(t.tagIds ?? []).map((g) => {
+                        const tg = tagById.get(g);
+                        return tg ? (
+                          <span key={g} className="inline-flex shrink-0 items-center gap-1 rounded-full bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                            <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: tg.color }} />
+                            {tg.name}
+                          </span>
+                        ) : null;
+                      })}
                     </div>
                     <div className="truncate text-xs text-zinc-500 xl:hidden">
                       <span className="md:hidden">
@@ -415,5 +508,31 @@ export function Transactions() {
         )}
       </div>
     </>
+  );
+}
+
+function TagQuickCreate({ onCreated }: { onCreated(id: string): void }) {
+  const { tags, addTag } = useData();
+  const { toast } = useUI();
+  const [name, setName] = useState("");
+  return (
+    <form
+      className="flex gap-1 p-1"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        if (!name.trim()) return;
+        try {
+          const t = await addTag({ name, color: PALETTE[tags.length % PALETTE.length], budget: null, archived: false });
+          onCreated(t.id);
+        } catch (err) {
+          toast(errorMessage(err), "error");
+        }
+      }}
+    >
+      <input className="input h-8 text-sm" placeholder="Yeni etiket" value={name} onChange={(e) => setName(e.target.value)} aria-label="Yeni etiket adı" />
+      <button className="btn-secondary h-8 px-2 text-xs" type="submit">
+        Ekle
+      </button>
+    </form>
   );
 }

@@ -6,7 +6,7 @@ WORKDIR /src
 COPY package.json package-lock.json ./
 # postinstall (tauri icon) web derlemesinde gerekmez
 RUN npm ci --ignore-scripts
-COPY index.html vite.config.ts tsconfig.json tailwind.config.js postcss.config.js .env.web ./
+COPY index.html vite.config.ts tsconfig.json tailwind.config.js postcss.config.js ./
 COPY public public
 COPY src src
 # Tanıtım sayfasının indirme bağlantıları bu dosyadan okunur

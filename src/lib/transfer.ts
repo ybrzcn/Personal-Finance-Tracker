@@ -2,16 +2,17 @@ import { tauriApi, type Api, type DataSet } from "./api";
 import { APP_SETTING_KEYS, type AppDataSettings } from "./types";
 
 async function readAll(source: Api): Promise<{ data: DataSet; settings: Partial<AppDataSettings> }> {
-  const [categories, accounts, transactions, recurring, budgets, goals, settings] = await Promise.all([
+  const [categories, accounts, transactions, recurring, budgets, goals, tags, settings] = await Promise.all([
     source.listCategories(),
     source.listAccounts(),
     source.listTransactions(),
     source.listRecurring(),
     source.listBudgets(),
     source.listGoals(),
+    source.listTags(),
     source.getSettings(),
   ]);
-  return { data: { categories, accounts, transactions, recurring, budgets, goals }, settings };
+  return { data: { categories, accounts, transactions, recurring, budgets, goals, tags }, settings };
 }
 
 async function writeAll(target: Api, { data, settings }: Awaited<ReturnType<typeof readAll>>) {

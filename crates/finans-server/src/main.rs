@@ -7,12 +7,22 @@ mod data;
 mod pg;
 mod cpi;
 mod rates;
+mod routes_accounts_report;
+mod routes_budget_report;
+mod routes_cashplan;
+mod routes_debt;
+mod routes_analysis;
+mod routes_forms;
+mod routes_import;
+mod routes_overview;
 mod routes_auth;
+mod routes_backup;
 mod routes_data;
 mod routes_goals;
 mod routes_networth;
 mod routes_pnl;
 mod routes_rates;
+mod routes_tags;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -106,7 +116,9 @@ fn parse_statement_child(name: &str) -> ! {
         .take(25 * 1024 * 1024 + 1)
         .read_to_end(&mut bytes)
         .map_err(|e| e.to_string())
-        .and_then(|_| finans_core::statement::parse(name, &bytes));
+        .and_then(|_| finans_core::statement::parse(name, &bytes))
+        // Tablo, özet ve sütun tahmini de bu sınırlı alt süreçte (güvenilmeyen dosya metni üzerinde düzenli ifadeler)
+        .and_then(|file| finans_core::import::read_statement(&file));
     let out = match result {
         Ok(file) => serde_json::json!({ "ok": true, "file": file }),
         Err(e) => serde_json::json!({ "ok": false, "error": e }),
@@ -192,11 +204,21 @@ async fn serve(config: Config) {
     let not_found = || async { app::ApiError::new(StatusCode::NOT_FOUND, "Bulunamadı.") };
     let router = Router::new()
         .merge(routes_auth::router())
+        .merge(routes_backup::router())
         .merge(routes_data::router())
         .merge(routes_rates::router())
         .merge(routes_pnl::router())
+        .merge(routes_accounts_report::router())
+        .merge(routes_budget_report::router())
+        .merge(routes_cashplan::router())
+        .merge(routes_debt::router())
+        .merge(routes_analysis::router())
+        .merge(routes_forms::router())
+        .merge(routes_import::router())
+        .merge(routes_overview::router())
         .merge(routes_networth::router())
         .merge(routes_goals::router())
+        .merge(routes_tags::router())
         .route("/api/health", get(health))
         // Bilinmeyen API yolları web arayüzüne düşmesin
         .route("/api/{*rest}", any(not_found));

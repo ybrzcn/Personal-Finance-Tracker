@@ -3,11 +3,12 @@ import { useMemo, useState } from "react";
 import { CategoryRuleForm } from "../components/CategoryRuleForm";
 import { CategoryDot, CategoryLabel, EmptyState, PageHeader } from "../components/common";
 import { errorMessage } from "../lib/api";
-import { spreadInstallments } from "../lib/cards";
-import { todayISO } from "../lib/format";
 import type { Category, CategoryRule, CategoryType } from "../lib/types";
+import { useBudgetReport } from "../state/budgetReport";
 import { useData } from "../state/data";
+import { useCategoryUsage } from "../state/overview";
 import { useSettings } from "../state/settings";
+import { useToday } from "../state/today";
 import { useUI } from "../state/ui";
 
 interface Usage {
@@ -16,47 +17,41 @@ interface Usage {
 }
 
 export function Categories() {
-  const { categories, categoryById, transactions, budgets, deleteCategory } = useData();
+  const { categories, categoryById, budgets, deleteCategory } = useData();
   const { formatMoney, settings, update } = useSettings();
   const { openCategoryForm, confirm, toast, setPage } = useUI();
   // Kural formu: undefined kapalı, null yeni kural
   const [ruleForm, setRuleForm] = useState<CategoryRule | null | undefined>(undefined);
   const limitBy = useMemo(() => new Map(budgets.map((b) => [b.categoryId, b.amount])), [budgets]);
-  // Bu ayki harcama (taksitler aylara bölünmüş) — bütçe limitiyle birlikte gösterilir
-  const thisMonth = todayISO().slice(0, 7);
-  const monthSpent = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const t of spreadInstallments(transactions)) {
-      if (t.type !== "expense" || !t.categoryId || t.date.slice(0, 7) !== thisMonth) continue;
-      m.set(t.categoryId, (m.get(t.categoryId) ?? 0) + t.amount);
-    }
-    return m;
-  }, [transactions, thisMonth]);
-
-  const usage = useMemo(() => {
-    const m = new Map<string, Usage>();
-    for (const t of transactions) {
-      if (!t.categoryId) continue;
-      const u = m.get(t.categoryId) ?? { count: 0, total: 0 };
-      u.count++;
-      u.total += t.amount;
-      m.set(t.categoryId, u);
-    }
-    return m;
-  }, [transactions]);
+  // Bu ayki harcama: Bütçe raporundan (kart harcaması ödeyecek maaşın ayına) — Bütçe sayfasıyla aynı rakam
+  const thisMonth = useToday().slice(0, 7);
+  const { report: budget, error: budgetError, retry: retryBudget } = useBudgetReport(thisMonth);
+  const monthSpent = useMemo(() => new Map((budget?.categories ?? []).map((l) => [l.categoryId, l.spentCents / 100])), [budget]);
+  // İşlem sayısı ve toplam (Rust)
+  const { report: usageReport, loading: usageLoading, error: usageError, retry: retryUsage } = useCategoryUsage();
+  const loadError = usageError ?? budgetError;
+  const usage = useMemo(
+    () => new Map<string, Usage>((usageReport?.categories ?? []).map((u) => [u.categoryId, { count: u.count, total: u.totalCents / 100 }])),
+    [usageReport],
+  );
 
   const remove = async (c: Category) => {
-    const used = usage.get(c.id)?.count ?? 0;
+    // Kullanım raporu yoksa (yerel mod, hata) sayı yerine genel uyarı
+    const used = usageReport ? (usage.get(c.id)?.count ?? 0) : null;
     const ok = await confirm({
       title: "Kategoriyi sil",
       message: (
         <>
           <strong>{c.name}</strong> kategorisi silinecek.
-          {used > 0 && (
-            <>
-              {" "}
-              Bu kategoriye ait <strong>{used} işlem</strong> silinmeyecek, &quot;Kategorisiz&quot; olarak kalacak.
-            </>
+          {used === null ? (
+            <> Bu kategorideki işlemler silinmez, &quot;Kategorisiz&quot; kalır.</>
+          ) : (
+            used > 0 && (
+              <>
+                {" "}
+                Bu kategoriye ait <strong>{used} işlem</strong> silinmeyecek, &quot;Kategorisiz&quot; olarak kalacak.
+              </>
+            )
           )}
         </>
       ),
@@ -118,8 +113,14 @@ export function Categories() {
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-medium">{c.name}</div>
                     <div className="text-xs text-zinc-500">
-                      {u ? `${u.count} işlem · toplam ${formatMoney(u.total)}` : "Henüz kullanılmadı"}
-                      {type === "expense" && (monthSpent.get(c.id) || limitBy.has(c.id)) && (
+                      {u
+                        ? `${u.count} işlem · toplam ${formatMoney(u.total)}`
+                        : usageReport
+                          ? "Henüz kullanılmadı"
+                          : usageLoading
+                            ? "…"
+                            : "—"}
+                      {type === "expense" && budget && (monthSpent.get(c.id) || limitBy.has(c.id)) && (
                         <>
                           {" · "}
                           <button className="underline-offset-2 hover:underline" onClick={() => setPage("budget")} title="Bütçe'de aç">
@@ -150,6 +151,20 @@ export function Categories() {
   return (
     <>
       <PageHeader title="Kategoriler" subtitle="Gelir ve giderlerinizi gruplandırmak için kategorileri yönetin." />
+      {loadError && (
+        <div role="alert" className="card mb-4 flex items-center justify-between gap-3 px-5 py-4 text-sm">
+          <span className="text-rose-600 dark:text-rose-400">Kategori bilgileri alınamadı: {loadError}</span>
+          <button
+            className="btn-secondary px-3 py-1.5 text-xs"
+            onClick={() => {
+              retryUsage();
+              retryBudget();
+            }}
+          >
+            Tekrar dene
+          </button>
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Column type="income" title="Gelir Kategorileri" />
         <Column type="expense" title="Gider Kategorileri" />

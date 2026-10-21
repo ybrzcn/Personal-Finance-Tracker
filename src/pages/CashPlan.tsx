@@ -1,17 +1,20 @@
-import { AlertTriangle, CalendarClock, CalendarRange, CalendarX, CreditCard, HandCoins, Plus, Repeat, Undo2 } from "lucide-react";
+import { AlertTriangle, CalendarClock, CalendarRange, CalendarX, Check, CreditCard, HandCoins, Plus, Repeat, Undo2 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
-import { paymentHints } from "../components/AccountCards";
+import { toHints } from "../components/AccountCards";
 import { EmptyState, PageHeader, Segmented, SummaryTile, type TileTone } from "../components/common";
-import { cardSummary } from "../lib/cards";
-import { addDays, daysBetween, formatDate, formatDateShort, todayISO } from "../lib/format";
+import { formatDate, formatDateShort } from "../lib/format";
 import { errorMessage } from "../lib/api";
-import { buildCashPlan, type IncomeEvent, type Obligation, type ObligationKind } from "../lib/plan";
-import { coverMonthOf, exceptionFor, monthName, withException } from "../lib/recurring";
+import { incomeName, incomeNote, receivedName, type PlanNames } from "../lib/planLabels";
+import { monthName } from "../lib/recurring";
+import type { PlanIncomeEvent, PlanObligation, PlanObligationKind, PlanPaidRow } from "../lib/types";
+import { useAccountsReport } from "../state/accountsReport";
+import { useCashPlan } from "../state/cashPlan";
 import { useData } from "../state/data";
 import { useSettings } from "../state/settings";
+import { useToday } from "../state/today";
 import { useUI } from "../state/ui";
 
-const ICON: Record<ObligationKind, ReactNode> = {
+const ICON: Record<PlanObligationKind, ReactNode> = {
   card: <CreditCard size={15} />,
   loan: <HandCoins size={15} />,
   recurring: <Repeat size={15} />,
@@ -23,21 +26,21 @@ type Horizon = "1" | "3" | "6";
 const monthTitleFmt = new Intl.DateTimeFormat("tr-TR", { month: "long", year: "numeric" });
 const monthTitle = (ym: string) => monthTitleFmt.format(new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1));
 
+const PAID_TEXT: Record<NonNullable<PlanPaidRow["cardStatus"]>, string> = { paid: "ödendi", minPaid: "asgari ödendi", partial: "kısmen ödendi" };
+
 function ObligationList({
   items,
-  today,
   money,
   onPay,
 }: {
-  items: Obligation[];
-  today: string;
+  items: PlanObligation[];
   money(c: number): string;
-  onPay(ob: Obligation): void;
+  onPay(ob: PlanObligation): void;
 }) {
   return (
     <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
       {items.map((ob) => {
-        const days = daysBetween(today, ob.date);
+        const days = ob.daysLeft;
         return (
           <li key={ob.key} className="flex flex-wrap items-center gap-3 px-5 py-2.5">
             <span className="grid h-8 w-8 place-items-center rounded-lg bg-zinc-100 text-zinc-500 dark:bg-zinc-800">{ICON[ob.kind]}</span>
@@ -63,7 +66,7 @@ function ObligationList({
               </div>
               <div className="text-xs text-zinc-500">
                 {formatDate(ob.date)} · {days === 0 ? "bugün" : days > 0 ? `${days} gün sonra` : `${-days} gün önce`}
-                {ob.loanInterestCents !== undefined && ` · faiz ${money(ob.loanInterestCents)}`}
+                {ob.loanInterestCents !== null && ` · faiz ${money(ob.loanInterestCents)}`}
               </div>
             </div>
             <span className="font-semibold tabular-nums">{money(ob.amountCents)}</span>
@@ -79,42 +82,71 @@ function ObligationList({
   );
 }
 
+/** Dönemin zaten ödenmiş (ya da ileri tarihli ödemesi girilmiş) kalemleri: soluk, düğmesiz */
+function PaidList({ items, money }: { items: PlanPaidRow[]; money(c: number): string }) {
+  return (
+    <ul className="divide-y divide-zinc-100 border-t border-zinc-100 dark:divide-zinc-800 dark:border-zinc-800">
+      {items.map((p) => (
+        <li key={p.key} className="flex flex-wrap items-center gap-3 px-5 py-2 opacity-60">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-zinc-100 text-emerald-600 dark:bg-zinc-800 dark:text-emerald-400">
+            <Check size={15} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="truncate text-sm font-medium">
+              {p.label}
+              <span className="ml-2 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
+                {p.scheduled ? "ödeme planlandı" : p.cardStatus ? PAID_TEXT[p.cardStatus] : "ödendi"}
+              </span>
+            </div>
+            <div className="text-xs text-zinc-500">{formatDate(p.date)}</div>
+          </div>
+          <span className="font-semibold tabular-nums">{money(p.amountCents)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function CashPlanPage() {
-  const { accounts, transactions, recurring, updateRecurring } = useData();
+  const { accounts, transactions, recurring, categories, setRecurringException } = useData();
   const { formatMoney } = useSettings();
   const { openTransactionForm, openLoanPayment, openRecurringForm, confirm, toast } = useUI();
+  const { byId } = useAccountsReport();
   const [horizon, setHorizon] = useState<Horizon>("3");
-  const today = todayISO();
-
-  const plan = useMemo(
-    () => buildCashPlan(accounts, transactions, recurring, today, Number(horizon)),
-    [accounts, transactions, recurring, today, horizon],
-  );
+  const today = useToday();
+  const { report: plan, error, loading, retry } = useCashPlan(Number(horizon));
   const money = (c: number) => formatMoney(c / 100);
+  // Rapor yokken rakam yerine: "…" bekleniyor, "—" hata/yok
+  const ph = loading && !error ? "…" : "—";
   const hasIncome = recurring.some((r) => r.type === "income" && r.active);
+  const names: PlanNames = useMemo(
+    () => ({
+      recurringById: new Map(recurring.map((r) => [r.id, r])),
+      txById: new Map(transactions.map((t) => [t.id, t])),
+      categoryById: new Map(categories.map((c) => [c.id, c])),
+    }),
+    [recurring, transactions, categories],
+  );
 
-  const pay = (ob: Obligation) => {
+  const pay = (ob: PlanObligation) => {
     const account = accounts.find((a) => a.id === ob.accountId);
     if (!account) return;
     if (ob.kind === "loan") return openLoanPayment(account);
     if (ob.kind === "card") {
-      const s = cardSummary(account, transactions, today);
-      const hints = paymentHints(s.lastStatement, s.totalDebtCents);
+      const hints = toHints(byId.get(account.id)?.card?.hints ?? []);
       openTransactionForm(undefined, { type: "transfer", toAccountId: account.id, amount: ob.amountCents / 100 }, hints);
     }
   };
 
-  // Tek ay için "yatmayacak" istisnası (ücretsiz izin vb.) ekler veya kaldırır
-  const toggleSkip = async (e: IncomeEvent) => {
-    const item = recurring.find((r) => r.id === e.itemId);
+  // Tek ay için "yatmayacak" istisnası (ücretsiz izin vb.) ekler veya kaldırır; ay rapordaki karşılık ayıdır
+  const toggleSkip = async (e: PlanIncomeEvent) => {
+    const item = recurring.find((r) => r.id === e.recurringId);
     if (!item) return;
-    // İstisna, gelirin karşılık geldiği aya yazılır (10 Kasım'da yatan Ekim maaşı → Ekim)
-    const month = coverMonthOf(item, e.date);
-    const existing = exceptionFor(item, month);
+    const month = e.coverMonth;
     try {
       // Yalnız "yok" (0) istisnası geri alınır; özel tutarlı istisna (ör. ikramiye) "yatmayacak" ile 0'a çevrilir
-      if (existing && existing.amount === 0) {
-        await updateRecurring({ ...item, exceptions: withException(item, month, null) });
+      if (e.skipException) {
+        await setRecurringException(item.id, month, null, "");
         toast(`${formatDate(e.date)} ${item.name} yeniden plana alındı.`);
       } else {
         const ok = await confirm({
@@ -129,7 +161,7 @@ export function CashPlanPage() {
           confirmLabel: "Yatmayacak",
         });
         if (!ok) return;
-        await updateRecurring({ ...item, exceptions: withException(item, month, 0, "") });
+        await setRecurringException(item.id, month, 0, "");
         toast(`${formatDate(e.date)} ${item.name} yatmayacak olarak işaretlendi.`);
       }
     } catch (err) {
@@ -138,18 +170,24 @@ export function CashPlanPage() {
   };
 
   // Gecikmiş ödemeler ayrı bir kartta en üstte; dönem kutularının toplamlarına yine dahildir
-  const overdue = plan.months.flatMap((m) => m.obligations.filter((o) => o.overdue));
-  const overdueIn = (m: (typeof plan.months)[number]) => m.obligations.filter((o) => o.overdue).reduce((t, o) => t + o.amountCents, 0);
+  const months = plan?.months ?? [];
+  const overdue = plan?.overdue ?? [];
+  const endCents = plan?.endCents ?? null;
 
   const tiles = [
-    { label: "Bugünkü nakit (banka + nakit)", cents: plan.liquidCents, color: "plain" as TileTone, tone: plan.liquidCents < 0 ? "text-rose-600 dark:text-rose-400" : "" },
-    { label: "Planlanan gelir", cents: plan.totalIncomeCents, color: "income" as TileTone, tone: "" },
-    { label: "Planlanan ödemeler", cents: plan.totalObligationCents, color: "expense" as TileTone, tone: "" },
+    {
+      label: "Bugünkü nakit (banka + nakit)",
+      cents: plan?.liquidCents ?? null,
+      color: "plain" as TileTone,
+      tone: (plan?.liquidCents ?? 0) < 0 ? "text-rose-600 dark:text-rose-400" : "",
+    },
+    { label: "Planlanan gelir", cents: plan?.totalIncomeCents ?? null, color: "income" as TileTone, tone: "" },
+    { label: "Planlanan ödemeler", cents: plan?.totalObligationCents ?? null, color: "expense" as TileTone, tone: "" },
     {
       label: "Dönem sonu tahmini",
-      cents: plan.liquidCents + plan.totalIncomeCents - plan.totalObligationCents,
-      // Eksiye düşecekse uyarı rengi
-      color: (plan.liquidCents + plan.totalIncomeCents - plan.totalObligationCents < 0 ? "expense" : "net") as TileTone,
+      cents: endCents,
+      // Eksiye düşecekse uyarı rengi; rapor yokken nötr
+      color: (endCents === null ? "plain" : endCents < 0 ? "expense" : "net") as TileTone,
       tone: "",
     },
   ];
@@ -172,9 +210,18 @@ export function CashPlanPage() {
         }
       />
 
+      {error && (
+        <div role="alert" className="card mb-4 flex items-center justify-between gap-3 px-5 py-4 text-sm">
+          <span className="text-rose-600 dark:text-rose-400">Ödeme takvimi alınamadı: {error}</span>
+          <button className="btn-secondary px-3 py-1.5 text-xs" onClick={retry}>
+            Tekrar dene
+          </button>
+        </div>
+      )}
+
       <div className="mb-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
         {tiles.map((t) => (
-          <SummaryTile key={t.label} label={t.label} value={money(t.cents)} tone={t.color} valueClass={t.tone} />
+          <SummaryTile key={t.label} label={t.label} value={t.cents === null ? ph : money(t.cents)} tone={t.color} valueClass={t.tone} />
         ))}
       </div>
 
@@ -198,6 +245,10 @@ export function CashPlanPage() {
               başlayarak o dönemin sonunda hesaplarında kalacak tahmini para.
             </li>
             <li>"tahmini" yazan ekstreler henüz kesilmedi; o döneme yazılan harcama ve taksitlerden hesaplanır.</li>
+            <li>
+              Soluk "ödendi" / "yattı" satırları dönemin zaten ödenmiş ve yatmış kalemleridir; dönem toplamına dahildir ama bakiyede oldukları için
+              "Hesaplarında kalacak" tutarını değiştirmez.
+            </li>
           </ul>
         </details>
       )}
@@ -207,21 +258,24 @@ export function CashPlanPage() {
           <div className="flex flex-wrap items-baseline gap-x-4 border-b border-rose-200 bg-rose-50/70 px-5 py-3 dark:border-rose-500/30 dark:bg-rose-500/10">
             <h2 className="text-base font-semibold text-rose-700 dark:text-rose-300">Gecikmiş ödemeler</h2>
             <span className="ml-auto text-sm text-rose-700 dark:text-rose-300">
-              Toplam <strong className="tabular-nums">{money(overdue.reduce((t, o) => t + o.amountCents, 0))}</strong> · en kısa sürede ödeyin
+              Toplam <strong className="tabular-nums">{money(plan?.overdueCents ?? 0)}</strong> · en kısa sürede ödeyin
             </span>
           </div>
-          <ObligationList items={overdue} today={today} money={money} onPay={pay} />
+          <ObligationList items={overdue} money={money} onPay={pay} />
         </section>
       )}
 
-      {plan.months.length === 0 ? (
+      {!plan ? null : months.length === 0 ? (
         <div className="card">
           <EmptyState icon={CalendarRange} title="Bu dönemde planlanan ödeme yok" hint="Kart, kredi veya düzenli gider ekledikçe burada görünür." />
         </div>
       ) : (
         <div className="space-y-4">
-          {plan.months.map((m) => {
-            const negative = m.leftCents < 0;
+          {months.map((m) => {
+            const negative = m.periodLeftCents < 0;
+            const salaryName = m.salary ? (names.recurringById.get(m.salary.recurringId)?.name ?? "Maaş") : "";
+            const salaryNote = m.salary?.event ? incomeNote(m.salary.event) : null;
+            const open = m.obligations.filter((o) => !o.overdue);
             return (
               <section key={m.month} className="card overflow-hidden">
                 <div className="space-y-2 border-b border-zinc-200 bg-zinc-50/60 px-5 py-3 dark:border-zinc-800 dark:bg-zinc-900/60">
@@ -235,88 +289,105 @@ export function CashPlanPage() {
                         <p className="text-xs text-zinc-500">
                           {m.salary.event?.skipped ? (
                             <span className="font-medium text-rose-600 dark:text-rose-400">
-                              {m.salary.name} {formatDateShort(m.salary.paidOn)} tarihinde yatmayacak
-                              {m.salary.event.note ? ` (${m.salary.event.note})` : ""} · bu dönemin ödemeleri diğer gelirlerden / bakiyeden
+                              {salaryName} {formatDateShort(m.salary.paidOn)} tarihinde yatmayacak
+                              {salaryNote ? ` (${salaryNote})` : ""} · bu dönemin ödemeleri diğer gelirlerden / bakiyeden
                             </span>
                           ) : (
                             <>
-                              {m.salary.name} {formatDateShort(m.salary.paidOn)} {m.salary.paidOn < today ? "yattı" : "yatar"}
+                              {salaryName} {formatDateShort(m.salary.paidOn)} {m.salary.paidOn < today ? "yattı" : "yatar"}
                             </>
                           )}
                           {" · "}
-                          {formatDateShort(m.salary.paidOn)} – {formatDateShort(addDays(m.salary.nextPaidOn, -1))} arası ödemeler
+                          {formatDateShort(m.salary.paidOn)} – {formatDateShort(m.salary.periodEnd)} arası ödemeler
                         </p>
                       )}
                     </div>
                     <span className="ml-auto text-sm text-zinc-500">
-                      Gelir <strong className="tabular-nums text-emerald-600 dark:text-emerald-400">{money(m.incomeCents)}</strong>
-                      {" · "}Ödemeler <strong className="tabular-nums text-zinc-900 dark:text-zinc-100">{money(m.totalCents)}</strong>
-                      {overdueIn(m) > 0 && <span className="text-xs"> (gecikmiş {money(overdueIn(m))} dahil)</span>}
+                      Gelir <strong className="tabular-nums text-emerald-600 dark:text-emerald-400">{money(m.periodIncomeCents)}</strong>
+                      {" · "}Ödemeler <strong className="tabular-nums text-zinc-900 dark:text-zinc-100">{money(m.periodTotalCents)}</strong>
+                      {m.overdueCents > 0 && <span className="text-xs"> (gecikmiş {money(m.overdueCents)} dahil)</span>}
                       {" · "}
-                      <span title="Bu dönemin gelirlerinden, bu dönemin ödemeleri çıkınca kalan tutar">Bu maaştan artan</span>{" "}
+                      <span title="Bu dönemin gelirlerinden, bu dönemin ödemeleri çıkınca kalan tutar (ödenmiş ve yatmış kalemler dahil)">Bu maaştan artan</span>{" "}
                       <strong className={`tabular-nums ${negative ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}`}>
-                        {money(m.leftCents)}
+                        {money(m.periodLeftCents)}
                       </strong>
                     </span>
                   </div>
-                  {m.incomes.length > 0 && (
+                  {(m.incomes.length > 0 || m.received.length > 0) && (
                     <ul className="flex flex-wrap gap-2">
-                      {m.incomes.map((e) => (
-                        <li
-                          key={e.key}
-                          className={`flex items-center gap-2 rounded-lg border px-2.5 py-1 text-sm ${
-                            e.skipped
-                              ? "border-rose-200 bg-rose-50/60 dark:border-rose-500/20 dark:bg-rose-500/5"
-                              : "border-emerald-200 bg-emerald-50/60 dark:border-emerald-500/20 dark:bg-emerald-500/5"
-                          }`}
-                        >
-                          <span className="text-xs text-zinc-500">{formatDateShort(e.date)}</span>
-                          <span className="font-medium">
-                            {e.name}
-                            {e.coverMonth !== e.date.slice(0, 7) && (
-                              <span className="ml-1 text-xs font-normal text-zinc-500">({monthName(e.coverMonth)} karşılığı)</span>
-                            )}
-                          </span>
-                          {e.skipped ? (
-                            <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
-                              bu ay yok{e.note && e.note !== "Yatmayacak" ? ` · ${e.note}` : ""}
-                            </span>
-                          ) : (
-                            <span className="tabular-nums text-emerald-600 dark:text-emerald-400">
-                              +{money(e.amountCents)}
-                              {e.oneTime && <span className="ml-1 text-xs text-zinc-500">tek seferlik</span>}
-                            </span>
-                          )}
-                          {e.date >= today && !e.oneTime && (
-                            // Durum etiketi gibi okunmasın diye çerçeveli küçük bir eylem düğmesi
-                            <button
-                              className="ml-1 inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-1.5 py-0.5 text-xs text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100"
-                              title={e.skipped ? "Bu ayı yeniden plana al" : "Ücretsiz izin vb. nedeniyle bu ay yatmayacak olarak işaretle"}
-                              onClick={() => void toggleSkip(e)}
-                            >
-                              {e.skipped ? (
-                                <>
-                                  <Undo2 size={12} /> Geri al
-                                </>
-                              ) : (
-                                <>
-                                  <CalendarX size={12} /> Bu ay atla
-                                </>
+                      {m.incomes.map((e) => {
+                        const note = incomeNote(e);
+                        return (
+                          <li
+                            key={e.key}
+                            className={`flex items-center gap-2 rounded-lg border px-2.5 py-1 text-sm ${
+                              e.skipped
+                                ? "border-rose-200 bg-rose-50/60 dark:border-rose-500/20 dark:bg-rose-500/5"
+                                : "border-emerald-200 bg-emerald-50/60 dark:border-emerald-500/20 dark:bg-emerald-500/5"
+                            }`}
+                          >
+                            <span className="text-xs text-zinc-500">{formatDateShort(e.date)}</span>
+                            <span className="font-medium">
+                              {incomeName(e, names)}
+                              {e.coverMonth !== e.date.slice(0, 7) && (
+                                <span className="ml-1 text-xs font-normal text-zinc-500">({monthName(e.coverMonth)} karşılığı)</span>
                               )}
-                            </button>
-                          )}
+                            </span>
+                            {e.skipped ? (
+                              <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+                                bu ay yok{note && note !== "Yatmayacak" ? ` · ${note}` : ""}
+                              </span>
+                            ) : (
+                              <span className="tabular-nums text-emerald-600 dark:text-emerald-400">
+                                +{money(e.amountCents)}
+                                {e.oneTime && <span className="ml-1 text-xs text-zinc-500">tek seferlik</span>}
+                              </span>
+                            )}
+                            {e.date >= today && !e.oneTime && (
+                              // Durum etiketi gibi okunmasın diye çerçeveli küçük bir eylem düğmesi
+                              <button
+                                className="ml-1 inline-flex items-center gap-1 rounded-md border border-zinc-300 bg-white px-1.5 py-0.5 text-xs text-zinc-600 hover:border-zinc-400 hover:text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:text-zinc-100"
+                                title={e.skipped ? "Bu ayı yeniden plana al" : "Ücretsiz izin vb. nedeniyle bu ay yatmayacak olarak işaretle"}
+                                onClick={() => void toggleSkip(e)}
+                              >
+                                {e.skipped ? (
+                                  <>
+                                    <Undo2 size={12} /> Geri al
+                                  </>
+                                ) : (
+                                  <>
+                                    <CalendarX size={12} /> Bu ay atla
+                                  </>
+                                )}
+                              </button>
+                            )}
+                          </li>
+                        );
+                      })}
+                      {m.received.map((r) => (
+                        <li
+                          key={r.key}
+                          className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/60 px-2.5 py-1 text-sm opacity-60 dark:border-emerald-500/20 dark:bg-emerald-500/5"
+                        >
+                          <span className="text-xs text-zinc-500">{formatDateShort(r.date)}</span>
+                          <span className="font-medium">{receivedName(r, names)}</span>
+                          <span className="tabular-nums text-emerald-600 dark:text-emerald-400">+{money(r.amountCents)}</span>
+                          <span className="inline-flex items-center gap-0.5 text-xs text-emerald-700 dark:text-emerald-300">
+                            <Check size={12} /> yattı
+                          </span>
                         </li>
                       ))}
                     </ul>
                   )}
                 </div>
-                {m.obligations.filter((o) => !o.overdue).length === 0 ? (
+                {open.length === 0 ? (
                   <p className="px-5 py-3 text-sm text-zinc-500">
-                    {overdueIn(m) > 0 ? "Bu dönemde gecikmiş ödemeler dışında ödeme yok." : `${m.salary ? "Bu döneme" : "Bu aya"} planlanmış ödeme yok.`}
+                    {m.overdueCents > 0 ? "Bu dönemde gecikmiş ödemeler dışında ödeme yok." : `${m.salary ? "Bu döneme" : "Bu aya"} planlanmış ödeme yok.`}
                   </p>
                 ) : (
-                  <ObligationList items={m.obligations.filter((o) => !o.overdue)} today={today} money={money} onPay={pay} />
+                  <ObligationList items={open} money={money} onPay={pay} />
                 )}
+                {m.paid.length > 0 && <PaidList items={m.paid} money={money} />}
                 <div className="flex justify-end border-t border-zinc-100 px-5 py-2 text-xs text-zinc-500 dark:border-zinc-800">
                   <span title="Bugünkü banka ve nakit bakiyenizden başlayarak, bu döneme kadarki tüm gelir ve ödemeler sonrası hesaplarınızda kalacak tutar">
                     Hesaplarında kalacak ({m.salary ? "dönem sonu" : "ay sonu"}, tahmini):
@@ -330,8 +401,6 @@ export function CashPlanPage() {
           })}
         </div>
       )}
-
-
     </>
   );
 }

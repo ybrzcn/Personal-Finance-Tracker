@@ -9,4 +9,4 @@ pub mod sources;
 pub mod tefas;
 pub mod time;
 
-pub use instruments::{find, fund_code, is_fund, source_of, unit_of, unit_or_try, Instrument, Source, Unit, FUND_PREFIX, INSTRUMENTS, TRY};
+pub use instruments::{find, fund_code, is_fund, qty_of, source_of, unit_of, unit_or_try, Instrument, Source, Unit, FUND_PREFIX, INSTRUMENTS, TRY};

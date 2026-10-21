@@ -36,6 +36,11 @@ pub fn ymd(days: i64) -> String {
     format!("{y:04}-{m:02}-{d:02}")
 }
 
+/// İki YYYY-MM-DD arasındaki gün farkı (to − from); geçersiz tarih 0 gün sayılır
+pub fn days_between(from: &str, to: &str) -> i64 {
+    parse_ymd(to).unwrap_or(0) - parse_ymd(from).unwrap_or(0)
+}
+
 /// "YYYY-MM-DD" → gün sayısı; geçersiz tarih None
 pub fn parse_ymd(s: &str) -> Option<i64> {
     let b = s.as_bytes();

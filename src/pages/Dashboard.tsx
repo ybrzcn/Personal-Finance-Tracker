@@ -1,31 +1,18 @@
 import { GoalsSummary } from "../components/GoalsSummary";
 import { ArrowRight, CalendarCheck, PieChart, Plus, Receipt } from "lucide-react";
-import { useMemo, useState } from "react";
-import { dueText, paymentHints } from "../components/AccountCards";
+import { useState } from "react";
+import { dueText, toHints } from "../components/AccountCards";
 import { SpendingBreakdown } from "../components/Reports";
 import { SetupChecklist } from "../components/SetupChecklist";
 import { Amount, EmptyState, PageHeader, Segmented, TILE_TONES, txAccountLabel } from "../components/common";
 import { DueIncomeBanner } from "../components/DueIncomeBanner";
-import { cashIncomeForMonth, plannedRegularIncomeInRange } from "../lib/budget";
-import { cardSummary, spreadInstallments } from "../lib/cards";
-import { upcomingObligations, type Obligation } from "../lib/plan";
-import { formatDate, formatMonthYear, parseISODate, todayISO } from "../lib/format";
-import type { Category, Transaction } from "../lib/types";
-import {
-  byAccount,
-  byCategory,
-  inRange,
-  monthlySeries,
-  presetRange,
-  previousRange,
-  RANGE_LABEL,
-  topMerchants,
-  totals,
-  UNCATEGORIZED,
-  type MonthPoint,
-  type RangePreset,
-} from "../lib/stats";
+import { formatDate, formatMonthShort, formatMonthYear, parseISODate, todayISO } from "../lib/format";
+import type { Category, OverviewSlice, PlanObligation, Transaction } from "../lib/types";
+import { RANGE_LABEL, UNCATEGORIZED, type CategorySlice, type MerchantRow, type MonthPoint, type RangePreset } from "../lib/stats";
+import { useAccountsReport } from "../state/accountsReport";
+import { useUpcomingObligations } from "../state/cashPlan";
 import { useData } from "../state/data";
+import { useOverview } from "../state/overview";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
 
@@ -162,18 +149,18 @@ function RecentTable({
 }
 
 function UpcomingPayments() {
-  const { accounts, transactions } = useData();
+  const { accounts } = useData();
   const { formatMoney } = useSettings();
   const { openTransactionForm, openLoanPayment, setPage } = useUI();
-  const today = todayISO();
-  const items = useMemo(() => upcomingObligations(accounts, transactions, today, 30), [accounts, transactions, today]);
+  const { byId } = useAccountsReport();
+  const { report, error, loading, retry } = useUpcomingObligations(30);
+  const items = report?.obligations ?? [];
 
-  const pay = (ob: Obligation) => {
+  const pay = (ob: PlanObligation) => {
     const account = accounts.find((a) => a.id === ob.accountId);
     if (!account) return;
     if (ob.kind === "loan") return openLoanPayment(account);
-    const s = cardSummary(account, transactions, today);
-    const hints = paymentHints(s.lastStatement, s.totalDebtCents);
+    const hints = toHints(byId.get(account.id)?.card?.hints ?? []);
     openTransactionForm(undefined, { type: "transfer", toAccountId: account.id, amount: ob.amountCents / 100 }, hints);
   };
 
@@ -187,7 +174,16 @@ function UpcomingPayments() {
           Ödeme takvimi <ArrowRight size={14} />
         </button>
       </div>
-      {items.length === 0 ? (
+  {error ? (
+    <div role="alert" className="flex items-center justify-between gap-3 py-3 text-sm">
+      <span className="text-rose-600 dark:text-rose-400">Yaklaşan ödemeler alınamadı: {error}</span>
+      <button className="btn-secondary px-3 py-1.5 text-xs" onClick={retry}>
+        Tekrar dene
+      </button>
+    </div>
+  ) : !report ? (
+    <p className="py-3 text-sm text-zinc-500">{loading ? "…" : "—"}</p>
+  ) : items.length === 0 ? (
         <EmptyState icon={CalendarCheck} title="Önümüzdeki 30 günde kart veya kredi ödemesi yok" />
       ) : (
         <ul className="divide-y divide-zinc-100 border-t border-zinc-100 dark:divide-zinc-800 dark:border-zinc-800">
@@ -202,7 +198,7 @@ function UpcomingPayments() {
                     {ob.estimated && <span className="ml-2 text-xs font-normal text-zinc-500">(tahmini)</span>}
                   </div>
                   <div className={`text-xs ${ob.overdue ? "text-rose-600 dark:text-rose-400" : "text-zinc-500"}`}>
-                    Son ödeme {formatDate(ob.date)} · {dueText(today, ob.date)}
+                    Son ödeme {formatDate(ob.date)} · {dueText(ob.daysLeft)}
                   </div>
                 </div>
                 <div className="text-base font-bold tabular-nums">{formatMoney(ob.amountCents / 100)}</div>
@@ -224,65 +220,58 @@ function UpcomingPayments() {
 }
 
 export function Dashboard() {
-  const { transactions, recurring, categoryById, accounts, accountById } = useData();
+  const { transactions, categoryById, accounts, accountById } = useData();
   const { formatMoney } = useSettings();
   const { openTransactionForm, setPage } = useUI();
   const [period, setPeriod] = useState<CardPeriod>("thisMonth");
-
-  // Takip başlangıcı: en eski hesap açılışı veya işlem; öncesine plan maaşı yazılmaz
-  const trackingStart = useMemo(
-    () => [...accounts.map((a) => a.openingDate), ...transactions.map((t) => t.date)].filter(Boolean).sort()[0],
-    [accounts, transactions],
-  );
-  // İstatistiklerde taksitli harcamalar aylara bölünür
-  const spread = useMemo(() => spreadInstallments(transactions), [transactions]);
-
-  const stats = useMemo(() => {
-    const r = presetRange(period);
-    const t = totals(spread.filter((x) => inRange(x.date, r)));
-    // Maaş gibi düzenli gelirler İşlemler'e girilmese de plan tutarıyla sayılır (ayın sonuna kadar)
-    const monthEnd = presetRange("thisMonth").to!;
-    const from = r.from ?? [...transactions.map((x) => x.date), ...recurring.map((x) => x.startDate ?? monthEnd)].sort()[0] ?? monthEnd;
-    const to = r.to && r.to < monthEnd ? r.to : monthEnd;
-    const planned = from <= to ? plannedRegularIncomeInRange(transactions, recurring, from, to, trackingStart) / 100 : 0;
-    // Adet olarak gerçek işlemler sayılır (taksit parçaları değil)
-    const count = transactions.filter((x) => inRange(x.date, r)).length;
-    return { ...t, income: t.income + planned, net: t.net + planned, planned, count };
-  }, [spread, transactions, recurring, period, trackingStart]);
-
-  // Raporlar sağ üstteki dönem filtresine göre hesaplanır
-  const report = useMemo(() => {
-    const r = presetRange(period);
-    const inPeriod = spread.filter((t) => inRange(t.date, r));
-    const prev = previousRange(period);
-    return {
-      categories: byCategory(inPeriod, "expense", categoryById),
-      accounts: byAccount(inPeriod, accountById),
-      merchants: topMerchants(inPeriod),
-      previous: prev
-        ? byCategory(
-            spread.filter((t) => inRange(t.date, prev)),
-            "expense",
-            categoryById,
-          )
-        : null,
-    };
-  }, [spread, period, categoryById, accountById]);
+  const { report: ov, error, loading, refreshing, retry } = useOverview(period);
+  // Aynı dönem yeniden alınırken (veri değişti, gün döndü) rakamlar soluk: güncel değiller
+  const dim = refreshing ? "opacity-60 transition-opacity" : "transition-opacity";
+  // Rapor beklenirken "…", alınamadıysa "—" (başka dönemin rakamı gösterilmez)
+  const ph = loading && !error ? "…" : "—";
+  const money = (cents: number | undefined) => (cents === undefined ? ph : formatMoney(cents / 100));
+  const totals = ov?.totals;
   const periodLabel = RANGE_LABEL[period];
 
-  // Gelir: düzenli gelirler (maaş vb.) yatış tarihlerine göre — işlem olarak girilmediyse plan tutarıyla — ve diğer gelir işlemleri
-  const monthly = useMemo(() => {
-    const points = monthlySeries(spread, 6).map((p) => ({
-      ...p,
-      income: cashIncomeForMonth(transactions, recurring, p.key, trackingStart) / 100,
-    }));
-    // Takip başlamadan önceki boş aylar gösterilmez
-    const first = points.findIndex((p) => p.income > 0 || p.expense > 0);
-    return first < 0 ? [] : points.slice(first);
-  }, [spread, transactions, recurring, trackingStart]);
+  // Rapor kimlik gönderir; ad ve renk veriden. Veride olmayan kategori (silinmiş ya da başka cihazda eklenmiş) tek
+  // "Kategorisiz" satırında birleşir; silinmiş hesap "Silinmiş hesap"
+  const categorySlices = (list: OverviewSlice[]): CategorySlice[] => {
+    const merged = new Map<string, number>();
+    for (const s of list) {
+      const id = s.categoryId && categoryById.has(s.categoryId) ? s.categoryId : "__none__";
+      merged.set(id, (merged.get(id) ?? 0) + s.cents);
+    }
+    return [...merged]
+      .map(([id, cents]) => {
+        const c = categoryById.get(id);
+        return { id, name: c?.name ?? UNCATEGORIZED.name, color: c?.color ?? UNCATEGORIZED.color, value: cents / 100 };
+      })
+      .sort((a, b) => b.value - a.value);
+  };
+  const breakdown = ov && {
+    categories: categorySlices(ov.categories),
+    previous: ov.previous ? categorySlices(ov.previous) : null,
+    accounts: ov.accounts.map((s): CategorySlice => {
+      const a = accountById.get(s.accountId);
+      return { id: s.accountId, name: a?.name ?? "Silinmiş hesap", color: a?.color ?? UNCATEGORIZED.color, value: s.cents / 100 };
+    }),
+    merchants: ov.merchants.map((m): MerchantRow => ({ key: m.key, name: m.name, count: m.count, total: m.totalCents / 100 })),
+  };
+  const monthly: MonthPoint[] = (ov?.monthly ?? []).map((m) => ({
+    key: m.month,
+    label: formatMonthShort(parseISODate(`${m.month}-01`)),
+    income: m.incomeCents / 100,
+    expense: m.expenseCents / 100,
+  }));
   // İleri tarihli (planlanan) işlemler "son işlemler"de gösterilmez
   const recent = transactions.filter((t) => t.date <= todayISO()).slice(0, 6);
-  const savingsRate = stats.income > 0 ? Math.round((stats.net / stats.income) * 100) : null;
+  const netHint = totals
+    ? totals.savingsRatePct !== null
+      ? `Tasarruf oranı: %${totals.savingsRatePct} · ${totals.count} işlem`
+      : `${totals.count} işlem`
+    : undefined;
+  const incomeHint =
+    totals && totals.plannedCents > 0 ? `${periodLabel} · ${formatMoney(totals.plannedCents / 100)} düzenli gelir (plan) dahil` : periodLabel;
 
   return (
     <>
@@ -304,40 +293,38 @@ export function Dashboard() {
 
       <SetupChecklist />
 
+      {error && (
+        <div role="alert" className="card mb-4 flex items-center justify-between gap-3 px-5 py-4 text-sm">
+          <span className="text-rose-600 dark:text-rose-400">İstatistikler alınamadı: {error}</span>
+          <button className="btn-secondary px-3 py-1.5 text-xs" onClick={retry}>
+            Tekrar dene
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard
-          label="Net Bakiye"
-          value={formatMoney(stats.net)}
-          tone="net"
-          className="col-span-2"
-          hint={savingsRate !== null ? `Tasarruf oranı: %${savingsRate} · ${stats.count} işlem` : `${stats.count} işlem`}
-        />
-        <StatCard
-          label="Toplam Gelir"
-          value={formatMoney(stats.income)}
-          tone="income"
-          hint={
-            stats.planned > 0 ? `${RANGE_LABEL[period]} · ${formatMoney(stats.planned)} düzenli gelir (plan) dahil` : RANGE_LABEL[period]
-          }
-        />
+        <StatCard label="Net Bakiye" value={money(totals?.netCents)} tone="net" className={`col-span-2 ${dim}`} hint={netHint} />
+        <StatCard label="Toplam Gelir" value={money(totals?.incomeCents)} tone="income" className={dim} hint={incomeHint} />
         <StatCard
           label="Toplam Gider"
-          value={formatMoney(stats.expense)}
+          value={money(totals?.expenseCents)}
           tone="expense"
+          className={dim}
           // Bütçe sayfası kart harcamalarını ödeyecek maaşın ayına yazar; burada harcama tarihi esas alınır
-          hint={`${RANGE_LABEL[period]} · harcama tarihine göre`}
+          hint={`${periodLabel} · harcama tarihine göre`}
         />
 
         {/* Tek kartta kategori / hesap / harcama yeri; hiç işlem yokken kurulum listesi yeterli */}
         {transactions.length > 0 && (
-          <div className="col-span-2 flex lg:row-span-2">
-            <SpendingBreakdown
-              categories={report.categories}
-              previous={report.previous}
-              accounts={report.accounts}
-              merchants={report.merchants}
-              periodLabel={periodLabel}
-            />
+          <div className={`col-span-2 flex lg:row-span-2 ${dim}`} aria-busy={refreshing}>
+            {breakdown ? (
+              <SpendingBreakdown {...breakdown} periodLabel={periodLabel} />
+            ) : (
+              <section className="card flex w-full flex-col px-5 py-4">
+                <h2 className="text-[15px] font-semibold">Harcama dağılımı · {periodLabel}</h2>
+                <p className="mt-6 text-sm text-zinc-500">{ph}</p>
+              </section>
+            )}
           </div>
         )}
 
@@ -345,7 +332,7 @@ export function Dashboard() {
 
         <GoalsSummary />
 
-        <section className={`card col-span-2 px-5 py-4 ${transactions.length > 0 ? "" : "lg:col-span-4"}`}>
+        <section className={`card col-span-2 px-5 py-4 ${transactions.length > 0 ? "" : "lg:col-span-4"} ${dim}`} aria-busy={refreshing}>
           <div className="flex items-baseline justify-between gap-3">
             <h2 className="text-[15px] font-semibold">Son 6 Ay · Gelir / Gider</h2>
             {monthly.length > 0 && (
@@ -363,12 +350,14 @@ export function Dashboard() {
           </div>
           {monthly.length ? (
             <MonthlyTable data={monthly} />
-          ) : (
+          ) : ov ? (
             <EmptyState
               icon={PieChart}
               title="Henüz gelir veya gider yok"
               hint="İlk işlemini ya da maaşını ekleyince aylık grafik burada görünür."
             />
+          ) : (
+            <p className="py-3 text-sm text-zinc-500">{ph}</p>
           )}
         </section>
 

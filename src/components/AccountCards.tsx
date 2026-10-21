@@ -1,19 +1,16 @@
 import { AlertTriangle, Banknote, CalendarClock, CreditCard, FileUp, HandCoins, Landmark, List, Pencil, Plus, TrendingUp, Wallet } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
-import { bankSummary, fxValueCents, nativeBalanceMinor } from "../lib/accounts";
-import { formatQty, formatRate, isForeign, isFund, unitDivisor } from "../lib/fx";
-import { cardStatements, cardSummary, type Statement, type StatementStatus } from "../lib/cards";
-import { daysBetween, formatDateShort, todayISO } from "../lib/format";
-import { loanSummary } from "../lib/loans";
-import { ACCOUNT_KIND_LABEL, type Account } from "../lib/types";
-import { useData } from "../state/data";
+import { useState, type ReactNode } from "react";
+import { formatQty, formatRate, isForeign, isFund } from "../lib/fx";
+import { formatDateShort } from "../lib/format";
+import { ACCOUNT_KIND_LABEL, type Account, type AmountHintCents, type CardStatement, type CardStatementStatus } from "../lib/types";
+import { useAccountReport } from "../state/accountsReport";
 import { usePnlSummary } from "../state/pnl";
 import { useRates } from "../state/rates";
 import { useSettings } from "../state/settings";
 import { useUI, type AmountHint } from "../state/ui";
 import { Term, TERMS } from "./common";
 
-const STATUS: Record<StatementStatus, { label: string; cls: string }> = {
+const STATUS: Record<CardStatementStatus, { label: string; cls: string }> = {
   none: { label: "Borç yok", cls: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400" },
   paid: { label: "Ödendi", cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400" },
   minPaid: { label: "Asgari ödendi", cls: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400" },
@@ -21,7 +18,7 @@ const STATUS: Record<StatementStatus, { label: string; cls: string }> = {
   overdue: { label: "Gecikti", cls: "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400" },
 };
 
-export function StatusBadge({ status }: { status: StatementStatus }) {
+export function StatusBadge({ status }: { status: CardStatementStatus }) {
   return (
     <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${STATUS[status].cls}`}>
       {STATUS[status].label}
@@ -29,23 +26,14 @@ export function StatusBadge({ status }: { status: StatementStatus }) {
   );
 }
 
-export function dueText(today: string, due: string): string {
-  const d = daysBetween(today, due);
+/** Rust'ın gün sayısından (son ödemeye kalan) metin */
+export function dueText(d: number): string {
   if (d === 0) return "Bugün";
   return d > 0 ? `${d} gün kaldı` : `${-d} gün gecikti`;
 }
 
-/** Kart ödeme formu için hazır tutarlar. */
-export function paymentHints(statement: Statement | null, totalDebtCents: number): AmountHint[] {
-  const hints: AmountHint[] = [];
-  if (statement && statement.remainingCents > 0) {
-    hints.push({ label: "Kalan ekstre", amount: statement.remainingCents / 100 });
-    const minLeft = statement.minPaymentCents - statement.paidCents;
-    if (minLeft > 0) hints.push({ label: "Asgari", amount: minLeft / 100 });
-  }
-  if (totalDebtCents > 0) hints.push({ label: "Toplam borç", amount: totalDebtCents / 100 });
-  return hints;
-}
+/** Rapordaki kart ödeme ipuçları → ödeme formunun hazır tutarları (TL). */
+export const toHints = (hints: AmountHintCents[]): AmountHint[] => hints.map((h) => ({ label: h.label, amount: h.amountCents / 100 }));
 
 function IconAction({ title, icon, onClick, active }: { title: string; icon: ReactNode; onClick(): void; active?: boolean }) {
   return (
@@ -126,7 +114,7 @@ export function FundAccountCard({ account }: { account: Account }) {
       }
     >
       <div>
-        <div className="text-2xl font-semibold tracking-tight tabular-nums">{p ? formatQty(p.qtyMinor, account.currency) : "—"}</div>
+        <div className="text-2xl font-semibold tracking-tight tabular-nums">{p ? formatQty(p.qty, account.currency) : "—"}</div>
         <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-500 tabular-nums">
           {p && p.valueCents !== null && p.rateMicros !== null ? (
             <>
@@ -155,19 +143,18 @@ export function FundAccountCard({ account }: { account: Account }) {
 }
 
 export function BankAccountCard({ account }: { account: Account }) {
-  const { transactions } = useData();
   const { formatMoney } = useSettings();
   const { showAccountTransactions, openStatementImport } = useUI();
-  const today = todayISO();
-  const s = useMemo(() => bankSummary(account, transactions, today), [account, transactions, today]);
+  const { r, placeholder } = useAccountReport(account.id);
+  const s = r?.bank ?? null;
   const limit = account.creditLimit;
   const { rates } = useRates();
   const foreign = isForeign(account.currency);
-  const native = useMemo(() => (foreign ? nativeBalanceMinor(account, transactions, today) : 0), [foreign, account, transactions, today]);
+  const native = r?.fx?.qty ?? null;
   const quote = foreign ? rates.get(account.currency) : undefined;
   const { byAccount } = usePnlSummary();
   const pnl = foreign ? byAccount.get(account.id) : undefined;
-  const valueCents = foreign ? fxValueCents(account, transactions, rates, today) : null;
+  const valueCents = r?.fx?.valueCents ?? null;
   return (
     <CardShell
       account={account}
@@ -182,11 +169,13 @@ export function BankAccountCard({ account }: { account: Account }) {
     >
       {foreign ? (
         <div>
-          <div className={`text-2xl font-semibold tracking-tight tabular-nums ${native < 0 ? "text-rose-600 dark:text-rose-400" : ""}`}>
-            {formatQty(native / unitDivisor(account.currency), account.currency)}
+          <div className={`text-2xl font-semibold tracking-tight tabular-nums ${native !== null && native < 0 ? "text-rose-600 dark:text-rose-400" : ""}`}>
+            {native === null ? placeholder : formatQty(native, account.currency)}
           </div>
           <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-500 tabular-nums">
-            {quote && valueCents !== null ? (
+            {r === null ? (
+              `TL karşılığı: ${placeholder}`
+            ) : quote && valueCents !== null ? (
               <>
                 ≈ {formatMoney(valueCents / 100)} · alış {formatRate(quote.buy)} ·{" "}
                 {new Date(quote.observedAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
@@ -209,22 +198,22 @@ export function BankAccountCard({ account }: { account: Account }) {
           )}
         </div>
       ) : (
-        <div className={`text-2xl font-semibold tracking-tight tabular-nums ${s.balanceCents < 0 ? "text-rose-600 dark:text-rose-400" : ""}`}>
-          {formatMoney(s.balanceCents / 100)}
+        <div className={`text-2xl font-semibold tracking-tight tabular-nums ${s !== null && s.balanceCents < 0 ? "text-rose-600 dark:text-rose-400" : ""}`}>
+          {s ? formatMoney(s.balanceCents / 100) : placeholder}
         </div>
       )}
-      {account.kind === "cash" && (foreign ? native < 0 : s.balanceCents < 0) && (
+      {account.kind === "cash" && (foreign ? native !== null && native < 0 : s !== null && s.balanceCents < 0) && (
         <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
           Nakit eksiye düşemez; bir gider fazla ya da yanlış hesaba girilmiş olabilir.
         </p>
       )}
       {account.kind === "bank" && !foreign && limit !== null && limit > 0 && (
         <>
-          <UsageBar used={s.overdraftUsedCents / 100} limit={limit} />
+          <UsageBar used={(s?.overdraftUsedCents ?? 0) / 100} limit={limit} />
           <Row label={<Term hint={TERMS.KMH}>KMH kullanımı</Term>}>
-            {formatMoney(s.overdraftUsedCents / 100)} / {formatMoney(limit)}
+            {s ? formatMoney(s.overdraftUsedCents / 100) : placeholder} / {formatMoney(limit)}
           </Row>
-          {s.availableCents !== null && <Row label="Kullanılabilir">{formatMoney(s.availableCents / 100)}</Row>}
+          {s?.availableCents != null && <Row label="Kullanılabilir">{formatMoney(s.availableCents / 100)}</Row>}
         </>
       )}
       {account.kind === "bank" && !foreign && account.interestRate !== null && <Row label={<Term hint={TERMS.KMH}>Aylık KMH faizi</Term>}>{rate(account.interestRate)}</Row>}
@@ -233,19 +222,14 @@ export function BankAccountCard({ account }: { account: Account }) {
 }
 
 export function CreditCardCard({ account }: { account: Account }) {
-  const { transactions } = useData();
   const { formatMoney } = useSettings();
   const { openTransactionForm, showAccountTransactions } = useUI();
   const [history, setHistory] = useState(false);
-  const today = todayISO();
-  const summary = useMemo(() => cardSummary(account, transactions, today), [account, transactions, today]);
-  const statements = useMemo(
-    () => (history ? cardStatements(account, transactions, today, 6) : []),
-    [history, account, transactions, today],
-  );
-  const st = summary.lastStatement;
-  const hints = paymentHints(st, summary.totalDebtCents);
-  const money = (c: number) => formatMoney(c / 100);
+  const { r, placeholder } = useAccountReport(account.id);
+  const summary = r?.card ?? null;
+  const st = summary?.statements[0] ?? null;
+  const hints = summary ? toHints(summary.hints) : [];
+  const money = (c: number | null | undefined) => (c == null ? placeholder : formatMoney(c / 100));
 
   return (
     <CardShell
@@ -294,12 +278,12 @@ export function CreditCardCard({ account }: { account: Account }) {
     >
       <div>
         <div className="text-xs text-zinc-500">Toplam borç</div>
-        <div className="text-2xl font-semibold tracking-tight tabular-nums">{money(summary.totalDebtCents)}</div>
+        <div className="text-2xl font-semibold tracking-tight tabular-nums">{money(summary?.totalDebtCents)}</div>
       </div>
       {account.creditLimit !== null && account.creditLimit > 0 && (
         <>
-          <UsageBar used={summary.totalDebtCents / 100} limit={account.creditLimit} />
-          {summary.availableCents !== null && <Row label="Kullanılabilir limit">{money(summary.availableCents)}</Row>}
+          <UsageBar used={(summary?.totalDebtCents ?? 0) / 100} limit={account.creditLimit} />
+          {summary?.availableCents != null && <Row label="Kullanılabilir limit">{money(summary.availableCents)}</Row>}
         </>
       )}
       {st ? (
@@ -316,43 +300,48 @@ export function CreditCardCard({ account }: { account: Account }) {
             {st.remainingCents > 0 && (
               <span className={`ml-1 text-xs font-normal ${st.status === "overdue" ? "text-rose-600 dark:text-rose-400" : "text-zinc-500"}`}>
                 {/* Asgarisi ödenmişse "gecikti" denmez: kalan borç gecikme değil, faize girer */}
-                · {st.status === "minPaid" && st.dueDate < today ? "kalan faize girer" : dueText(today, st.dueDate)}
+                · {st.status === "minPaid" && st.dueInDays < 0 ? "kalan faize girer" : dueText(st.dueInDays)}
               </span>
             )}
           </Row>
           <Row label={<Term hint={TERMS.asgari}>Asgari ödeme</Term>}>{money(st.minPaymentCents)}</Row>
           <Row label="Kalan">{money(st.remainingCents)}</Row>
         </div>
-      ) : summary.totalDebtCents === 0 ? (
+      ) : summary?.totalDebtCents === 0 ? (
         <p className="rounded-xl bg-zinc-50 p-3 text-xs text-zinc-500 dark:bg-zinc-800/50">
           Karttaki harcamaları "Harcama" ile ekleyin veya ekstreyi yükleyin. Eski taksitli alışverişleri alış tarihi ve toplam taksit
           sayısıyla girin; ödenmiş taksitler otomatik düşülür.
         </p>
       ) : (
-        <p className="text-sm text-zinc-500">Henüz kesilmiş ekstre yok.</p>
+        <p className="text-sm text-zinc-500">{summary ? "Henüz kesilmiş ekstre yok." : placeholder}</p>
       )}
-      <Row label="Gelecek ekstreye">{money(summary.currentPeriodCents)}</Row>
-      {summary.laterInstallmentsCents > 0 && <Row label="Sonraki aylara taksit">{money(summary.laterInstallmentsCents)}</Row>}
+      <Row label="Gelecek ekstreye">{money(summary?.currentPeriodCents)}</Row>
+      {summary && summary.laterInstallmentsCents > 0 && <Row label="Sonraki aylara taksit">{money(summary.laterInstallmentsCents)}</Row>}
       <Row label="Sonraki kesim">
-        {formatDateShort(summary.nextClosingDate)}
-        <span className="ml-1 text-xs font-normal text-zinc-500">· ödeme {formatDateShort(summary.nextDueDate)}</span>
+        {summary ? (
+          <>
+            {formatDateShort(summary.nextClosingDate)}
+            <span className="ml-1 text-xs font-normal text-zinc-500">· ödeme {formatDateShort(summary.nextDueDate)}</span>
+          </>
+        ) : (
+          placeholder
+        )}
       </Row>
       {account.interestRate !== null && <Row label={<Term hint={TERMS.akdi}>Aylık akdi faiz</Term>}>{rate(account.interestRate)}</Row>}
-      {history && <StatementTable statements={statements} money={money} />}
+      {history && summary && <StatementTable statements={summary.statements} money={(c) => formatMoney(c / 100)} />}
     </CardShell>
   );
 }
 
 export function LoanCard({ account }: { account: Account }) {
-  const { transactions } = useData();
   const { formatMoney } = useSettings();
   const { openLoanPayment, showAccountTransactions } = useUI();
   const [plan, setPlan] = useState(false);
-  const today = todayISO();
-  const s = useMemo(() => loanSummary(account, transactions), [account, transactions]);
-  const money = (c: number) => formatMoney(c / 100);
+  const { r: rep, placeholder } = useAccountReport(account.id);
+  const s = rep?.loan ?? null;
+  const money = (c: number | null | undefined) => (c == null ? placeholder : formatMoney(c / 100));
   const principal = Math.round(account.openingBalance * 100);
-  const paidPct = principal > 0 ? Math.min(100, Math.max(0, ((principal - s.remainingCents) / principal) * 100)) : 0;
+  const paidPct = principal > 0 && s ? Math.min(100, Math.max(0, ((principal - s.remainingCents) / principal) * 100)) : 0;
 
   return (
     <CardShell
@@ -360,7 +349,7 @@ export function LoanCard({ account }: { account: Account }) {
       icon={<HandCoins size={18} />}
       footer={
         <>
-          {s.remainingCents > 0 && (
+          {s && s.remainingCents > 0 && (
             <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => openLoanPayment(account)}>
               Taksit öde
             </button>
@@ -373,33 +362,33 @@ export function LoanCard({ account }: { account: Account }) {
     >
       <div>
         <div className="text-xs text-zinc-500">Kalan anapara</div>
-        <div className="text-2xl font-semibold tracking-tight tabular-nums">{money(s.remainingCents)}</div>
+        <div className="text-2xl font-semibold tracking-tight tabular-nums">{money(s?.remainingCents)}</div>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
         <div className="h-full rounded-full bg-emerald-500" style={{ width: `${paidPct}%` }} />
       </div>
       <Row label="Taksit">
-        {s.paidCount}/{s.schedule.length} ödendi
+        {s ? `${s.paidCount}/${s.schedule.length} ödendi` : placeholder}
       </Row>
-      {s.next ? (
+      {s?.next ? (
         <div className="space-y-2 rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/50">
           <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">Sıradaki taksit · {s.next.index}.</div>
           <Row label="Tarih">
             {formatDateShort(s.next.date)}
-            <span className={`ml-1 text-xs font-normal ${s.next.date < today ? "text-rose-600 dark:text-rose-400" : "text-zinc-500"}`}>
-              · {dueText(today, s.next.date)}
+            <span className={`ml-1 text-xs font-normal ${(s.nextDueInDays ?? 0) < 0 ? "text-rose-600 dark:text-rose-400" : "text-zinc-500"}`}>
+              · {s.nextDueInDays !== null && dueText(s.nextDueInDays)}
             </span>
           </Row>
           <Row label="Tutar">{money(s.next.paymentCents)}</Row>
           <Row label="Faiz + vergi">{money(s.next.interestCents)}</Row>
           <Row label="Anapara">{money(s.next.principalCents)}</Row>
         </div>
-      ) : (
+      ) : s ? (
         <p className="text-sm text-emerald-600 dark:text-emerald-400">Kredi kapandı.</p>
-      )}
-      <Row label="Kalan faiz (tahmini)">{money(s.remainingInterestCents)}</Row>
+      ) : null}
+      <Row label="Kalan faiz (tahmini)">{money(s?.remainingInterestCents)}</Row>
       {account.interestRate !== null && <Row label={<Term hint={TERMS.akdi}>Aylık akdi faiz</Term>}>{rate(account.interestRate)}</Row>}
-      {plan && (
+      {plan && s && (
         <div className="max-h-64 overflow-auto">
           <table className="w-full text-xs">
             <thead>
@@ -429,7 +418,7 @@ export function LoanCard({ account }: { account: Account }) {
   );
 }
 
-function StatementTable({ statements, money }: { statements: Statement[]; money(c: number): string }) {
+function StatementTable({ statements, money }: { statements: CardStatement[]; money(c: number): string }) {
   if (!statements.length) return <p className="text-sm text-zinc-500">Ekstre yok.</p>;
   return (
     <table className="w-full text-xs">

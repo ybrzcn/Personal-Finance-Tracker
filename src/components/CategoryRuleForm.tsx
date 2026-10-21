@@ -1,10 +1,10 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { errorMessage } from "../lib/api";
+import { api, errorMessage } from "../lib/api";
 import { formatDate } from "../lib/format";
 import { newId } from "../lib/id";
-import { normalizeRuleWord, transactionsMatching } from "../lib/statementImport";
 import type { CategoryRule, CategoryType } from "../lib/types";
 import { useData } from "../state/data";
+import { useFormPreview } from "../state/formPreview";
 import { useSettings } from "../state/settings";
 import { CategoryLabel } from "./common";
 import { Modal } from "./Modal";
@@ -14,20 +14,6 @@ interface Props {
   onClose(): void;
   onSaved(message: string): void;
 }
-
-/** "migros, a101 ,, bim" → ["migros", "a101", "bim"] (aynı kelime bir kez) */
-const parseWords = (s: string) => {
-  const seen = new Set<string>();
-  return s
-    .split(",")
-    .map((w) => w.trim())
-    .filter((w) => {
-      const n = normalizeRuleWord(w);
-      if (!n || seen.has(n)) return false;
-      seen.add(n);
-      return true;
-    });
-};
 
 export function CategoryRuleForm({ rule, onClose, onSaved }: Props) {
   const { categories, categoryById, transactions } = useData();
@@ -39,11 +25,23 @@ export function CategoryRuleForm({ rule, onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
 
   const options = categories.filter((c) => c.type === type);
-  const words = useMemo(() => parseWords(wordsText), [wordsText]);
-  const matches = useMemo(() => transactionsMatching(words, type, transactions), [words, type, transactions]);
+  // Kelimeler ve kurala uyan işlemler Rust'ta ("migros, a101 ,, migros" → ["migros", "a101"])
+  const { preview, latest } = useFormPreview({ wordsText, type }, api.previewCategoryRule);
+  const words = preview?.words ?? [];
+  const matches = useMemo(() => {
+    const byId = new Map(transactions.map((t) => [t.id, t]));
+    return (preview?.matchingTransactionIds ?? []).flatMap((id) => byId.get(id) ?? []);
+  }, [preview, transactions]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    // Kaydedilen kelimeler son yazılanın hesabından
+    let words: string[];
+    try {
+      words = (await latest({ wordsText, type })).words;
+    } catch (err) {
+      return setError(`Hesap yapılamadı: ${errorMessage(err)}`);
+    }
     if (!words.length) return setError("En az bir kelime yazın.");
     if (!options.some((c) => c.id === categoryId)) return setError("Bir kategori seçin.");
     const next: CategoryRule = { id: rule?.id ?? newId(), words, type, categoryId };

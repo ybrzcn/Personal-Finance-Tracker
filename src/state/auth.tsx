@@ -22,9 +22,9 @@ function clearLocalTraces() {
 import { moveLocalToServer } from "../lib/transfer";
 
 interface AuthCtx {
-  /** Oturumdaki kullanıcı; hesapsız yerel kullanımda ve geliştirme modunda null */
+  /** Oturumdaki kullanıcı; hesapsız yerel kullanımda null */
   user: User | null;
-  /** "web": tarayıcı; "local"/"server": masaüstü veri yeri; null: geliştirme modu */
+  /** "web": tarayıcı; "local"/"server": masaüstü veri yeri; null: sağlayıcı dışında (varsayılan bağlam) */
   mode: "web" | Mode | null;
   serverUrl: string | null;
   /** Hesap işlemleri (şifre değiştir, hesabı sil) için istemci; hesap yoksa null */
@@ -56,12 +56,11 @@ export function useAuth() {
 
 /**
  * Uygulama ancak oturum (ya da masaüstünde hesapsız yerel kullanım seçimi) hazır olunca görünür;
- * veri sağlayıcıları ancak o zaman bağlanır. Geliştirme modunda doğrudan içeriği gösterir.
+ * veri sağlayıcıları ancak o zaman bağlanır.
  */
 export function AuthGate({ children }: { children: ReactNode }) {
   if (backend === "http") return <WebGate>{children}</WebGate>;
-  if (backend === "tauri") return <DesktopGate>{children}</DesktopGate>;
-  return <>{children}</>;
+  return <DesktopGate>{children}</DesktopGate>;
 }
 
 function Spinner() {

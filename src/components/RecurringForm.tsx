@@ -1,13 +1,12 @@
 import { Plus, Trash2, X } from "lucide-react";
-import { useMemo, useState, type FormEvent, type KeyboardEvent } from "react";
-import { errorMessage } from "../lib/api";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { api, errorMessage } from "../lib/api";
 import { amountToInput, formatDate, formatDateShort, formatMonthYear, parseAmount, parseQuantity, todayISO } from "../lib/format";
-import { isForeign, isFund, qtyDecimals, qtyRule, tlAmount, unitOf } from "../lib/fx";
-import { clampedDate } from "../lib/cards";
-import { amountAt, occurrenceIn, shiftMonth, shiftWeekend, withAmountFrom } from "../lib/recurring";
-import type { AmountChange, CategoryType, MonthException, RecurringItem, WeekendShift } from "../lib/types";
+import { isForeign, isFund, qtyDecimals, qtyRule, unitOf } from "../lib/fx";
+import type { AmountChange, CategoryType, MonthException, RecurringDraft, RecurringItem, RecurringPreview, WeekendShift } from "../lib/types";
 import { useSettings } from "../state/settings";
 import { useData } from "../state/data";
+import { useFormPreview } from "../state/formPreview";
 import { useRates } from "../state/rates";
 import { useUI } from "../state/ui";
 import { MoneyInput } from "./common";
@@ -20,11 +19,6 @@ interface Props {
   onSaved(message: string): void;
 }
 
-function nextMonth(iso: string): string {
-  const d = new Date(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)), 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
 export function RecurringForm({ item, defaultType = "income", onClose, onSaved }: Props) {
   const { accounts, categories, addRecurring, updateRecurring, deleteRecurring } = useData();
   const { confirm } = useUI();
@@ -32,17 +26,15 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
   const [name, setName] = useState(item?.name ?? (defaultType === "income" ? "Maaş" : ""));
   const today = todayISO();
   const [history, setHistory] = useState<AmountChange[]>(item?.history ?? []);
-  // Bugün geçerli tutar (düzenlenen geçmişe göre)
-  const currentAmount = item ? amountAt({ ...item, history }, today) : null;
-  const [amount, setAmount] = useState(currentAmount !== null ? amountToInput(currentAmount) : "");
+  // Tutar alanı, kullanıcı dokunmadıysa Rust'tan gelen bugünkü tutarla (düzenlenen geçmişe göre) dolar. Geçmişi olmayan kayıtta
+  // bugünkü tutar kayıtlı tutarın kendisidir; geçmişi olanda önizleme gelene kadar boş
+  const [amount, setAmount] = useState(item && !item.history?.length ? amountToInput(item.amount) : "");
+  const amountTouched = useRef(false);
   // Düzenlemede tutar değişirse: belirli tarihten itibaren mi, yoksa tüm aylar için düzeltme mi?
   const [changeMode, setChangeMode] = useState<"from" | "all">("from");
-  const [changeFrom, setChangeFrom] = useState(() => {
-    if (!item) return today;
-    const thisMonth = occurrenceIn(item, today.slice(0, 7));
-    // Bu ayın yatışı geçtiyse değişiklik gelecek aydan başlasın
-    return thisMonth >= today ? thisMonth : occurrenceIn(item, nextMonth(today));
-  });
+  // Varsayılan (Rust): bu ayın yatışı geçtiyse değişiklik gelecek aydan başlar
+  const [changeFrom, setChangeFrom] = useState(item ? "" : today);
+  const changeFromTouched = useRef(false);
   const { formatMoney } = useSettings();
   const [exceptions, setExceptions] = useState<MonthException[]>(item?.exceptions ?? []);
   const [exMonth, setExMonth] = useState(today.slice(0, 7));
@@ -106,19 +98,6 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
   const [active, setActive] = useState(item?.active ?? true);
   const [coversPrev, setCoversPrev] = useState(item?.coversPreviousMonth ?? false);
   const [weekendShift, setWeekendShift] = useState<WeekendShift>(item?.weekendShift ?? "none");
-  // Önümüzdeki aylarda hafta sonuna denk gelip kayan tarihler (ör. 10 Eki Cumartesi → 9 Eki Cuma)
-  const weekendNote = useMemo(() => {
-    const d = Number.parseInt(day, 10);
-    if (!(d >= 1 && d <= 31)) return null;
-    const moved: string[] = [];
-    for (let k = 0; k < 6; k++) {
-      const m = shiftMonth(today.slice(0, 7), k);
-      const base = clampedDate(Number(m.slice(0, 4)), Number(m.slice(5, 7)) - 1, d);
-      const shifted = shiftWeekend(base, weekendShift);
-      if (shifted !== base) moved.push(`${formatDateShort(base)} → ${formatDateShort(shifted)}`);
-    }
-    return moved.length ? `Önümüzdeki 6 ayda: ${moved.join(", ")}` : "Önümüzdeki 6 ayda hafta sonuna denk gelen gün yok.";
-  }, [day, weekendShift, today]);
   // Yeni kayıt bugünden başlar: uygulamanın kullanılmadığı geçmiş aylara plan yazılmaz
   const [startDate, setStartDate] = useState(item ? (item.startDate ?? "") : today);
   const [error, setError] = useState<string | null>(null);
@@ -130,36 +109,94 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
   const unitLabel = unitOf(cur) === "currency" ? cur : unitOf(cur) === "gram" ? "gram" : "adet";
   const [qty, setQty] = useState(item?.origAmount != null ? String(item.origAmount).replace(".", ",") : "");
   const qtyVal = foreign ? parseQuantity(qty, qtyDecimals(cur)) : null;
+  // Miktar yazılınca TL tutarı güncel alışla (Rust) önerilir
+  const qtyEdited = useRef(false);
   const onQty = (v: string) => {
     setQty(v);
     setError(null);
-    const n = parseQuantity(v, qtyDecimals(cur));
-    const q = rates.get(cur);
-    if (n && n > 0 && q) setAmount(amountToInput(tlAmount(n, q.buy, cur)));
+    qtyEdited.current = true;
   };
 
   const value = parseAmount(amount);
-  const amountChanged = !!item && value !== null && value > 0 && Math.abs(value - (currentAmount ?? 0)) >= 0.005;
+  // Önizleme hesapları Rust'ta (finans-core::forms)
+  const dayNum = Number.parseInt(day, 10);
+  const previewDraft: RecurringDraft = {
+    item: item ? { amount: item.amount, day: item.day, weekendShift: item.weekendShift ?? "none", history } : null,
+    day: Number.isNaN(dayNum) ? null : dayNum,
+    weekendShift,
+    currency: cur,
+    qty: qtyVal,
+    buyRate: rates.get(cur)?.buy ?? null,
+    amount: value,
+    changeMode,
+    changeFrom: changeFrom || null,
+  };
+  const { preview, source, latest } = useFormPreview(previewDraft, api.previewRecurring);
+  const currentAmount = preview?.currentAmount ?? null;
+  const amountChanged = preview?.amountChanged ?? false;
+  useEffect(() => {
+    if (!preview) return;
+    if (preview.currentAmount !== null && !amountTouched.current) setAmount(amountToInput(preview.currentAmount));
+    if (preview.changeFromDefault && !changeFromTouched.current) setChangeFrom(preview.changeFromDefault);
+    // Öneri, yazılan son miktarın hesabıysa tutara yazılır
+    if (qtyEdited.current && preview.qtyAmount !== null && source?.qty === qtyVal) {
+      qtyEdited.current = false;
+      amountTouched.current = true;
+      setAmount(amountToInput(preview.qtyAmount));
+    }
+  }, [preview, source, qtyVal]);
+  // Önümüzdeki aylarda hafta sonuna denk gelip kayan tarihler (ör. 10 Eki Cumartesi → 9 Eki Cuma)
+  const moves = preview?.weekendMoves ?? null;
+  const weekendNote = !moves
+    ? null
+    : moves.length
+      ? `Önümüzdeki 6 ayda: ${moves.map((m) => `${formatDateShort(m.from)} → ${formatDateShort(m.to)}`).join(", ")}`
+      : "Önümüzdeki 6 ayda hafta sonuna denk gelen gün yok.";
   const futureChanges = useMemo(() => history.filter((h) => h.from > today), [history, today]);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    // Miktar yazılıp öneri henüz gelmediyse tutar son miktarın hesabından; düzenlemede tutara dokunulduysa
+    // tutar ve geçmiş de son girdinin hesabından (Rust)
+    let val = value;
+    let from = changeFrom;
+    let fresh: RecurringPreview | null = null;
+    // Beklerken gelen önizleme bayrağı sıfırlayabilir: kayıt başındaki hâli esas
+    const pendingQty = qtyEdited.current;
+    if (pendingQty || (item && amountTouched.current)) {
+      try {
+        const first = await latest(previewDraft);
+        if (pendingQty && first.qtyAmount !== null) {
+          val = first.qtyAmount;
+          qtyEdited.current = false;
+          amountTouched.current = true;
+          setAmount(amountToInput(val));
+        }
+        if (!from && !changeFromTouched.current && first.changeFromDefault) {
+          from = first.changeFromDefault;
+          setChangeFrom(from);
+        }
+        if (item && amountTouched.current)
+          fresh = val === value && from === changeFrom ? first : await latest({ ...previewDraft, amount: val, changeFrom: from || null });
+      } catch (err) {
+        setErrorField(null);
+        return setError(`Hesap yapılamadı: ${errorMessage(err)}`);
+      }
+    }
+    const amountChanged = fresh?.amountChanged ?? false;
     const d = Number.parseInt(day, 10);
     if (!name.trim()) return fail("Bir ad yazın (ör. Maaş).", "rec-name");
     if (foreign && !(qtyVal && qtyVal > 0)) return fail(`Miktar girin (${unitLabel}, ${qtyRule(cur)}).`, "rec-qty");
-    if (value === null || value <= 0) return fail("Geçerli bir tutar girin (ör. 62.000,00).", "rec-amount");
+    if (val === null || val <= 0) return fail("Geçerli bir tutar girin (ör. 62.000,00).", "rec-amount");
     if (!(d >= 1 && d <= 31)) return fail("Ayın günü 1 ile 31 arasında olmalı.", "rec-day");
-    if (item && amountChanged && changeMode === "from" && !changeFrom)
+    if (item && amountChanged && changeMode === "from" && !from)
       return fail("Yeni tutarın geçerli olacağı tarihi seçin.", "rec-change-from");
     const finalExceptions = exDirty ? withDraft(exceptions) : exceptions;
     if (!finalExceptions) return;
     setSaving(true);
     setError(null);
-    let amounts: Pick<RecurringItem, "amount" | "history"> = { amount: value, history: [] };
-    if (item) {
-      const base = { ...item, history };
-      amounts = amountChanged ? withAmountFrom(base, changeMode === "all" ? null : changeFrom, value) : { amount: item.amount, history };
-    }
+    let amounts: Pick<RecurringItem, "amount" | "history"> = { amount: val, history: [] };
+    if (item) amounts = fresh?.amounts ?? { amount: item.amount, history };
     const payload = {
       name,
       type,
@@ -274,6 +311,9 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
               placeholder="0,00"
               value={amount}
               onValueChange={(v) => {
+                // Elle yazılan tutarı sonradan gelen miktar önerisi ezmez
+                qtyEdited.current = false;
+                amountTouched.current = true;
                 setAmount(v);
                 setError(null);
               }}
@@ -384,7 +424,10 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
                 className={`input ml-auto w-40 py-1 ${bad("rec-change-from")}`}
                 value={changeFrom}
                 disabled={changeMode !== "from"}
-                onChange={(e) => setChangeFrom(e.target.value)}
+                onChange={(e) => {
+                  changeFromTouched.current = true;
+                  setChangeFrom(e.target.value);
+                }}
               />
             </label>
             <label className="flex items-center gap-2 text-sm">
@@ -430,9 +473,10 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
                     title="Bu değişikliği kaldır"
                     aria-label="Değişikliği kaldır"
                     onClick={() => {
-                      const next = history.filter((x) => x.from !== h.from);
-                      setHistory(next);
-                      setAmount(amountToInput(amountAt({ ...item, history: next }, today)));
+                      setHistory(history.filter((x) => x.from !== h.from));
+                      // Tutar alanı yeni geçmişe göre bugünkü tutarla (Rust) dolar; gelene kadar boş
+                      amountTouched.current = false;
+                      setAmount("");
                     }}
                   >
                     <X size={14} />

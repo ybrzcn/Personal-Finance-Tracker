@@ -1,10 +1,9 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { errorMessage } from "../lib/api";
+import { useEffect, useRef, useState, type FormEvent } from "react";
+import { api, errorMessage } from "../lib/api";
 import { isForeign } from "../lib/fx";
 import { amountToInput, parseAmount, todayISO } from "../lib/format";
-import { loanSummary } from "../lib/loans";
-import { norm } from "../lib/csv";
 import type { Account } from "../lib/types";
+import { useAccountsReport } from "../state/accountsReport";
 import { useData } from "../state/data";
 import { useSettings } from "../state/settings";
 import { AccountOptions } from "./AccountOptions";
@@ -22,18 +21,28 @@ interface Props {
  * (borcu azaltır), faiz kısmı "Faiz ve Masraflar" gideri (raporlarda gider olarak görünür).
  */
 export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
-  const { accounts, transactions, categories, addTransaction } = useData();
+  const { accounts, categories, reloadTransactions } = useData();
   const { formatMoney } = useSettings();
-  const summary = useMemo(() => loanSummary(account, transactions), [account, transactions]);
-  const next = summary.next;
+  const ar = useAccountsReport();
+  const summary = ar.byId.get(account.id)?.loan ?? null;
+  const next = summary?.next ?? null;
   // Taksit TL ödenir: döviz/altın hesapları kaynak olamaz
   const sources = accounts.filter((a) => !a.archived && (a.kind === "bank" || a.kind === "cash") && !isForeign(a.currency));
-  const feeCategory = categories.find((c) => c.type === "expense" && norm(c.name) === norm("Faiz ve Masraflar"));
+  const feeCategory = categories.find((c) => c.id === ar.report?.feeCategoryId);
+  // Faizin kategorisi hesap raporundan (Rust): rapor gelmeden (ya da yenilenirken) kaydedilmez, faiz kategorisiz kalmasın
+  const reportReady = !!ar.report && !ar.loading;
 
   const [sourceId, setSourceId] = useState(sources[0]?.id ?? "");
   const [date, setDate] = useState(todayISO());
   const [principal, setPrincipal] = useState(next ? amountToInput(next.principalCents / 100) : "");
   const [interest, setInterest] = useState(next ? amountToInput(next.interestCents / 100) : "");
+  // Rapor form açıldıktan sonra gelirse varsayılanlar doldurulur; kullanıcı yazmaya başladıysa dokunulmaz
+  const touched = useRef(false);
+  useEffect(() => {
+    if (!next || touched.current) return;
+    setPrincipal((p) => p || amountToInput(next.principalCents / 100));
+    setInterest((i) => i || amountToInput(next.interestCents / 100));
+  }, [next]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -42,6 +51,7 @@ export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!reportReady) return;
     if (!sourceId) return setError("Ödemenin yapılacağı hesabı seçin.");
     // Hatalı yazılmış tutar sessizce 0 sayılmasın
     if ((principal.trim() && parseAmount(principal) === null) || (interest.trim() && parseAmount(interest) === null))
@@ -50,10 +60,10 @@ export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
     setSaving(true);
     setError(null);
     let savedPrincipal = false;
-    const label = next ? `${account.name} ${next.index}/${summary.schedule.length}. taksit` : `${account.name} ödemesi`;
+    const label = next ? `${account.name} ${next.index}/${summary?.schedule.length ?? 0}. taksit` : `${account.name} ödemesi`;
     try {
       if (p > 0) {
-        await addTransaction({
+        await api.createTransaction({
           amount: p,
           type: "transfer",
           accountId: sourceId,
@@ -66,7 +76,7 @@ export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
         savedPrincipal = true;
       }
       if (i > 0) {
-        await addTransaction({
+        await api.createTransaction({
           amount: i,
           type: "expense",
           accountId: sourceId,
@@ -88,6 +98,8 @@ export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
       }
       setError(errorMessage(err));
     } finally {
+      // Anapara ve faiz ayrı yazılır; liste sonda bir kez (yarıda kalsa da) yeniden okunur
+      await reloadTransactions().catch(() => {});
       setSaving(false);
     }
   };
@@ -101,16 +113,24 @@ export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
           <button type="button" className="btn-secondary" onClick={onClose}>
             Vazgeç
           </button>
-          <button type="submit" form="loan-pay-form" className="btn-primary" disabled={saving}>
+          <button type="submit" form="loan-pay-form" className="btn-primary" disabled={saving || !reportReady}>
             Kaydet
           </button>
         </>
       }
     >
       <form id="loan-pay-form" onSubmit={submit} className="space-y-4">
+        {ar.error && !ar.loading && (
+          <div role="alert" className="flex items-center justify-between gap-3 text-sm text-rose-600 dark:text-rose-400">
+            <span>Hesap özetleri alınamadı: {ar.error}</span>
+            <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={ar.reload}>
+              Tekrar dene
+            </button>
+          </div>
+        )}
         {next && (
           <p className="rounded-lg bg-zinc-50 px-3 py-2 text-sm dark:bg-zinc-800/50">
-            Sıradaki taksit: <strong>{next.index}/{summary.schedule.length}</strong> · {formatMoney(next.paymentCents / 100)}
+            Sıradaki taksit: <strong>{next.index}/{summary?.schedule.length ?? 0}</strong> · {formatMoney(next.paymentCents / 100)}
           </p>
         )}
         <div className="grid grid-cols-2 gap-3">
@@ -132,13 +152,19 @@ export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
             <label className="label" htmlFor="lp-principal">
               Anapara
             </label>
-            <MoneyInput id="lp-principal" data-autofocus value={principal} onValueChange={setPrincipal} />
+            <MoneyInput id="lp-principal" data-autofocus value={principal} onValueChange={(v) => {
+                touched.current = true;
+                setPrincipal(v);
+              }} />
           </div>
           <div>
             <label className="label" htmlFor="lp-interest">
               Faiz + vergi
             </label>
-            <MoneyInput id="lp-interest" value={interest} onValueChange={setInterest} />
+            <MoneyInput id="lp-interest" value={interest} onValueChange={(v) => {
+                touched.current = true;
+                setInterest(v);
+              }} />
           </div>
         </div>
         <p className="text-xs text-zinc-500">

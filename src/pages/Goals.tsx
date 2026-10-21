@@ -5,8 +5,7 @@ import { EmptyState, PageHeader } from "../components/common";
 import { GoalForm } from "../components/GoalForm";
 import { errorMessage } from "../lib/api";
 import { formatDate } from "../lib/format";
-import { formatGoalAmount, GOAL_ACCOUNT_KINDS, monthYear, sortGoals, STATUS_LABEL, STATUS_TONE } from "../lib/goals";
-import { backend } from "../lib/platform";
+import { formatGoalAmount, GOAL_ACCOUNT_KINDS, monthYear, STATUS_LABEL, STATUS_TONE } from "../lib/goals";
 import type { Goal, GoalProgress } from "../lib/types";
 import { useData } from "../state/data";
 import { useGoals } from "../state/goals";
@@ -27,8 +26,8 @@ export function GoalsPage() {
   const [open, setOpen] = useState<string | null>(null);
   const [showArchived, setShowArchived] = useState(false);
   const progress = useMemo(() => new Map((g.report?.goals ?? []).map((p) => [p.goalId, p])), [g.report]);
-  const active = sortGoals(goals.filter((x) => !x.archived));
-  const archived = sortGoals(goals.filter((x) => x.archived));
+  const active = goals.filter((x) => !x.archived);
+  const archived = goals.filter((x) => x.archived);
   const hasAssets = accounts.some((a) => GOAL_ACCOUNT_KINDS.has(a.kind) && !a.archived);
 
   const run = async (f: () => Promise<unknown>, msg: string) => {
@@ -46,7 +45,7 @@ export function GoalsPage() {
   };
 
   const add = (
-    <button className="btn-primary" onClick={() => setEditing(null)} disabled={backend === "local"}>
+    <button className="btn-primary" onClick={() => setEditing(null)}>
       <Plus size={16} /> Yeni hedef
     </button>
   );
@@ -54,72 +53,66 @@ export function GoalsPage() {
   return (
     <>
       <PageHeader title="Hedefler" subtitle="Birikim hedefleri ve ilerleme" actions={add} />
-      {backend === "local" ? (
-        <div className="card">
-          <EmptyState icon={Target} title="Hedefler için sunucu ya da masaüstü gerekir" />
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {g.error && (
-            <div role="alert" className="flex items-center justify-between gap-3 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">
-              <span>{g.report ? `Güncellenemedi; gösterilen değerler eski olabilir. ${g.error}` : `Hedefler hesaplanamadı. ${g.error}`}</span>
-              <button className="btn-secondary shrink-0" onClick={g.reload}>
-                Tekrar dene
-              </button>
-            </div>
-          )}
-          {active.length === 0 ? (
-            <div className="card">
-              <EmptyState
-                icon={Target}
-                title="Henüz hedef yok"
-                hint={hasAssets ? "Bir hedef tutarı ve isteğe bağlı tarih koy, biriktirdiğin hesapları bağla." : "Önce bir vadesiz, nakit, döviz/altın ya da fon hesabı ekle."}
-                action={hasAssets ? add : undefined}
+      <div className="space-y-4">
+        {g.error && (
+          <div role="alert" className="flex items-center justify-between gap-3 rounded-xl bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">
+            <span>{g.report ? `Güncellenemedi; gösterilen değerler eski olabilir. ${g.error}` : `Hedefler hesaplanamadı. ${g.error}`}</span>
+            <button className="btn-secondary shrink-0" onClick={g.reload}>
+              Tekrar dene
+            </button>
+          </div>
+        )}
+        {active.length === 0 ? (
+          <div className="card">
+            <EmptyState
+              icon={Target}
+              title="Henüz hedef yok"
+              hint={hasAssets ? "Bir hedef tutarı ve isteğe bağlı tarih koy, biriktirdiğin hesapları bağla." : "Önce bir vadesiz, nakit, döviz/altın ya da fon hesabı ekle."}
+              action={hasAssets ? add : undefined}
+            />
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {active.map((x) => (
+              <GoalCard
+                key={x.id}
+                goal={x}
+                p={progress.get(x.id)}
+                loading={g.loading && !g.report}
+                open={open === x.id}
+                onToggle={() => setOpen(open === x.id ? null : x.id)}
+                onEdit={() => setEditing(x)}
+                onArchive={() => archive(x, true)}
+                onDelete={() => remove(x)}
               />
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-              {active.map((x) => (
-                <GoalCard
-                  key={x.id}
-                  goal={x}
-                  p={progress.get(x.id)}
-                  loading={g.loading && !g.report}
-                  open={open === x.id}
-                  onToggle={() => setOpen(open === x.id ? null : x.id)}
-                  onEdit={() => setEditing(x)}
-                  onArchive={() => archive(x, true)}
-                  onDelete={() => remove(x)}
-                />
-              ))}
-            </div>
-          )}
-          {archived.length > 0 && (
-            <div>
-              <button className="text-sm font-medium text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200" onClick={() => setShowArchived((v) => !v)}>
-                Arşivlenenler ({archived.length})
-              </button>
-              {showArchived && (
-                <ul className="mt-2 divide-y divide-zinc-100 rounded-xl border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-700">
-                  {archived.map((x) => (
-                    <li key={x.id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
-                      <span className="min-w-0 truncate">{x.name}</span>
-                      <span className="flex shrink-0 gap-2">
-                        <button className="btn-secondary" onClick={() => archive(x, false)}>
-                          Geri al
-                        </button>
-                        <button className="btn-secondary" onClick={() => remove(x)}>
-                          Sil
-                        </button>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+        {archived.length > 0 && (
+          <div>
+            <button className="text-sm font-medium text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200" onClick={() => setShowArchived((v) => !v)}>
+              Arşivlenenler ({archived.length})
+            </button>
+            {showArchived && (
+              <ul className="mt-2 divide-y divide-zinc-100 rounded-xl border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-700">
+                {archived.map((x) => (
+                  <li key={x.id} className="flex items-center justify-between gap-3 px-4 py-2 text-sm">
+                    <span className="min-w-0 truncate">{x.name}</span>
+                    <span className="flex shrink-0 gap-2">
+                      <button className="btn-secondary" onClick={() => archive(x, false)}>
+                        Geri al
+                      </button>
+                      <button className="btn-secondary" onClick={() => remove(x)}>
+                        Sil
+                      </button>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
       {editing !== undefined && <GoalForm goal={editing ?? undefined} onClose={() => setEditing(undefined)} onSaved={(m) => toast(m)} />}
     </>
   );

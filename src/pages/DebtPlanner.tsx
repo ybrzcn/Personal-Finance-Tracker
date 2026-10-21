@@ -1,33 +1,22 @@
 import { AlertTriangle, Check, Trophy, TrendingDown } from "lucide-react";
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useState, type KeyboardEvent } from "react";
 import { EmptyState, PageHeader, Term, TERMS } from "../components/common";
-import { primarySalary, regularExpenseForMonth, regularIncomeForMonth, salaryMonthFor, splitMonthIncome } from "../lib/budget";
-import {
-  DEBT_RULE_LABEL,
-  debtsFromAccounts,
-  defaultDebtRule,
-  minimumMonthlyCents,
-  simulate,
-  simulateManual,
-  STRATEGY_LABEL,
-  type DebtRule,
-  type DebtRuleMode,
-  type SimResult,
-  type Strategy,
-} from "../lib/debt";
 import { errorMessage } from "../lib/api";
-import { amountToInput, formatDate, parseAmount, todayISO } from "../lib/format";
-import { addMonthsISO } from "../lib/plan";
-import { monthName, occurrenceIn, shiftMonth } from "../lib/recurring";
-import { ACCOUNT_KIND_LABEL } from "../lib/types";
+import { DEBT_RULE_LABEL, STRATEGY_LABEL, type DebtRule } from "../lib/debtLabels";
+import { amountToInput, formatDate, parseAmount } from "../lib/format";
+import { monthName } from "../lib/recurring";
+import { ACCOUNT_KIND_LABEL, type DebtPlanDebt, type DebtPlanResult, type DebtRuleMode, type DebtStrategy } from "../lib/types";
 import { useData } from "../state/data";
+import { useDebtPlan, type DebtSettingsPatch } from "../state/debtPlan";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
 
-const STRATEGIES: Strategy[] = ["avalanche", "snowball", "custom", "minimum"];
+const STRATEGIES: DebtStrategy[] = ["avalanche", "snowball", "custom", "minimum", "manual"];
 const RULE_MODES: DebtRuleMode[] = ["full", "minimum", "fixed", "none"];
 /** Hücrede "bu ayın tamamını öde" işareti (tutar yerine saklanır) */
 const PAY_FULL = -1;
+/** YYYY-MM → "Ekim 2026" */
+const monthLabel = (ym: string) => formatDate(`${ym}-01`).replace(/^\d+ /, "");
 
 /** Tabloda aya özel "borçlara ayrılan" tutar; boşsa varsayılan aylık tutar kullanılır. */
 function MonthBudgetInput({
@@ -69,64 +58,19 @@ function MonthBudgetInput({
 }
 
 export function DebtPlannerPage() {
-  const { accounts, accountById, transactions, recurring } = useData();
+  const { accountById } = useData();
   const { confirm, toast } = useUI();
-  const { settings, update: saveSettings, formatMoney } = useSettings();
+  const { settings, formatMoney } = useSettings();
+  const { report, error, retry, refreshing, save } = useDebtPlan();
   // Ayar veritabanına yazılamazsa değer geri alınır ve kullanıcı uyarılır
-  const update = (patch: Parameters<typeof saveSettings>[0]) =>
-    void saveSettings(patch).catch((e) => toast(`Borç planı kaydedilemedi: ${errorMessage(e)}`, "error"));
-  const today = todayISO();
-  // Satırın ödemelerini karşılayan maaşın ayı (bütçe ayı): o ay yatan maaşın ait olduğu ay (Ekim'de yatan Eylül maaşı)
-  const salary = useMemo(() => primarySalary(recurring, today), [recurring, today]);
-  const incomeMonth = (i: number) => {
-    const m = shiftMonth(today.slice(0, 7), i - 1);
-    return salary ? salaryMonthFor(salary, occurrenceIn(salary, m)) : m;
-  };
-  const firstIncomeMonth = incomeMonth(1);
-  // Kart ekstreleri, son ödemelerini karşılayan maaşın satırına düşer (Ödeme Takvimi ile aynı kural)
-  const debts = useMemo(() => {
-    const bucket = (due: string) => {
-      const m = salary ? salaryMonthFor(salary, due) : due.slice(0, 7);
-      const diff = (Number(m.slice(0, 4)) - Number(firstIncomeMonth.slice(0, 4))) * 12 + Number(m.slice(5, 7)) - Number(firstIncomeMonth.slice(5, 7));
-      return Math.max(1, diff + 1);
-    };
-    return debtsFromAccounts(accounts, transactions, today, bucket);
-  }, [accounts, transactions, today, salary, firstIncomeMonth]);
-  const minimum = useMemo(() => minimumMonthlyCents(debts), [debts]);
-  const budgetCents = settings.debtBudget > 0 ? Math.round(settings.debtBudget * 100) : minimum;
+  const update = (patch: DebtSettingsPatch) => void save(patch).catch((e) => toast(`Borç planı kaydedilemedi: ${errorMessage(e)}`, "error"));
   const [budgetText, setBudgetText] = useState(settings.debtBudget > 0 ? amountToInput(settings.debtBudget) : "");
-  const [selected, setSelected] = useState<Strategy>("avalanche");
-
-  // Ay numarası (1 = bu ay) → YYYY-MM; aya özel tutar varsa o, yoksa varsayılan
+  const [selected, setSelected] = useState<DebtStrategy>("avalanche");
   const overrides = settings.debtBudgetOverrides ?? {};
-  const monthKey = (i: number) => shiftMonth(today.slice(0, 7), i - 1);
-  const incomeFor = (ym: string) =>
-    regularIncomeForMonth(transactions, recurring, ym).reduce((s, l) => s + l.usedCents, 0) +
-    splitMonthIncome(transactions, recurring, ym).irregularCents;
-  const budgetForMonth = (i: number) => {
-    const o = overrides[monthKey(i)];
-    return o !== undefined ? Math.round(o * 100) : budgetCents;
-  };
-  const results = useMemo(
-    () => Object.fromEntries(STRATEGIES.map((s) => [s, simulate(debts, budgetForMonth, s)])) as Record<Strategy, SimResult>,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [debts, budgetCents, JSON.stringify(overrides), today],
-  );
-  // "Kendi planım": borç başına kural + elle girilen aylık ödemeler
   const rules = (settings.debtRules ?? {}) as Record<string, DebtRule>;
   const cells = settings.debtCells ?? {};
-  const planEmpty = Object.keys(settings.debtRules ?? {}).length === 0 && Object.keys(cells).length === 0;
-  const ruleOf = (id: string) => rules[id] ?? defaultDebtRule(debts.find((d) => d.id === id)!);
-  const manual = useMemo(
-    () =>
-      simulateManual(debts, rules, (i, id) => {
-        const v = cells[`${monthKey(i)}:${id}`];
-        if (v === PAY_FULL) return Number.POSITIVE_INFINITY; // tamamı (faiz işlemez)
-        return v !== undefined ? Math.round(v * 100) : undefined;
-      }),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [debts, JSON.stringify(rules), JSON.stringify(cells), today],
-  );
+  // "Kendi planım" boş başlar: kural seçilmeyen ve hücresine tutar yazılmayan borca ödeme yapılmaz
+  const ruleOf = (id: string): DebtRule => rules[id] ?? { mode: "none" };
   const setRule = (id: string, rule: DebtRule) => update({ debtRules: { ...rules, [id]: rule } });
   const setCell = (key: string, v: number | null) => {
     const next = { ...cells };
@@ -141,22 +85,32 @@ export function DebtPlannerPage() {
     update({ debtBudgetOverrides: next });
   };
   const money = (c: number) => formatMoney(c / 100);
-  const allResults: Record<Strategy, SimResult> = { ...results, manual };
-  const best = ([...STRATEGIES, "manual"] as Strategy[])
-    .filter((s) => allResults[s].months !== null)
-    .sort((a, b) => allResults[a].totalInterestCents - allResults[b].totalInterestCents)[0];
-  const current = allResults[selected];
-  const isManual = selected === "manual";
-
   const commitBudget = () => {
     const v = budgetText.trim() ? parseAmount(budgetText) : 0;
     update({ debtBudget: v && v > 0 ? v : 0 });
   };
+  const header = <PageHeader title="Borç Planı" subtitle="Hangi borcu hangi sırayla kapatırsanız daha az faiz ödersiniz" />;
 
-  if (debts.length === 0) {
+  if (!report)
     return (
       <>
-        <PageHeader title="Borç Planı" subtitle="Hangi borcu hangi sırayla kapatırsanız daha az faiz ödersiniz" />
+        {header}
+        {error ? (
+          <div role="alert" className="card flex items-center justify-between gap-3 px-5 py-4 text-sm">
+            <span className="text-rose-600 dark:text-rose-400">Borç planı alınamadı: {error}</span>
+            <button className="btn-secondary px-3 py-1.5 text-xs" onClick={retry}>
+              Tekrar dene
+            </button>
+          </div>
+        ) : (
+          <div className="card p-5 text-sm text-zinc-500">Borç planı hesaplanıyor…</div>
+        )}
+      </>
+    );
+  if (report.debts.length === 0) {
+    return (
+      <>
+        {header}
         <div className="card">
           <EmptyState icon={Trophy} title="Faiz işleyen borcunuz yok" hint="Kredi kartı borcu, KMH kullanımı veya kredi eklendiğinde burada plan oluşturulur." />
         </div>
@@ -164,23 +118,28 @@ export function DebtPlannerPage() {
     );
   }
 
-  // Aylık tablo satırları; gelir / düzenli gider her ay aynıysa sütun yerine özet satırında bir kez gösterilir
-  const tableRows = current.timeline.slice(0, 24).map((m) => {
-    const key = monthKey(m.month);
-    const salaryMonth = incomeMonth(m.month);
-    return { m, key, salaryMonth, income: incomeFor(salaryMonth), fixed: regularExpenseForMonth(recurring, key) };
-  });
-  const constIncome = tableRows.length > 1 && tableRows.every((x) => x.income === tableRows[0].income);
-  const constFixed = tableRows.length > 1 && tableRows.every((x) => x.fixed === tableRows[0].fixed);
-  // Borçların kapanış ayları (zaman çizelgesi)
-  const payoffs = debts
-    .map((d) => ({ d, month: current.payoffMonth[d.id] }))
-    .filter((x): x is { d: (typeof debts)[number]; month: number } => typeof x.month === "number" && x.month > 0)
-    .sort((a, b) => a.month - b.month);
+  const debts = report.debts;
+  const nameOf = (d: DebtPlanDebt) => {
+    const name = accountById.get(d.id)?.name ?? "Silinmiş hesap";
+    return d.kind === "bank" ? `${name} (KMH)` : name;
+  };
+  const colorOf = (id: string) => accountById.get(id)?.color ?? "#a1a1aa";
+  const debtById = new Map(debts.map((d) => [d.id, d]));
+  const plans = Object.fromEntries(report.plans.map((p) => [p.strategy, p])) as Record<DebtStrategy, DebtPlanResult>;
+  const best = report.best;
+  const current = plans[selected];
+  const isManual = selected === "manual";
+  const planEmpty = report.manualEmpty;
+  const rows = current.rows;
+  // Gelir / düzenli gider her ay aynıysa sütun yerine özet satırında bir kez gösterilir
+  const constIncome = current.incomeSame;
+  const constFixed = current.fixedSame;
+  // Ayar kaydından sonra yeni rapor gelene kadar rakamlar soluk; tablo yerinde kalır (odak kaybolmasın)
+  const dim = refreshing ? "opacity-60 transition-opacity" : "transition-opacity";
 
   return (
     <>
-      <PageHeader title="Borç Planı" subtitle="Hangi borcu hangi sırayla kapatırsanız daha az faiz ödersiniz" />
+      {header}
 
       {/* Tutar kartı yalnız çok geniş ekranda tablonun yanında; 1280 px'te borç tablosu tam genişlik */}
       <div className="grid grid-cols-1 gap-4 2xl:grid-cols-4">
@@ -192,23 +151,28 @@ export function DebtPlannerPage() {
             id="debt-budget"
             className="input text-lg font-semibold tabular-nums"
             inputMode="decimal"
-            placeholder={amountToInput(minimum / 100)}
+            placeholder={amountToInput(report.minimumCents / 100)}
             value={budgetText}
             onChange={(e) => setBudgetText(e.target.value)}
             onBlur={commitBudget}
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
           />
-          <p className="mt-2 text-xs text-zinc-500">
-            Bu ay asgari ödemeler + kredi taksitleri: <strong>{money(minimum)}</strong>. Boş bırakılırsa bu tutar kullanılır.
+          <p className={`mt-2 text-xs text-zinc-500 ${dim}`}>
+            Bu ay asgari ödemeler + kredi taksitleri: <strong>{money(report.minimumCents)}</strong>. Boş bırakılırsa bu tutar kullanılır.
           </p>
           {current.budgetShort && (
-            <p className="mt-2 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+            <p className={`mt-2 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400 ${dim}`}>
               <AlertTriangle size={14} className="mt-px shrink-0" /> Bazı aylarda asgari ödemeler bu tutarı aşıyor; plan asgarileri yine de öder.
+            </p>
+          )}
+          {refreshing && (
+            <p className="mt-2 text-xs text-zinc-500" role="status">
+              Hesaplanıyor…
             </p>
           )}
         </section>
 
-        <section className="card overflow-x-auto 2xl:col-span-3">
+        <section className={`card overflow-x-auto 2xl:col-span-3 ${dim}`} aria-busy={refreshing}>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-200 bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60">
@@ -223,44 +187,40 @@ export function DebtPlannerPage() {
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {debts.map((d) => {
-                const i = Math.round((d.billing ? (d.billing[0] ?? 0) : d.balanceCents) * d.monthlyRate);
-                const min = results.minimum.timeline[0]?.payments[d.id] ?? 0;
+                const name = nameOf(d);
+                const rate = accountById.get(d.id)?.interestRate;
                 return (
                   <tr key={d.id}>
                     <td className="px-4 py-2.5">
-                      <div className="flex max-w-[16rem] items-center gap-2" title={d.name}>
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: d.color }} />
-                        <span className="truncate font-medium">{d.name}</span>
+                      <div className="flex max-w-[16rem] items-center gap-2" title={name}>
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: colorOf(d.id) }} />
+                        <span className="truncate font-medium">{name}</span>
                         <span className="shrink-0 whitespace-nowrap text-xs text-zinc-500">{ACCOUNT_KIND_LABEL[d.kind]}</span>
                       </div>
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums">
                       {money(d.balanceCents)}
-                      {d.billing && d.billing[0] !== d.balanceCents && (
-                        <div className="text-xs text-zinc-500">ilk ay {money(d.billing[0] ?? 0)}</div>
+                      {d.firstMonthCents !== null && d.firstMonthCents !== d.balanceCents && (
+                        <div className="text-xs text-zinc-500">ilk ay {money(d.firstMonthCents)}</div>
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums">
                       %{(d.monthlyRate * 100).toLocaleString("tr-TR", { maximumFractionDigits: 2 })}
                       {/* Hesaptaki akdi oranla farkı çelişki gibi görünmesin: vergiler ayrıca gösterilir */}
-                      {accountById.get(d.id)?.interestRate ? (
-                        <div className="text-xs text-zinc-500">
-                          %{accountById.get(d.id)!.interestRate!.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} akdi + vergiler
-                        </div>
-                      ) : null}
-                      <div className="text-xs text-zinc-500">{money(i)}/ay</div>
+                      {rate ? <div className="text-xs text-zinc-500">%{rate.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} akdi + vergiler</div> : null}
+                      <div className="text-xs text-zinc-500">{money(d.interestCents)}/ay</div>
                     </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums">{money(min)}</td>
+                    <td className="px-4 py-2.5 text-right tabular-nums">{money(d.minimumCents)}</td>
                     <td className="px-4 py-2">
                       <div className="flex items-center gap-1.5">
                         <select
                           className="input w-32 py-1 text-xs"
-                          aria-label={`${d.name} ödeme kuralı`}
+                          aria-label={`${name} ödeme kuralı`}
                           value={ruleOf(d.id).mode}
                           onChange={(e) => {
                             const mode = e.target.value as DebtRuleMode;
                             // Sabit tutara geçerken başlangıç değeri o borcun asgari tutarı
-                            const amount = mode === "fixed" ? (ruleOf(d.id).amount ?? Math.round(min) / 100) : ruleOf(d.id).amount;
+                            const amount = mode === "fixed" ? (ruleOf(d.id).amount ?? d.minimumCents / 100) : ruleOf(d.id).amount;
                             setRule(d.id, { mode, amount });
                             setSelected("manual");
                           }}
@@ -297,9 +257,9 @@ export function DebtPlannerPage() {
         </section>
       </div>
 
-      <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-5">
-        {[...STRATEGIES, "manual" as Strategy].map((s) => {
-          const r = allResults[s];
+      <div className={`mt-4 grid grid-cols-1 gap-4 md:grid-cols-3 xl:grid-cols-5 ${dim}`} aria-busy={refreshing}>
+        {STRATEGIES.map((s) => {
+          const r = plans[s];
           const isBest = s === best;
           return (
             <button
@@ -317,19 +277,19 @@ export function DebtPlannerPage() {
               </div>
               {s === "manual" && planEmpty ? (
                 <p className="mt-3 text-sm text-zinc-500">Planını kur: tabloda her borç için kural seç ya da tutar yaz.</p>
-              ) : r.months === null ? (
+              ) : r.months === null || r.payoffDate === null ? (
                 <p className="mt-3 text-sm text-rose-600 dark:text-rose-400">30 yılda kapanmıyor</p>
               ) : (
                 <>
                   <div className="mt-3 text-xl font-semibold tabular-nums">{money(r.totalInterestCents)}</div>
                   <div className="text-xs text-zinc-500">toplam faiz</div>
                   <div className="mt-2 text-sm">
-                    {r.months} ay · {formatDate(addMonthsISO(today, r.months))}
+                    {r.months} ay · {formatDate(r.payoffDate)}
                   </div>
-                  {best && !isBest && (
+                  {r.extraInterestCents !== null && (
                     <div className="mt-1 text-xs">
-                      {r.totalInterestCents - allResults[best].totalInterestCents >= 100 ? (
-                        <span className="text-rose-600 dark:text-rose-400">+{money(r.totalInterestCents - allResults[best].totalInterestCents)} fazla faiz</span>
+                      {r.extraInterestCents >= 100 ? (
+                        <span className="text-rose-600 dark:text-rose-400">+{money(r.extraInterestCents)} fazla faiz</span>
                       ) : (
                         <span className="text-zinc-500">En iyiyle aynı sonuç</span>
                       )}
@@ -369,8 +329,8 @@ export function DebtPlannerPage() {
             </button>
           )}
         </div>
-        {(constIncome || constFixed || payoffs.length > 0 || (isManual && planEmpty)) && (
-          <div className="space-y-2 border-b border-zinc-200 px-5 py-3 text-sm dark:border-zinc-800">
+        {(constIncome || constFixed || current.payoffs.length > 0 || (isManual && planEmpty)) && (
+          <div className={`space-y-2 border-b border-zinc-200 px-5 py-3 text-sm dark:border-zinc-800 ${dim}`}>
             {isManual && planEmpty && (
               <p className="text-zinc-600 dark:text-zinc-300">
                 Başlamak için yukarıdaki tabloda her borcun <strong>Planım</strong> kuralını seç (Tam öde, Asgari, Sabit tutar) ya da aşağıdaki
@@ -381,42 +341,45 @@ export function DebtPlannerPage() {
               <p className="text-zinc-500">
                 {constIncome && (
                   <>
-                    Her ay gelir <strong className="tabular-nums text-emerald-600 dark:text-emerald-400">{money(tableRows[0].income)}</strong>
+                    Her ay gelir <strong className="tabular-nums text-emerald-600 dark:text-emerald-400">{money(rows[0].incomeCents)}</strong>
                   </>
                 )}
                 {constIncome && constFixed && " · "}
                 {constFixed && (
                   <>
-                    düzenli gider <strong className="tabular-nums">{tableRows[0].fixed ? `−${money(tableRows[0].fixed)}` : "yok"}</strong>
+                    düzenli gider <strong className="tabular-nums">{rows[0].fixedCents ? `−${money(rows[0].fixedCents)}` : "yok"}</strong>
                   </>
                 )}
               </p>
             )}
-            {payoffs.length > 0 && (
+            {current.payoffs.length > 0 && (
               <ul className="flex flex-wrap gap-2" aria-label="Borçların kapanış ayları">
-                {payoffs.map(({ d, month }) => (
-                  <li key={d.id} className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300">
-                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: d.color }} />
-                    {d.name} · bitiş <strong>{formatDate(addMonthsISO(today, month - 1)).replace(/^\d+ /, "")}</strong>
-                  </li>
-                ))}
+                {current.payoffs.map((p) => {
+                  const d = debtById.get(p.id);
+                  return (
+                    <li key={p.id} className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300">
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colorOf(p.id) }} />
+                      {d ? nameOf(d) : "Silinmiş hesap"} · bitiş <strong>{monthLabel(p.monthKey)}</strong>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
         )}
-        <div className="overflow-x-auto">
+        <div className={`overflow-x-auto ${dim}`} aria-busy={refreshing}>
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-200 bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60">
                 <th className="sticky left-0 z-10 whitespace-nowrap bg-zinc-50 px-4 py-2.5 dark:bg-zinc-900">Ay</th>
                 {!constIncome && <th className="whitespace-nowrap px-4 py-2.5 text-right">Gelir</th>}
                 {!constFixed && <th className="whitespace-nowrap px-4 py-2.5 text-right">Düzenli gider</th>}
-                <th className="whitespace-nowrap px-4 py-2.5 text-right" title={isManual ? undefined : `Boş aylarda ${money(budgetCents)} kullanılır`}>
-                  {isManual ? "Gelirden kalan" : `Borçlara ayrılan (${money(budgetCents)})`}
+                <th className="whitespace-nowrap px-4 py-2.5 text-right" title={isManual ? undefined : `Boş aylarda ${money(report.budgetCents)} kullanılır`}>
+                  {isManual ? "Gelirden kalan" : `Borçlara ayrılan (${money(report.budgetCents)})`}
                 </th>
                 {debts.map((d) => (
-                  <th key={d.id} className={`max-w-[10rem] truncate whitespace-nowrap py-2.5 ${isManual ? "px-2 text-center" : "px-4 text-right"}`} title={d.name}>
-                    {d.name}
+                  <th key={d.id} className={`max-w-[10rem] truncate whitespace-nowrap py-2.5 ${isManual ? "px-2 text-center" : "px-4 text-right"}`} title={nameOf(d)}>
+                    {nameOf(d)}
                   </th>
                 ))}
                 <th className="px-4 py-2.5 text-right">Toplam</th>
@@ -424,99 +387,96 @@ export function DebtPlannerPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {tableRows.map(({ m, key, salaryMonth, income, fixed }) => {
-                const strategy = selected;
-                const total = Object.values(m.payments).reduce((s, v) => s + v, 0);
-                const left = Object.values(m.balances).reduce((s, v) => s + v, 0);
-                const allotted = budgetForMonth(m.month);
+              {rows.map((row) => {
+                const key = row.monthKey;
                 return (
-                  <tr key={m.month}>
+                  <tr key={row.month}>
                     <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-4 py-2 text-zinc-500 dark:bg-zinc-900">
-                      {formatDate(addMonthsISO(today, m.month - 1)).replace(/^\d+ /, "")}
-                      {salary && salaryMonth !== key && <span className="ml-1 text-xs text-zinc-400">· {monthName(salaryMonth)} maaşı</span>}
+                      {monthLabel(key)}
+                      {row.salaryMonth !== key && <span className="ml-1 text-xs text-zinc-400">· {monthName(row.salaryMonth)} maaşı</span>}
                     </td>
                     {!constIncome && (
-                      <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-emerald-600 dark:text-emerald-400">{money(income)}</td>
+                      <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-emerald-600 dark:text-emerald-400">{money(row.incomeCents)}</td>
                     )}
                     {!constFixed && (
-                      <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-zinc-500">{fixed ? `−${money(fixed)}` : "—"}</td>
+                      <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-zinc-500">{row.fixedCents ? `−${money(row.fixedCents)}` : "—"}</td>
                     )}
                     <td className="whitespace-nowrap px-2 py-1 text-right">
                       {isManual ? (
                         <span
-                          className={`px-2 font-medium tabular-nums ${income - fixed - total < 0 ? "text-rose-600 dark:text-rose-400" : "text-zinc-600 dark:text-zinc-300"}`}
+                          className={`px-2 font-medium tabular-nums ${row.freeCents < 0 ? "text-rose-600 dark:text-rose-400" : "text-zinc-600 dark:text-zinc-300"}`}
                           title="Gelir − düzenli giderler − bu ayki borç ödemeleri"
                         >
-                          {money(income - fixed - total)}
+                          {money(row.freeCents)}
                         </span>
-                      ) : strategy === "minimum" ? (
+                      ) : selected === "minimum" ? (
                         <span className="text-zinc-400">—</span>
                       ) : (
                         <MonthBudgetInput
-                          key={`${key}:${overrides[key] ?? ""}:${budgetCents}`}
+                          key={`${key}:${overrides[key] ?? ""}`}
                           value={overrides[key]}
                           placeholder=""
-                          warn={income > 0 && allotted > income - fixed}
+                          warn={row.overIncome}
                           onSave={(v) => setOverride(key, v)}
                         />
                       )}
                     </td>
-                    {debts.map((d) =>
-                      isManual ? (
+                    {debts.map((d) => {
+                      const pay = row.payments[d.id] ?? 0;
+                      const left = row.balances[d.id] ?? 0;
+                      if (!isManual)
+                        return (
+                          <td key={d.id} className={`whitespace-nowrap px-4 py-2 text-right tabular-nums ${pay ? "" : "text-zinc-300 dark:text-zinc-700"}`}>
+                            {pay ? money(pay) : "—"}
+                            {left === 0 && pay ? <span className="ml-1 text-emerald-500">✓</span> : null}
+                          </td>
+                        );
+                      const cellKey = `${key}:${d.id}`;
+                      const full = cells[cellKey] === PAY_FULL;
+                      const closes = left === 0 && !!pay;
+                      return (
                         <td key={d.id} className="whitespace-nowrap px-2 py-1 text-center">
-                          {m.balances[d.id] === 0 && !m.payments[d.id] ? (
+                          {left === 0 && !pay ? (
                             <span className="px-2 text-zinc-300 dark:text-zinc-700">—</span>
                           ) : (
                             <span className="inline-flex items-center gap-1">
                               <MonthBudgetInput
-                                key={`${key}:${d.id}:${cells[`${key}:${d.id}`] ?? ""}:${m.payments[d.id] ?? 0}`}
-                                value={cells[`${key}:${d.id}`] === PAY_FULL ? undefined : cells[`${key}:${d.id}`]}
-                                placeholder={m.payments[d.id] ? amountToInput(m.payments[d.id] / 100) : ""}
+                                key={`${cellKey}:${cells[cellKey] ?? ""}`}
+                                value={full ? undefined : cells[cellKey]}
+                                placeholder={pay ? amountToInput(pay / 100) : ""}
                                 warn={false}
-                                onSave={(v) => setCell(`${key}:${d.id}`, v)}
+                                onSave={(v) => setCell(cellKey, v)}
                               />
-                              {(() => {
-                                const cellKey = `${key}:${d.id}`;
-                                const full = cells[cellKey] === PAY_FULL;
-                                const closes = m.balances[d.id] === 0 && !!m.payments[d.id];
-                                return (
-                                  <button
-                                    type="button"
-                                    title={full ? "Geri al (kurala dön)" : "Bu ayın tamamını öde"}
-                                    aria-label={full ? `${d.name} tamamını ödeme işaretini kaldır` : `${d.name} bu ayın tamamını öde`}
-                                    aria-pressed={full}
-                                    onClick={() => setCell(cellKey, full ? null : PAY_FULL)}
-                                    className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border transition ${
-                                      full
-                                        ? "border-emerald-500 bg-emerald-500 text-white"
-                                        : closes
-                                          ? "border-emerald-500/60 text-emerald-500 hover:bg-emerald-500/10"
-                                          : "border-zinc-300 text-zinc-400 hover:border-emerald-500 hover:text-emerald-500 dark:border-zinc-700"
-                                    }`}
-                                  >
-                                    <Check size={13} strokeWidth={3} />
-                                  </button>
-                                );
-                              })()}
+                              <button
+                                type="button"
+                                title={full ? "Geri al (kurala dön)" : "Bu ayın tamamını öde"}
+                                aria-label={full ? `${nameOf(d)} tamamını ödeme işaretini kaldır` : `${nameOf(d)} bu ayın tamamını öde`}
+                                aria-pressed={full}
+                                onClick={() => setCell(cellKey, full ? null : PAY_FULL)}
+                                className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border transition ${
+                                  full
+                                    ? "border-emerald-500 bg-emerald-500 text-white"
+                                    : closes
+                                      ? "border-emerald-500/60 text-emerald-500 hover:bg-emerald-500/10"
+                                      : "border-zinc-300 text-zinc-400 hover:border-emerald-500 hover:text-emerald-500 dark:border-zinc-700"
+                                }`}
+                              >
+                                <Check size={13} strokeWidth={3} />
+                              </button>
                             </span>
                           )}
                         </td>
-                      ) : (
-                        <td key={d.id} className={`whitespace-nowrap px-4 py-2 text-right tabular-nums ${m.payments[d.id] ? "" : "text-zinc-300 dark:text-zinc-700"}`}>
-                          {m.payments[d.id] ? money(m.payments[d.id]) : "—"}
-                          {m.balances[d.id] === 0 && m.payments[d.id] ? <span className="ml-1 text-emerald-500">✓</span> : null}
-                        </td>
-                      ),
-                    )}
-                    <td className="whitespace-nowrap px-4 py-2 text-right font-medium tabular-nums">{money(total)}</td>
-                    <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-zinc-500">{money(left)}</td>
+                      );
+                    })}
+                    <td className="whitespace-nowrap px-4 py-2 text-right font-medium tabular-nums">{money(row.totalCents)}</td>
+                    <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-zinc-500">{money(row.leftCents)}</td>
                   </tr>
                 );
               })}
             </tbody>
           </table>
         </div>
-        {current.timeline.length > 24 && (
+        {current.hasMore && (
           <p className="border-t border-zinc-100 px-5 py-2 text-xs text-zinc-500 dark:border-zinc-800">İlk 24 ay gösteriliyor.</p>
         )}
       </section>

@@ -5,8 +5,9 @@ use rusqlite::Connection;
 use tauri::State;
 
 use finans_core::db::{
-    self, Account, AccountInput, Budget, Category, CategoryInput, Goal, RecurringItem, Transaction, TransactionInput,
+    self, Account, AccountInput, Budget, Category, CategoryInput, Goal, RecurringItem, Tag, Transaction, TransactionInput,
 };
+use finans_core::fx::time::{istanbul_today, unix_now, ymd};
 use finans_core::sqlite::{self, db_err};
 use finans_core::store;
 
@@ -160,8 +161,12 @@ pub fn create_transaction(state: State<'_, AppState>, input: TransactionInput) -
 }
 
 #[tauri::command]
-pub fn update_transaction(state: State<'_, AppState>, transaction: Transaction) -> CmdResult<Transaction> {
-    sqlite::run(&mut *lock(&state)?, |s| store::update_transaction(s, transaction))
+pub fn update_transaction(state: State<'_, AppState>, transaction: serde_json::Value) -> CmdResult<Transaction> {
+    // Gövdede tagIds yoksa (eski arayüz) etiketler korunur
+    let keep = transaction.get("tagIds").is_none();
+    let t: Transaction = serde_json::from_value(transaction).map_err(|e| format!("Geçersiz işlem: {e}"))?;
+    let tags = if keep { None } else { Some(t.tag_ids.clone()) };
+    sqlite::run(&mut *lock(&state)?, |s| store::update_transaction_with(s, t, tags))
 }
 
 #[tauri::command]
@@ -185,6 +190,18 @@ pub fn update_recurring(state: State<'_, AppState>, item: RecurringItem) -> CmdR
 }
 
 #[tauri::command]
+pub fn set_recurring_exception(state: State<'_, AppState>, id: String, month: String, amount: Option<f64>, note: String) -> CmdResult<RecurringItem> {
+    sqlite::run(&mut *lock(&state)?, |s| store::set_recurring_exception(s, &id, store::ExceptionRequest { month, amount, note }))?
+        .ok_or_else(|| "Kayıt bulunamadı.".to_string())
+}
+
+/// "Verileri sıfırla": varsayılan kategoriler ve boş "Genel Hesap"
+#[tauri::command]
+pub fn reset_seed() -> store::ResetSeed {
+    store::reset_seed(&ymd(istanbul_today(unix_now())))
+}
+
+#[tauri::command]
 pub fn delete_recurring(state: State<'_, AppState>, id: String) -> CmdResult<()> {
     sqlite::run(&mut *lock(&state)?, |s| store::delete_recurring(s, &id))
 }
@@ -199,9 +216,11 @@ pub fn set_budget(state: State<'_, AppState>, category_id: String, amount: Optio
     sqlite::run(&mut *lock(&state)?, |s| store::set_budget(s, &category_id, amount))
 }
 
+// Yedekteki her veri türü ayrı argüman (arayüzün gönderdiği biçim)
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
-pub fn restore_data(state: State<'_, AppState>, categories: Vec<Category>, accounts: Vec<Account>, transactions: Vec<Transaction>, recurring: Vec<RecurringItem>, budgets: Vec<Budget>, goals: Option<Vec<Goal>>) -> CmdResult<()> {
-    sqlite::run(&mut *lock(&state)?, |s| store::restore_data(s, categories, accounts, transactions, recurring, budgets, goals.unwrap_or_default()))
+pub fn restore_data(state: State<'_, AppState>, categories: Vec<Category>, accounts: Vec<Account>, transactions: Vec<Transaction>, recurring: Vec<RecurringItem>, budgets: Vec<Budget>, goals: Option<Vec<Goal>>, tags: Option<Vec<Tag>>) -> CmdResult<()> {
+    sqlite::run(&mut *lock(&state)?, |s| store::restore_data(s, categories, accounts, transactions, recurring, budgets, goals.unwrap_or_default(), tags))
 }
 
 #[tauri::command]
@@ -378,7 +397,7 @@ pub fn use_default_database(state: State<'_, AppState>) -> CmdResult<DatabaseInf
 /// (mobilde dosya seçiciyle) okur; Rust'a yol değil bayt gelir. Baytlar IPC'ye ham gövde olarak gelir, dosya adı
 /// `x-file-name` başlığında (URL kodlu).
 #[tauri::command]
-pub async fn parse_statement_bytes(request: tauri::ipc::Request<'_>) -> CmdResult<finans_core::statement::StatementFile> {
+pub async fn parse_statement_bytes(request: tauri::ipc::Request<'_>) -> CmdResult<finans_core::import::StatementRead> {
     let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
         return Err("Dosya okunamadı.".into());
     };
@@ -391,7 +410,8 @@ pub async fn parse_statement_bytes(request: tauri::ipc::Request<'_>) -> CmdResul
         .and_then(|v| v.to_str().ok())
         .map(percent_decode)
         .unwrap_or_default();
-    finans_core::statement::parse(&name, bytes)
+    // Tablo, özet ve sütun tahmini Rust'ta (finans-core::import)
+    finans_core::import::read_statement(&finans_core::statement::parse(&name, bytes)?)
 }
 
 /// encodeURIComponent'in tersi (yalnız dosya adı için; geçersiz dizilerde olduğu gibi bırakır).

@@ -11,8 +11,11 @@ export function parseISODate(iso: string): Date {
   return new Date(y, (m || 1) - 1, d || 1);
 }
 
+const istanbulDay = new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Istanbul", year: "numeric", month: "2-digit", day: "2-digit" });
+
+/** Bugün (YYYY-MM-DD), Türkiye saatiyle: sunucu ve masaüstü raporlarıyla aynı gün */
 export function todayISO(): string {
-  return toISODate(new Date());
+  return istanbulDay.format(new Date());
 }
 
 export function addDays(iso: string, days: number): string {
@@ -78,11 +81,6 @@ export function amountToInput(n: number): string {
 export function formatAmountInput(text: string): string {
   const v = parseAmount(text);
   return v === null || !text.trim() ? text : amountToInput(v);
-}
-
-/** İki YYYY-MM-DD arasındaki gün farkı (to − from). */
-export function daysBetween(fromIso: string, toIso: string): number {
-  return Math.round((parseISODate(toIso).getTime() - parseISODate(fromIso).getTime()) / 86_400_000);
 }
 
 const shortFmt = new Intl.DateTimeFormat("tr-TR", { day: "numeric", month: "short" });

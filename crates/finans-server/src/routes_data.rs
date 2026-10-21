@@ -8,8 +8,9 @@ use axum::http::StatusCode;
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use finans_core::db::{
-    Account, AccountInput, Budget, Category, CategoryInput, Goal, RecurringItem, Transaction, TransactionInput,
+    Account, AccountInput, Budget, Category, CategoryInput, Goal, RecurringItem, Tag, Transaction, TransactionInput,
 };
+use finans_core::fx::time::{istanbul_today, unix_now, ymd};
 use finans_core::store;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -35,6 +36,8 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/transactions/{id}", put(update_transaction).delete(delete_transaction))
         .route("/api/recurring", get(list_recurring).post(create_recurring))
         .route("/api/recurring/{id}", put(update_recurring).delete(delete_recurring))
+        .route("/api/recurring/{id}/exception", put(set_recurring_exception))
+        .route("/api/reset/seed", get(reset_seed))
         .route("/api/budgets", get(list_budgets))
         .route("/api/budgets/{category_id}", put(set_budget))
         .route("/api/settings", get(get_settings))
@@ -78,9 +81,42 @@ macro_rules! crud {
 
 crud!(list_categories, create_category, update_category, delete_category, Category, CategoryInput);
 crud!(list_accounts, create_account, update_account, delete_account, Account, AccountInput);
-crud!(list_transactions, create_transaction, update_transaction, delete_transaction, Transaction, TransactionInput);
+async fn list_transactions(State(s): S, user: AuthUser) -> R<Json<Vec<Transaction>>> {
+    Ok(Json(with_user_db(&s, &user, |c| store::list_transactions(c)).await?))
+}
+
+async fn create_transaction(State(s): S, user: AuthUser, Json(input): Json<TransactionInput>) -> R<(StatusCode, Json<Transaction>)> {
+    Ok((StatusCode::CREATED, Json(with_user_db(&s, &user, move |c| store::create_transaction(c, input)).await?)))
+}
+
+/// Gövdede `tagIds` yoksa (eski istemci) işlemin etiketleri korunur
+async fn update_transaction(State(s): S, user: AuthUser, Path(id): Path<String>, Json(body): Json<Value>) -> R<Json<Transaction>> {
+    let keep = body.get("tagIds").is_none();
+    let item: Transaction = serde_json::from_value(body).map_err(|e| ApiError::from(format!("Geçersiz işlem: {e}")))?;
+    check_id(&id, &item.id)?;
+    let tags = if keep { None } else { Some(item.tag_ids.clone()) };
+    Ok(Json(with_user_db(&s, &user, move |c| store::update_transaction_with(c, item, tags)).await?))
+}
+
+async fn delete_transaction(State(s): S, user: AuthUser, Path(id): Path<String>) -> R<StatusCode> {
+    with_user_db(&s, &user, move |c| store::delete_transaction(c, &id)).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
 // Düzenli kayıt eklenirken gövde tam kayıttır; id yok sayılır (yenisi üretilir)
 crud!(list_recurring, create_recurring, update_recurring, delete_recurring, RecurringItem, RecurringItem);
+
+/// Ödeme Takvimi'nde "bu ay yatmayacak" / geri alma; başka kullanıcının kaydı 404
+async fn set_recurring_exception(State(s): S, user: AuthUser, Path(id): Path<String>, Json(req): Json<store::ExceptionRequest>) -> R<Json<RecurringItem>> {
+    match with_user_db(&s, &user, move |c| store::set_recurring_exception(c, &id, req)).await? {
+        Some(item) => Ok(Json(item)),
+        None => Err(ApiError::new(StatusCode::NOT_FOUND, "Bulunamadı.")),
+    }
+}
+
+/// "Verileri sıfırla": varsayılan kategoriler ve boş "Genel Hesap" (arayüz bugünkü gibi geri yükler)
+async fn reset_seed(_user: AuthUser) -> Json<store::ResetSeed> {
+    Json(store::reset_seed(&ymd(istanbul_today(unix_now()))))
+}
 
 async fn list_budgets(State(s): S, user: AuthUser) -> R<Json<Vec<Budget>>> {
     Ok(Json(with_user_db(&s, &user, |c| store::list_budgets(c)).await?))
@@ -115,11 +151,14 @@ struct RestoreBody {
     /// Eski yedeklerde yok
     #[serde(default)]
     goals: Vec<Goal>,
+    /// Eski yedeklerde yok
+    #[serde(default)]
+    tags: Option<Vec<Tag>>,
 }
 
 async fn restore(State(s): S, user: AuthUser, Json(b): Json<RestoreBody>) -> R<StatusCode> {
     with_user_db(&s, &user, move |c| {
-        store::restore_data(c, b.categories, b.accounts, b.transactions, b.recurring, b.budgets, b.goals)
+        store::restore_data(c, b.categories, b.accounts, b.transactions, b.recurring, b.budgets, b.goals, b.tags)
     })
     .await?;
     Ok(StatusCode::NO_CONTENT)
@@ -135,6 +174,7 @@ async fn export(State(s): S, user: AuthUser) -> R<Json<Value>> {
             "recurring": store::list_recurring(c)?,
             "budgets": store::list_budgets(c)?,
             "goals": store::list_goals(c)?,
+            "tags": store::list_tags(c)?,
             "settings": store::get_settings(c)?,
         }))
     })

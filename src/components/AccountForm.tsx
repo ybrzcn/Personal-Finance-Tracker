@@ -1,12 +1,12 @@
 import { Check, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../lib/api";
-import { closingOnOrAfter, closingOnOrBefore, dueDateFor, shiftClosing, toCents } from "../lib/cards";
-import { addDays, amountToInput, formatDate, parseAmount, parseQuantity, todayISO } from "../lib/format";
+import { amountToInput, formatDate, parseAmount, parseQuantity, todayISO } from "../lib/format";
 import { fundCode, fundUnit, GROUP_LABEL, INSTRUMENTS, isForeign, isFund, qtyDecimals, qtyRule, TRY, unitLabel, type FxGroup } from "../lib/fx";
-import { annuityPaymentCents, DEFAULT_LOAN_TAX, effectiveMonthlyRate } from "../lib/loans";
-import { ACCOUNT_KIND_LABEL, type Account, type AccountInput, type AccountKind, type FundHit } from "../lib/types";
+import { DEFAULT_LOAN_TAX } from "../lib/loans";
+import { ACCOUNT_KIND_LABEL, type Account, type AccountDraft, type AccountInput, type AccountKind, type FundHit } from "../lib/types";
 import { useData } from "../state/data";
+import { useFormPreview } from "../state/formPreview";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
 import { MoneyInput, Term, TERMS } from "./common";
@@ -35,13 +35,9 @@ const OPENING_LABEL: Record<FormKind, string> = {
 };
 
 export function AccountForm({ account, onClose, onSaved }: Props) {
-  const { accounts, transactions, recurring, addAccount, updateAccount, deleteAccount } = useData();
+  const { accounts, recurring, addAccount, updateAccount, deleteAccount } = useData();
   const { formatMoney } = useSettings();
   const { confirm } = useUI();
-  const used = useMemo(
-    () => !!account && transactions.some((t) => t.accountId === account.id || t.toAccountId === account.id),
-    [account, transactions],
-  );
   const incomes = recurring.filter((r) => r.type === "income");
 
   const [name, setName] = useState(account?.name ?? "");
@@ -119,32 +115,33 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
   }, [fund, fundLocked, fundQuery, fundPick]);
   const sd = Number(statementDay);
   const dd = Number(dueDay);
-  const preview = useMemo(() => {
-    if (!card || !isDay(sd) || !isDay(dd)) return null;
-    const c = closingOnOrAfter(todayISO(), sd);
-    return `Sonraki kesim ${formatDate(c)} → son ödeme ${formatDate(dueDateFor(c, dd))}`;
-  }, [card, sd, dd]);
-
-  // Yeni kart: son kesim ve son ödemesi; ödendiyse takip sonraki dönemden, ödenmediyse o ekstreden başlar
-  const lastStatement = useMemo(() => {
-    if (!card || !isDay(sd) || !isDay(dd)) return null;
-    const today = todayISO();
-    const last = closingOnOrBefore(today, sd);
-    const due = dueDateFor(last, dd);
-    return { last, due, prev: shiftClosing(last, -1, sd), defaultPaid: due < today };
-  }, [card, sd, dd]);
-  const paid = lastPaid ?? lastStatement?.defaultPaid ?? true;
-
-  // Taksit tutarı boşsa anüite formülüyle hesaplanan öneri
-  const suggestedInstallment = useMemo(() => {
+  // Önizleme hesapları Rust'ta (finans-core::forms): kart kesim/son ödeme, kredi taksit önerisi, işlem kaydı var mı
+  const loanDraft = (() => {
     if (!loan) return null;
     const p = parseAmount(opening);
     const n = Number.parseInt(term, 10);
     const r = parseAmount(rate);
-    const t = parseAmount(taxRate);
     if (!p || p <= 0 || !n || n < 1 || r === null) return null;
-    return annuityPaymentCents(toCents(p), effectiveMonthlyRate(r, t ?? 0), n) / 100;
-  }, [loan, opening, term, rate, taxRate]);
+    return { principal: p, term: n, ratePct: r, taxPct: parseAmount(taxRate) };
+  })();
+  const draft: AccountDraft = {
+    accountId: account?.id ?? null,
+    statementDay: card && isDay(sd) && isDay(dd) ? sd : null,
+    dueDay: card && isDay(sd) && isDay(dd) ? dd : null,
+    loan: loanDraft,
+  };
+  const { preview: calc, latest } = useFormPreview(draft, api.previewAccount);
+  // Önizleme gelene (ya da alınamazsa) kadar düzenlenen hesap işlemli sayılır: Sil ve tür/birim seçimi açılıp kapanmasın.
+  const used = calc?.used ?? !!account;
+  const preview =
+    card && calc?.nextClosing && calc.nextDue ? `Sonraki kesim ${formatDate(calc.nextClosing)} → son ödeme ${formatDate(calc.nextDue)}` : null;
+
+  // Yeni kart: son kesim ve son ödemesi; ödendiyse takip sonraki dönemden, ödenmediyse o ekstreden başlar
+  const lastStatement = card ? (calc?.lastStatement ?? null) : null;
+  const paid = lastPaid ?? lastStatement?.defaultPaid ?? true;
+
+  // Taksit tutarı boşsa anüite formülüyle hesaplanan öneri
+  const suggestedInstallment = loan && calc?.suggestedInstallmentCents != null ? calc.suggestedInstallmentCents / 100 : null;
 
   const optional = (s: string, label: string): number | null => {
     if (!s.trim()) return null;
@@ -157,6 +154,16 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
     e.preventDefault();
     setError(null);
     let input: AccountInput;
+    // Yeni kartın takip başlangıcı son girdinin hesabından (Rust)
+    let newCardOpening: string | null = null;
+    if (card && !account && isDay(sd) && isDay(dd)) {
+      try {
+        const last = (await latest(draft)).lastStatement;
+        if (last) newCardOpening = (lastPaid ?? last.defaultPaid) ? last.openingIfPaid : last.openingIfUnpaid;
+      } catch (err) {
+        return setError(`Hesap yapılamadı: ${errorMessage(err)}`);
+      }
+    }
     try {
       if (fund && !unitCode) throw "Listeden bir fon seçin (TEFAS'ta bu kodla fon bulunamadı).";
       const openingValue = opening.trim() ? (foreign ? parseQuantity(opening, qtyDecimals(unitCode || currency)) : parseAmount(opening)) : 0;
@@ -174,7 +181,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
         color,
         // Düzenlemede formda olmayan kart açılış borcu korunur
         openingBalance: card ? (account?.kind === "credit_card" ? account.openingBalance : 0) : openingValue,
-        openingDate: card && !account && lastStatement ? addDays(paid ? lastStatement.last : lastStatement.prev, 1) : openingDate,
+        openingDate: newCardOpening ?? openingDate,
         creditLimit: cash || loan ? null : optional(limit, "limit"),
         interestRate: cash ? null : optional(rate, "faiz oranı"),
         statementDay: card ? sd : null,
@@ -602,7 +609,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
             </div>
             <p className="text-xs text-zinc-500">
               {paid
-                ? `Takip ${formatDate(addDays(lastStatement.last, 1))} tarihinden başlar; önceki ekstreler ödenmiş sayılır.`
+                ? `Takip ${formatDate(lastStatement.openingIfPaid)} tarihinden başlar; önceki ekstreler ödenmiş sayılır.`
                 : `Takip ${formatDate(lastStatement.last)} ekstresinden başlar; o ekstreye düşen harcama ve taksitleri de girin.`}{" "}
               Kartı ekledikten sonra harcamaları girin; eski taksitli alışverişleri alış tarihi ve toplam taksit sayısıyla girerseniz
               ödenmiş taksitler otomatik düşülür.

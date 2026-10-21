@@ -8,6 +8,5 @@ docs
 data
 .env
 .env.*
-!.env.web
 *.db
 *.bak

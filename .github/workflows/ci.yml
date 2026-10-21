@@ -25,7 +25,6 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npx tsc --noEmit
       - run: npx vite build
-      - run: npx vite build --mode web
       - run: node scripts/check-release-names.mjs
       - name: Sunucu
         working-directory: crates/finans-server

@@ -29,6 +29,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (3, include_str!("migrations/0003_kar_zarar.sql")),
     (4, include_str!("migrations/0004_fonlar.sql")),
     (5, include_str!("migrations/0005_hedefler.sql")),
+    (6, include_str!("migrations/0006_etiketler.sql")),
 ];
 
 fn make_tls() -> MakeRustlsConnect {
@@ -103,6 +104,7 @@ pub fn pg_err(e: postgres::Error) -> String {
             match db.constraint() {
                 Some("accounts_name_unique") => return "Bu isimde bir hesap zaten mevcut.".into(),
                 Some("categories_name_unique") => return "Bu isimde ve türde bir kategori zaten mevcut.".into(),
+                Some("tags_name_unique") => return "Bu adda bir etiket zaten var.".into(),
                 Some("goal_accounts_pkey") => return "Bu hesap zaten başka bir hedefe bağlı.".into(),
                 _ => {}
             }

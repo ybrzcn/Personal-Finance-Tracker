@@ -4,9 +4,10 @@
 use std::collections::HashSet;
 
 use crate::data_store::DataStore;
-use crate::db::{self, Account, AccountInput, Budget, Category, CategoryInput, Goal, GoalInput, RecurringItem, Transaction, TransactionInput};
+use crate::db::{self, Account, AccountInput, Budget, Category, CategoryInput, Goal, GoalInput, RecurringItem, Tag, TagInput, Transaction, TransactionInput};
 use crate::fx::{self, amount as fxa};
-use crate::rows::{AccountMeta, AccountRow, GoalRow, RecurringRow, TransactionRow};
+use crate::order;
+use crate::rows::{AccountMeta, AccountRow, GoalRow, RecurringRow, TagRow, TransactionRow};
 use crate::CoreResult;
 
 // ---------------------------------------------------------------------------
@@ -328,7 +329,9 @@ fn get_account(s: &mut dyn DataStore, id: &str) -> CoreResult<Account> {
 }
 
 fn get_transaction(s: &mut dyn DataStore, id: &str) -> CoreResult<Transaction> {
-    s.get_transaction(id)?.ok_or_else(|| "İşlem bulunamadı.".to_string())
+    let mut t = s.get_transaction(id)?.ok_or_else(|| "İşlem bulunamadı.".to_string())?;
+    t.tag_ids = s.tags_of_tx(id)?;
+    Ok(t)
 }
 
 fn get_recurring(s: &mut dyn DataStore, id: &str) -> CoreResult<RecurringItem> {
@@ -368,10 +371,29 @@ pub fn seed_new_user(s: &mut dyn DataStore, today: &str) -> CoreResult<()> {
     s.insert_account(&db::new_id(), &clean_account(&account)?)
 }
 
+/// "Verileri sıfırla" sonrası başlangıç verisi: varsayılan kategoriler ve boş "Genel Hesap" (yeni kimliklerle)
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ResetSeed {
+    pub categories: Vec<Category>,
+    pub accounts: Vec<Account>,
+}
+
+pub fn reset_seed(today: &str) -> ResetSeed {
+    ResetSeed {
+        categories: db::DEFAULT_CATEGORY_SEED
+            .iter()
+            .map(|(name, kind, color)| Category { id: db::new_id(), name: name.to_string(), kind: kind.to_string(), color: color.to_string() })
+            .collect(),
+        accounts: vec![crate::backup::make_default_account(today)],
+    }
+}
+
 // Kategoriler
 
 pub fn list_categories(s: &mut dyn DataStore) -> CoreResult<Vec<Category>> {
-    s.list_categories()
+    let mut xs = s.list_categories()?;
+    order::sort_categories(&mut xs);
+    Ok(xs)
 }
 
 pub fn create_category(s: &mut dyn DataStore, input: CategoryInput) -> CoreResult<Category> {
@@ -409,7 +431,9 @@ pub fn delete_category(s: &mut dyn DataStore, id: &str) -> CoreResult<()> {
 // Hesaplar
 
 pub fn list_accounts(s: &mut dyn DataStore) -> CoreResult<Vec<Account>> {
-    s.list_accounts()
+    let mut xs = s.list_accounts()?;
+    order::sort_accounts(&mut xs);
+    Ok(xs)
 }
 
 pub fn create_account(s: &mut dyn DataStore, input: AccountInput) -> CoreResult<Account> {
@@ -457,7 +481,18 @@ pub fn delete_account(s: &mut dyn DataStore, id: &str) -> CoreResult<()> {
 // İşlemler
 
 pub fn list_transactions(s: &mut dyn DataStore) -> CoreResult<Vec<Transaction>> {
-    s.list_transactions()
+    let mut txs = s.list_transactions()?;
+    let mut by_tx: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for (tx, tag) in s.list_tx_tags()? {
+        by_tx.entry(tx).or_default().push(tag);
+    }
+    for t in &mut txs {
+        if let Some(v) = by_tx.remove(&t.id) {
+            t.tag_ids = v;
+        }
+    }
+    order::sort_transactions(&mut txs);
+    Ok(txs)
 }
 
 /// TL dışı hesap tarafı: miktar ve kur zorunlu → (en küçük birim, kur). TL tarafı: gönderilen değerler yok sayılır.
@@ -540,22 +575,37 @@ fn as_input(t: &Transaction, category_id: Option<String>) -> TransactionInput {
         fx_rate: t.fx_rate,
         to_orig_amount: t.to_orig_amount,
         to_fx_rate: t.to_fx_rate,
+        tag_ids: Some(t.tag_ids.clone()),
     }
 }
 
 pub fn create_transaction(s: &mut dyn DataStore, input: TransactionInput) -> CoreResult<Transaction> {
+    // Arşivli etiket de kabul edilir: silinen işlemi "Geri al" etiketleriyle yeniden ekler (seçiciler arşivliyi göstermez)
+    let ids = input.tag_ids.as_deref().unwrap_or_default();
+    let tags = clean_tx_tags(s, ids, ids)?;
     let row = transaction_row(s, db::new_id(), &input, true, None)?;
     s.insert_transaction(&row)?;
+    s.set_tx_tags(&row.id, &tags)?;
     get_transaction(s, &row.id)
 }
 
-pub fn update_transaction(s: &mut dyn DataStore, transaction: Transaction) -> CoreResult<Transaction> {
+/// `tags`: Some = listeyi bununla değiştir; None = mevcut etiketleri koru
+pub fn update_transaction_with(s: &mut dyn DataStore, transaction: Transaction, tags: Option<Vec<String>>) -> CoreResult<Transaction> {
     let input = as_input(&transaction, transaction.category_id.clone());
     let row = transaction_row(s, transaction.id.clone(), &input, false, None)?;
     if s.update_transaction(&row)? == 0 {
         return Err("İşlem bulunamadı.".into());
     }
+    let prev = s.tags_of_tx(&transaction.id)?;
+    let wanted = tags.unwrap_or_else(|| prev.clone());
+    let clean = clean_tx_tags(s, &wanted, &prev)?;
+    s.set_tx_tags(&transaction.id, &clean)?;
     get_transaction(s, &transaction.id)
+}
+
+pub fn update_transaction(s: &mut dyn DataStore, transaction: Transaction) -> CoreResult<Transaction> {
+    let tags = Some(transaction.tag_ids.clone());
+    update_transaction_with(s, transaction, tags)
 }
 
 pub fn delete_transaction(s: &mut dyn DataStore, id: &str) -> CoreResult<()> {
@@ -637,7 +687,9 @@ fn clean_recurring(s: &mut dyn DataStore, r: &RecurringItem) -> CoreResult<Recur
 }
 
 pub fn list_recurring(s: &mut dyn DataStore) -> CoreResult<Vec<RecurringItem>> {
-    s.list_recurring()
+    let mut xs = s.list_recurring()?;
+    order::sort_recurring(&mut xs);
+    Ok(xs)
 }
 
 pub fn create_recurring(s: &mut dyn DataStore, item: RecurringItem) -> CoreResult<RecurringItem> {
@@ -656,6 +708,36 @@ pub fn update_recurring(s: &mut dyn DataStore, item: RecurringItem) -> CoreResul
         s.clear_funding_income(&item.id)?;
     }
     get_recurring(s, &item.id)
+}
+
+/// Ay istisnası isteği: `amount` None ise o ayın istisnası kalkar
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExceptionRequest {
+    pub month: String,
+    pub amount: Option<f64>,
+    #[serde(default)]
+    pub note: String,
+}
+
+/// `month` için istisnayı ekler ya da değiştirir (aya göre sıralı); `amount` None ise kaldırır
+pub fn with_exception(exceptions: &[db::MonthException], month: &str, amount: Option<f64>, note: &str) -> Vec<db::MonthException> {
+    let mut out: Vec<db::MonthException> = exceptions.iter().filter(|e| e.month != month).cloned().collect();
+    if let Some(amount) = amount {
+        out.push(db::MonthException { month: month.to_string(), amount, note: note.to_string() });
+        out.sort_by(|a, b| a.month.cmp(&b.month));
+    }
+    out
+}
+
+/// Ödeme Takvimi'ndeki "bu ay yatmayacak" ve geri alma. Kayıt yoksa None.
+pub fn set_recurring_exception(s: &mut dyn DataStore, id: &str, req: ExceptionRequest) -> CoreResult<Option<RecurringItem>> {
+    if !crate::budget::valid_month(&req.month) {
+        return Err("Geçersiz ay.".into());
+    }
+    let Some(mut item) = s.get_recurring(id)? else { return Ok(None) };
+    item.exceptions = with_exception(&item.exceptions, &req.month, req.amount, &req.note);
+    update_recurring(s, item).map(Some)
 }
 
 pub fn delete_recurring(s: &mut dyn DataStore, id: &str) -> CoreResult<()> {
@@ -738,7 +820,9 @@ fn clean_goal(s: &mut dyn DataStore, own_id: &str, g: &GoalInput, today: Option<
 }
 
 pub fn list_goals(s: &mut dyn DataStore) -> CoreResult<Vec<Goal>> {
-    s.list_goals()
+    let mut xs = s.list_goals()?;
+    order::sort_goals(&mut xs);
+    Ok(xs)
 }
 
 pub fn create_goal(s: &mut dyn DataStore, input: GoalInput, today: &str) -> CoreResult<Goal> {
@@ -759,10 +843,102 @@ pub fn delete_goal(s: &mut dyn DataStore, id: &str) -> CoreResult<()> {
     s.delete_goal(id)
 }
 
+// Etiketler
+
+/// Türkçe büyük/küçük harf duyarsız karşılaştırma anahtarı (I→ı, İ→i)
+fn tag_key(name: &str) -> String {
+    name.chars().map(|c| match c { 'I' => 'ı', 'İ' => 'i', _ => c }).collect::<String>().to_lowercase()
+}
+
+fn clean_tag(s: &mut dyn DataStore, own_id: &str, t: &TagInput) -> CoreResult<TagRow> {
+    let name = t.name.trim();
+    if name.is_empty() {
+        return Err("Etiket adı boş olamaz.".into());
+    }
+    if name.chars().count() > 40 {
+        return Err("Etiket adı en fazla 40 karakter olabilir.".into());
+    }
+    let key = tag_key(name);
+    if s.list_tags()?.iter().any(|x| x.id != own_id && tag_key(&x.name) == key) {
+        return Err("Bu adda bir etiket zaten var.".into());
+    }
+    let budget_cents = match t.budget {
+        None => None,
+        Some(b) => Some(to_cents(b).map_err(|_| "Bütçe sıfırdan büyük olmalıdır.".to_string())?),
+    };
+    Ok(TagRow { name: name.to_string(), color: clean_color(&t.color), budget_cents, archived: t.archived })
+}
+
+/// Tekrarsız; var olmalı; arşivli etiket yalnız `prev`'de (işlemde zaten) varsa kabul
+fn clean_tx_tags(s: &mut dyn DataStore, ids: &[String], prev: &[String]) -> CoreResult<Vec<String>> {
+    let mut out: Vec<String> = Vec::new();
+    for id in ids {
+        if out.contains(id) {
+            continue;
+        }
+        let t = s.get_tag(id)?.ok_or("Etiket bulunamadı.")?;
+        if t.archived && !prev.contains(id) {
+            return Err(format!("'{}' etiketi arşivde; önce geri alın.", t.name));
+        }
+        out.push(id.clone());
+    }
+    Ok(out)
+}
+
+pub fn list_tags(s: &mut dyn DataStore) -> CoreResult<Vec<Tag>> {
+    s.list_tags()
+}
+
+pub fn create_tag(s: &mut dyn DataStore, input: TagInput) -> CoreResult<Tag> {
+    let id = db::new_id();
+    let row = clean_tag(s, &id, &input)?;
+    s.insert_tag(&id, &row, None)?;
+    s.get_tag(&id)?.ok_or_else(|| "Etiket kaydedilemedi.".into())
+}
+
+pub fn update_tag(s: &mut dyn DataStore, tag: Tag) -> CoreResult<Tag> {
+    let row = clean_tag(s, &tag.id, &TagInput::from(&tag))?;
+    if s.update_tag(&tag.id, &row)? == 0 {
+        return Err("Etiket bulunamadı.".into());
+    }
+    s.get_tag(&tag.id)?.ok_or_else(|| "Etiket bulunamadı.".into())
+}
+
+pub fn delete_tag(s: &mut dyn DataStore, id: &str) -> CoreResult<()> {
+    s.delete_tag(id)
+}
+
+/// Seçili işlemlere etiket ekler/kaldırır; işlemlerden biri yoksa hiçbir şey değişmez (çağıran tek işlemde çalıştırır)
+pub fn set_transaction_tags(s: &mut dyn DataStore, ids: &[String], add: &[String], remove: &[String]) -> CoreResult<Vec<Transaction>> {
+    if ids.len() > 5000 {
+        return Err("Tek seferde en çok 5.000 işlem seçilebilir.".into());
+    }
+    let add = clean_tx_tags(s, add, &[])?;
+    let mut seen: Vec<&String> = Vec::new();
+    for id in ids {
+        if seen.contains(&id) {
+            continue;
+        }
+        seen.push(id);
+        if s.get_transaction(id)?.is_none() {
+            return Err("İşlem bulunamadı.".into());
+        }
+        for t in &add {
+            s.add_tx_tag(id, t)?;
+        }
+        for t in remove {
+            s.remove_tx_tag(id, t)?;
+        }
+    }
+    seen.into_iter().map(|id| get_transaction(s, id)).collect()
+}
+
 // Yedekleme / Geri yükleme
 
 /// Tüm veriyi verilen içerikle değiştirir. Çağıran bunu tek bir veritabanı işleminde çalıştırır
 /// (`sqlite::run` ya da sunucudaki Postgres karşılığı): herhangi bir satır hatalıysa hiçbir değişiklik kalmaz.
+// Yedekteki her veri türü ayrı liste olarak gelir (sunucu gövdesi ve Tauri komutu aynı biçimde)
+#[allow(clippy::too_many_arguments)]
 pub fn restore_data(
     s: &mut dyn DataStore,
     categories: Vec<Category>,
@@ -771,8 +947,29 @@ pub fn restore_data(
     recurring: Vec<RecurringItem>,
     budgets: Vec<Budget>,
     goals: Vec<Goal>,
+    // None: etiketleri bilmeyen (1.7 öncesi) istemci; mevcut etiketler ve işlem bağlantıları korunur
+    tags: Option<Vec<Tag>>,
 ) -> CoreResult<()> {
+    let old_client = tags.is_none();
+    let (tags, old_links) = match tags {
+        Some(t) => (t, Vec::new()),
+        None => (s.list_tags()?, s.list_tx_tags()?),
+    };
+    let mut kept: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for (tx, tag) in old_links {
+        kept.entry(tx).or_default().push(tag);
+    }
     s.clear_all()?;
+
+    // Etiketler işlemlerden önce (işlem bağlantıları için)
+    let mut tag_ids: HashSet<String> = HashSet::new();
+    for (i, t) in tags.iter().enumerate() {
+        let id = if t.id.trim().is_empty() { db::new_id() } else { t.id.clone() };
+        let row = clean_tag(s, &id, &TagInput::from(t)).map_err(|e| format!("{}. etiket: {e}", i + 1))?;
+        let created = Some(t.created_at.as_str()).filter(|c| !c.trim().is_empty());
+        s.insert_tag(&id, &row, created).map_err(|e| format!("{}. etiket eklenemedi: {e}", i + 1))?;
+        tag_ids.insert(id);
+    }
 
     let mut category_ids = HashSet::new();
     for c in &categories {
@@ -801,6 +998,15 @@ pub fn restore_data(
         let row = transaction_row(s, id, &as_input(t, category_id), false, clean_created_at(&t.created_at))
             .map_err(|e| format!("{n}. işlem: {e}"))?;
         s.insert_transaction(&row).map_err(|e| format!("{n}. işlem eklenemedi: {e}"))?;
+        // Yedekte olmayan etikete bağlantı atlanır; arşivli etiket bağlantısı korunur
+        let mut links: Vec<String> = Vec::new();
+        let wanted = if old_client && t.tag_ids.is_empty() { kept.get(&t.id).cloned().unwrap_or_default() } else { t.tag_ids.clone() };
+        for tg in &wanted {
+            if tag_ids.contains(tg) && !links.contains(tg) {
+                links.push(tg.clone());
+            }
+        }
+        s.set_tx_tags(&row.id, &links)?;
     }
 
     for (i, r) in recurring.iter().enumerate() {

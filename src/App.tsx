@@ -7,6 +7,7 @@ import { Accounts } from "./pages/Accounts";
 import { AnalysisPage } from "./pages/Analysis";
 import { BudgetPage } from "./pages/Budget";
 import { GoalsPage } from "./pages/Goals";
+import { TagsPage } from "./pages/Tags";
 import { RatesPage } from "./pages/Rates";
 import { PnlPage } from "./pages/Pnl";
 import { CashPlanPage } from "./pages/CashPlan";
@@ -105,6 +106,7 @@ export default function App() {
               {page === "plan" && <CashPlanPage />}
               {page === "debt" && <DebtPlannerPage />}
               {page === "categories" && <Categories />}
+              {page === "tags" && <TagsPage />}
               {page === "settings" && <SettingsPage />}
             </>
           )}

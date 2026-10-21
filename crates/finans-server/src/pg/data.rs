@@ -1,9 +1,9 @@
 //! `DataStore`'un Postgres uygulaması. Her sorgu `user_id` ile süzülür (RLS ayrıca korur).
 
 use finans_core::data_store::DataStore;
-use finans_core::db::{cents_to_f64, Account, Budget, Category, Goal, RecurringItem, Transaction};
+use finans_core::db::{cents_to_f64, Account, Budget, Category, Goal, RecurringItem, Tag, Transaction};
 use finans_core::fx::amount::stored_to_api;
-use finans_core::rows::{AccountMeta, AccountRow, GoalRow, RecurringRow, TransactionRow};
+use finans_core::rows::{AccountMeta, AccountRow, GoalRow, RecurringRow, TagRow, TransactionRow};
 use finans_core::CoreResult;
 use postgres::Row;
 
@@ -100,6 +100,7 @@ fn transaction(r: &Row) -> Transaction {
         fx_rate,
         to_orig_amount,
         to_fx_rate,
+        tag_ids: Vec::new(),
     }
 }
 
@@ -463,6 +464,98 @@ impl DataStore for PgStore<'_, '_> {
             .map(|r| (r.get(0), r.get(1))))
     }
 
+    fn list_tags(&mut self) -> CoreResult<Vec<Tag>> {
+        self.list(
+            "SELECT id, name, color, budget_cents, archived, \
+             to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"') \
+             FROM tags WHERE user_id = $1 ORDER BY created_at, id",
+            |r| Tag {
+                id: r.get(0),
+                name: r.get(1),
+                color: r.get(2),
+                budget: r.get::<_, Option<i64>>(3).map(|c| c as f64 / 100.0),
+                archived: r.get(4),
+                created_at: r.get(5),
+            },
+        )
+    }
+
+    fn get_tag(&mut self, id: &str) -> CoreResult<Option<Tag>> {
+        Ok(self.list_tags()?.into_iter().find(|t| t.id == id))
+    }
+
+    fn insert_tag(&mut self, id: &str, r: &TagRow, created_at: Option<&str>) -> CoreResult<()> {
+        let u = self.user_id.clone();
+        self.exec(
+            "INSERT INTO tags (user_id, id, name, color, budget_cents, archived, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::text::timestamptz, now()))",
+            &[&u, &id, &r.name, &r.color, &r.budget_cents, &r.archived, &created_at],
+        )?;
+        Ok(())
+    }
+
+    fn update_tag(&mut self, id: &str, r: &TagRow) -> CoreResult<u64> {
+        let u = self.user_id.clone();
+        self.exec(
+            "UPDATE tags SET name = $3, color = $4, budget_cents = $5, archived = $6 WHERE user_id = $1 AND id = $2",
+            &[&u, &id, &r.name, &r.color, &r.budget_cents, &r.archived],
+        )
+    }
+
+    fn delete_tag(&mut self, id: &str) -> CoreResult<()> {
+        let u = self.user_id.clone();
+        self.exec("DELETE FROM tags WHERE user_id = $1 AND id = $2", &[&u, &id])?;
+        Ok(())
+    }
+
+    fn list_tx_tags(&mut self) -> CoreResult<Vec<(String, String)>> {
+        self.list(
+            "SELECT transaction_id, tag_id FROM transaction_tags WHERE user_id = $1 ORDER BY created_at, tag_id",
+            |r| (r.get(0), r.get(1)),
+        )
+    }
+
+    fn tags_of_tx(&mut self, transaction_id: &str) -> CoreResult<Vec<String>> {
+        let u = self.user_id.clone();
+        Ok(self
+            .tx
+            .query(
+                "SELECT tag_id FROM transaction_tags WHERE user_id = $1 AND transaction_id = $2 ORDER BY created_at, tag_id",
+                &[&u, &transaction_id],
+            )
+            .map_err(pg_err)?
+            .iter()
+            .map(|r| r.get(0))
+            .collect())
+    }
+
+    fn set_tx_tags(&mut self, transaction_id: &str, tag_ids: &[String]) -> CoreResult<()> {
+        let u = self.user_id.clone();
+        self.exec("DELETE FROM transaction_tags WHERE user_id = $1 AND transaction_id = $2", &[&u, &transaction_id])?;
+        for t in tag_ids {
+            self.add_tx_tag(transaction_id, t)?;
+        }
+        Ok(())
+    }
+
+    fn add_tx_tag(&mut self, transaction_id: &str, tag_id: &str) -> CoreResult<()> {
+        let u = self.user_id.clone();
+        self.exec(
+            "INSERT INTO transaction_tags (user_id, transaction_id, tag_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            &[&u, &transaction_id, &tag_id],
+        )?;
+        Ok(())
+    }
+
+    fn remove_tx_tag(&mut self, transaction_id: &str, tag_id: &str) -> CoreResult<()> {
+        let u = self.user_id.clone();
+        self.exec(
+            "DELETE FROM transaction_tags WHERE user_id = $1 AND transaction_id = $2 AND tag_id = $3",
+            &[&u, &transaction_id, &tag_id],
+        )?;
+        Ok(())
+    }
+
     fn list_settings(&mut self) -> CoreResult<Vec<(String, String)>> {
         self.list("SELECT key, value::text FROM settings WHERE user_id = $1", |r| (r.get(0), r.get(1)))
     }
@@ -479,7 +572,7 @@ impl DataStore for PgStore<'_, '_> {
 
     fn clear_all(&mut self) -> CoreResult<()> {
         let u = self.user_id.clone();
-        for table in ["goal_accounts", "goals", "budgets", "recurring_items", "transactions", "accounts", "categories"] {
+        for table in ["transaction_tags", "tags", "goal_accounts", "goals", "budgets", "recurring_items", "transactions", "accounts", "categories"] {
             self.exec(&format!("DELETE FROM {table} WHERE user_id = $1"), &[&u])?;
         }
         Ok(())

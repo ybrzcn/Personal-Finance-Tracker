@@ -86,6 +86,8 @@ pub struct AccountPnl {
     pub name: String,
     pub currency: String,
     pub qty_minor: i64,
+    /// Gösterim miktarı
+    pub qty: f64,
     /// Maliyet bilinmiyorsa yok
     pub cost_cents: Option<i64>,
     /// 1 birimin ortalama maliyeti ×1e6
@@ -118,6 +120,8 @@ pub struct RealizedItem {
     /// "expense" | "transfer"
     pub kind: String,
     pub qty_minor: i64,
+    /// Gösterim miktarı
+    pub qty: f64,
     pub currency: String,
     pub proceeds_cents: i64,
     pub cost_cents: Option<i64>,

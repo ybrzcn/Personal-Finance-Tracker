@@ -13,5 +13,5 @@ export const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(
 /** Kısayol gösterimi için: macOS'ta ⌘, diğerlerinde Ctrl */
 export const modKey = isMac ? "⌘" : "Ctrl";
 
-/** Veri arka ucu: masaüstü (yerel SQLite), web (finans-server API'si) ya da tarayıcıda geliştirme (localStorage). */
-export const backend: "tauri" | "http" | "local" = isTauri ? "tauri" : import.meta.env.VITE_BACKEND === "http" ? "http" : "local";
+/** Veri arka ucu: masaüstü (Tauri komutları) ya da tarayıcı (finans-server API'si). */
+export const backend: "tauri" | "http" = isTauri ? "tauri" : "http";

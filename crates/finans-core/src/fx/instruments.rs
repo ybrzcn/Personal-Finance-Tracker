@@ -140,3 +140,8 @@ pub fn source_of(code: &str) -> Option<Source> {
 pub fn unit_or_try(code: Option<&str>) -> Unit {
     code.and_then(unit_of).unwrap_or(Unit::Currency)
 }
+
+/// Saklanan en küçük birimden gösterim miktarı (kuruş/100, gram binde biri/1000, adet ve pay/1)
+pub fn qty_of(minor: i64, code: &str) -> f64 {
+    minor as f64 / unit_or_try(Some(code)).divisor() as f64
+}

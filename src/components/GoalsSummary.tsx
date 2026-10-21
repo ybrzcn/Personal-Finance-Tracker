@@ -1,15 +1,14 @@
-import { formatGoalAmount, sortGoals, STATUS_LABEL, STATUS_TONE } from "../lib/goals";
-import { backend } from "../lib/platform";
+import { formatGoalAmount, STATUS_LABEL, STATUS_TONE } from "../lib/goals";
 import { useData } from "../state/data";
 import { useGoals } from "../state/goals";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
 
-/** En çok 3 etkin, ulaşılmamış hedef; hedef yoksa ya da tarayıcı modunda gösterilmez */
+/** En çok 3 etkin, ulaşılmamış hedef; hedef yoksa gösterilmez */
 export function GoalsSummary() {
   const { goals } = useData();
   // Etkin hedef yoksa rapor hiç istenmez
-  if (backend === "local" || goals.every((x) => x.archived)) return null;
+  if (goals.every((x) => x.archived)) return null;
   return <Summary />;
 }
 
@@ -19,7 +18,7 @@ function Summary() {
   const { setPage } = useUI();
   const g = useGoals();
   const byId = new Map((g.report?.goals ?? []).map((p) => [p.goalId, p]));
-  const shown = sortGoals(goals.filter((x) => !x.archived && byId.get(x.id)?.status !== "reached")).slice(0, 3);
+  const shown = goals.filter((x) => !x.archived && byId.get(x.id)?.status !== "reached").slice(0, 3);
   return (
     <section className="card col-span-2 px-5 py-4 lg:col-span-4">
       <div className="flex items-baseline justify-between gap-3">

@@ -1,25 +1,13 @@
 import { FileUp, Loader2 } from "lucide-react";
-import { useMemo, useState } from "react";
-import { errorMessage } from "../lib/api";
+import { useRef, useState } from "react";
+import { api, errorMessage } from "../lib/api";
 import { openStatementFile } from "../lib/fileio";
 import { formatDate, formatDateShort } from "../lib/format";
 import { isForeign } from "../lib/fx";
 import { newId } from "../lib/id";
-import { firstTrackedClosing } from "../lib/cards";
-import {
-  buildImportRows,
-  defaultSignMode,
-  extractStatementSummary,
-  findHeaderRow,
-  guessColumns,
-  statementToTable,
-  type ColumnMap,
-  type ImportRow,
-  type SignMode,
-  type StatementSummary,
-} from "../lib/statementImport";
-import type { Transaction } from "../lib/types";
+import type { ColumnMap, ImportRow, SignMode, StatementSummary, Transaction } from "../lib/types";
 import { useData } from "../state/data";
+import { useFormPreview } from "../state/formPreview";
 import { useSettings } from "../state/settings";
 import { AccountOptions } from "./AccountOptions";
 import { Modal } from "./Modal";
@@ -40,8 +28,8 @@ const COLUMN_LABELS: { key: keyof ColumnMap; label: string; required?: boolean }
 ];
 
 export function StatementImportDialog({ accountId: initialAccountId, onClose, onSaved }: Props) {
-  const { accounts, categories, transactions, latest, restore, updateAccount } = useData();
-  const { formatMoney, settings } = useSettings();
+  const { accounts, categories, latest, restore, updateAccount } = useData();
+  const { formatMoney } = useSettings();
   // Ekstre TL tutarlıdır: döviz/altın hesaplarına yüklenmez, transfer hedefi de olamaz
   const active = accounts.filter((a) => !a.archived && a.kind !== "loan" && !isForeign(a.currency));
   const [accountId, setAccountId] = useState(active.find((a) => a.id === initialAccountId)?.id ?? active[0]?.id ?? "");
@@ -60,13 +48,45 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
 
   const header = table[headerRow] ?? [];
 
-  // Kesim tarihi: devam eden taksit paylarını bu ekstrenin dönemine tarihlemek için
-  const rebuild = (t: string[][], h: number, m: ColumnMap, s: SignMode, accId: string, closing = summary?.closingDate ?? null) => {
-    const acc = accounts.find((a) => a.id === accId);
-    if (!acc) return;
-    const res = buildImportRows(t, h, m, s, acc, accounts, transactions, categories, settings.categoryRules, closing);
-    setRows(res.rows);
-    setSkipped(res.skipped);
+  // Satırlar Rust'ta (finans-core::import). Sütunlar boşsa başlık satırından, işaret boşsa hesaptan tahmin edilir; ikisi de cevapla
+  // seçicilere yazılır. Kesim tarihi: devam eden taksit paylarını bu ekstrenin dönemine tarihlemek için.
+  // Yalnız son isteğin cevabı uygulanır; satır düzenlemeleri yalnız bu yeniden kurmalarda sıfırlanır
+  // Yeni dosya ya da hesapta eski satırlar hemen kalkar; istek sürerken "İçe aktar" kapalıdır, başarısız olursa satırlar silinir
+  // (başka dosyanın ya da hesabın satırları aktarılmasın)
+  const rowsSeq = useRef(0);
+  const [rowsPending, setRowsPending] = useState(false);
+  const rebuild = async (
+    t: string[][],
+    h: number,
+    m: ColumnMap | null,
+    s: SignMode | null,
+    accId: string,
+    closing = summary?.closingDate ?? null,
+    fresh = false,
+  ) => {
+    if (!accounts.some((a) => a.id === accId)) return;
+    const n = ++rowsSeq.current;
+    if (fresh) {
+      setRows([]);
+      setSkipped(0);
+    }
+    setRowsPending(true);
+    try {
+      const res = await api.statementRows({ table: t, headerRow: h, columns: m, signMode: s, accountId: accId, closingDate: closing });
+      if (n !== rowsSeq.current) return;
+      setRows(res.rows);
+      setSkipped(res.skipped);
+      setMap(res.columns);
+      setSign(res.signMode);
+      setError(null);
+    } catch (e) {
+      if (n !== rowsSeq.current) return;
+      setRows([]);
+      setSkipped(0);
+      setError(errorMessage(e));
+    } finally {
+      if (n === rowsSeq.current) setRowsPending(false);
+    }
   };
 
   // Dosya seçilip okunurken (sunucuda/mobilde büyük dosya sürebilir) ikinci kez başlatılmasın
@@ -80,23 +100,14 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
       const picked = await openStatementFile();
       if (!picked || !account) return;
       const file = { name: picked.name };
-      const t = statementToTable(picked.file);
-      if (t.length < 2)
-        throw picked.file.kind === "pdf"
-          ? "PDF'te tarih ve tutar içeren işlem satırı bulunamadı. Bankadan Excel veya CSV indirmeyi deneyin."
-          : "Dosyada okunabilir satır bulunamadı.";
-      const h = findHeaderRow(t);
-      const m = guessColumns(t[h]);
-      const s = defaultSignMode(account);
+      // Okuma Rust'ta (tablo, başlık, sütunlar, özet)
+      const { table: t, headerRow: h, columns: m, summary: sum } = picked.file;
       setFileName(file.name);
-      const text = picked.file.kind === "table" ? picked.file.rows.map((r) => r.join(" ")).join("\n") : picked.file.text;
-      const sum = extractStatementSummary(text);
-      setSummary(Object.values(sum).some((v) => v !== null) ? sum : null);
+      setSummary(sum);
       setTable(t);
       setHeaderRow(h);
       setMap(m);
-      setSign(s);
-      rebuild(t, h, m, s, account.id, sum.closingDate);
+      await rebuild(t, h, m, null, account.id, sum?.closingDate ?? null, true);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -111,37 +122,40 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
     if (key === "amount" && value >= 0) Object.assign(m, { debit: -1, credit: -1 });
     if ((key === "debit" || key === "credit") && value >= 0) m.amount = -1;
     setMap(m);
-    rebuild(table, headerRow, m, sign, accountId);
+    void rebuild(table, headerRow, m, sign, accountId);
   };
 
   const patchRow = (i: number, patch: Partial<ImportRow>) => setRows((rs) => rs.map((r, j) => (j === i ? { ...r, ...patch } : r)));
 
   const selected = rows.filter((r) => r.include);
-  const totals = useMemo(() => {
-    let out = 0;
-    let inc = 0;
-    for (const r of selected) {
-      if (r.type === "expense") out += r.amount;
-      else if (r.type === "income") inc += r.amount;
-    }
-    return { out, inc };
-  }, [selected]);
+  // Seçili satırların toplamı ve özetle uyumu (Rust)
+  const totalsDraft = rows.length ? { rows: selected.map((r) => ({ amount: r.amount, type: r.type })), periodSpending: summary?.periodSpending ?? null } : null;
+  const { preview: sums, source: sumsSource } = useFormPreview(totalsDraft, api.previewStatementTotals);
+  // Özet uyumu yalnız şimdiki satırların sonucuyla gösterilir (başka dosyanın "birebir tutuyor" mesajı kalmasın)
+  const sumsNow = sums && JSON.stringify(sumsSource) === JSON.stringify(totalsDraft) ? sums : null;
+  const totals = { out: sums?.expense ?? 0, inc: sums?.income ?? 0 };
 
-  // Ekstre özetindeki kesim/son ödeme/limit/faiz kart ayarlarından farklı mı?
-  const cardFix = useMemo(() => {
-    if (!summary || account?.kind !== "credit_card") return null;
-    const day = (iso: string | null) => (iso ? Number(iso.slice(8, 10)) : null);
-    const patch = {
-      statementDay: day(summary.closingDate) ?? account.statementDay,
-      dueDay: day(summary.dueDate) ?? account.dueDay,
-      creditLimit: summary.creditLimit ?? account.creditLimit,
-      interestRate: summary.interestRate ?? account.interestRate,
-      minPaymentRate: summary.minPaymentRate ?? account.minPaymentRate,
-    };
-    const differs = (Object.keys(patch) as (keyof typeof patch)[]).filter((k) => patch[k] !== account[k]);
-    return differs.length ? { patch, differs } : null;
-  }, [summary, account]);
-  const beforeTracking = !!(summary?.closingDate && account?.kind === "credit_card" && summary.closingDate < firstTrackedClosing(account));
+  // Ekstre özetindeki kesim/son ödeme/limit/faiz kart ayarlarından farklı mı (Rust)? Kartın ayarları yenileme anahtarıdır:
+  // "Ekstreye göre güncelle"den sonra kendiliğinden yenilenir
+  const { preview: card, source: cardSource } = useFormPreview(
+    summary && account
+      ? {
+          accountId: account.id,
+          summary,
+          statementDay: account.statementDay,
+          dueDay: account.dueDay,
+          creditLimit: account.creditLimit,
+          interestRate: account.interestRate,
+          minPaymentRate: account.minPaymentRate,
+          openingDate: account.openingDate,
+        }
+      : null,
+    api.previewStatementCard,
+  );
+  // Önceki hesabın ya da önceki dosyanın özetinin sonucu gösterilmez (güncelle düğmesi eski farkı uygulamasın)
+  const cardNow = card && cardSource?.accountId === accountId && JSON.stringify(cardSource.summary) === JSON.stringify(summary) ? card : null;
+  const cardFix = cardNow?.cardFix ?? null;
+  const beforeTracking = cardNow?.beforeTracking ?? false;
   const FIX_LABEL: Record<string, string> = {
     statementDay: "kesim günü",
     dueDay: "son ödeme günü",
@@ -203,7 +217,7 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
           <button type="button" className="btn-secondary" onClick={onClose}>
             Vazgeç
           </button>
-          <button type="button" className="btn-primary" disabled={saving || !selected.length} onClick={doImport}>
+          <button type="button" className="btn-primary" disabled={saving || rowsPending || !selected.length} onClick={doImport}>
             İçe aktar
           </button>
         </>
@@ -222,11 +236,7 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
               onChange={(e) => {
                 setAccountId(e.target.value);
                 const acc = accounts.find((a) => a.id === e.target.value);
-                if (acc && map) {
-                  const s = defaultSignMode(acc);
-                  setSign(s);
-                  rebuild(table, headerRow, map, s, acc.id);
-                }
+                if (acc && map) void rebuild(table, headerRow, map, null, acc.id, summary?.closingDate ?? null, true);
               }}
             >
               <AccountOptions accounts={active} />
@@ -260,10 +270,8 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
                 value={headerRow}
                 onChange={(e) => {
                   const h = Number(e.target.value);
-                  const m = guessColumns(table[h] ?? []);
                   setHeaderRow(h);
-                  setMap(m);
-                  rebuild(table, h, m, sign, accountId);
+                  void rebuild(table, h, null, sign, accountId);
                 }}
               >
                 {table.slice(0, 30).map((r, i) => (
@@ -300,7 +308,7 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
                 onChange={(e) => {
                   const s = e.target.value as SignMode;
                   setSign(s);
-                  rebuild(table, headerRow, map, s, accountId);
+                  void rebuild(table, headerRow, map, s, accountId);
                 }}
               >
                 <option value="negativeIsExpense">Eksi (−) = harcama</option>
@@ -320,13 +328,13 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
               {summary.creditLimit !== null && <span className="text-zinc-500">Limit <strong className="text-zinc-900 dark:text-zinc-100">{formatMoney(summary.creditLimit)}</strong></span>}
               {summary.interestRate !== null && <span className="text-zinc-500">Faiz <strong className="text-zinc-900 dark:text-zinc-100">%{summary.interestRate.toLocaleString("tr-TR")}</strong></span>}
             </div>
-            {summary.periodSpending !== null && rows.length > 0 && (
-              Math.abs(totals.out - totals.inc - summary.periodSpending) < 0.01 ? (
+            {summary.periodSpending !== null && rows.length > 0 && sumsNow && sumsNow.matchesSummary !== null && (
+              sumsNow.matchesSummary ? (
                 <p className="text-emerald-600 dark:text-emerald-400">✓ Seçili satırların toplamı ekstredeki dönem içi harcamalarla ({formatMoney(summary.periodSpending)}) birebir tutuyor.</p>
               ) : (
                 <p className="text-amber-600 dark:text-amber-400">
-                  Seçili satırların toplamı {formatMoney(totals.out - totals.inc)}, ekstredeki dönem içi harcamalar {formatMoney(summary.periodSpending)} (fark{" "}
-                  {formatMoney(Math.abs(totals.out - totals.inc - summary.periodSpending))}). Atlanan veya okunamayan satırları kontrol edin.
+                  Seçili satırların toplamı {formatMoney(sumsNow.net)}, ekstredeki dönem içi harcamalar {formatMoney(summary.periodSpending)} (fark{" "}
+                  {formatMoney(sumsNow.difference ?? 0)}). Atlanan veya okunamayan satırları kontrol edin.
                 </p>
               )
             )}

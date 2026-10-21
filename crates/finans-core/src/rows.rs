@@ -80,3 +80,10 @@ pub struct GoalRow {
     /// Tekrarsız, doğrulanmış hesaplar
     pub account_ids: Vec<String>,
 }
+
+pub struct TagRow {
+    pub name: String,
+    pub color: String,
+    pub budget_cents: Option<i64>,
+    pub archived: bool,
+}

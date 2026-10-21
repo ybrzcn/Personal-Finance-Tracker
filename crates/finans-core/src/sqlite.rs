@@ -4,11 +4,11 @@ use rusqlite::{params, Connection, ErrorCode, OptionalExtension};
 
 use crate::data_store::DataStore;
 use crate::db::{
-    row_to_account, row_to_category, row_to_recurring, row_to_transaction, Account, Budget, Category, Goal, RecurringItem,
+    row_to_account, row_to_category, row_to_recurring, row_to_transaction, Account, Budget, Category, Goal, RecurringItem, Tag,
     Transaction, ACCOUNT_COLUMNS, CATEGORY_COLUMNS, RECURRING_COLUMNS, TRANSACTION_COLUMNS,
 };
 use crate::fx;
-use crate::rows::{AccountMeta, AccountRow, GoalRow, RecurringRow, TransactionRow};
+use crate::rows::{AccountMeta, AccountRow, GoalRow, RecurringRow, TagRow, TransactionRow};
 use crate::CoreResult;
 
 pub fn db_err(e: rusqlite::Error) -> String {
@@ -24,7 +24,9 @@ pub fn db_err(e: rusqlite::Error) -> String {
             if f.code == ErrorCode::ConstraintViolation
                 && f.extended_code == rusqlite::ffi::SQLITE_CONSTRAINT_UNIQUE =>
         {
-            if msg.as_deref().is_some_and(|m| m.contains("accounts.name")) {
+            if msg.as_deref().is_some_and(|m| m.contains("tags_name_unique")) {
+                "Bu adda bir etiket zaten var.".into()
+            } else if msg.as_deref().is_some_and(|m| m.contains("accounts.name")) {
                 "Bu isimde bir hesap zaten mevcut.".into()
             } else {
                 "Bu isimde ve türde bir kategori zaten mevcut.".into()
@@ -390,6 +392,85 @@ impl DataStore for SqliteStore<'_> {
             .map_err(db_err)
     }
 
+    fn list_tags(&mut self) -> CoreResult<Vec<Tag>> {
+        self.list(
+            "SELECT id, name, color, budget_cents, archived, created_at FROM tags ORDER BY created_at, id",
+            |r| {
+                Ok(Tag {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    color: r.get(2)?,
+                    budget: r.get::<_, Option<i64>>(3)?.map(|c| c as f64 / 100.0),
+                    archived: r.get(4)?,
+                    created_at: r.get(5)?,
+                })
+            },
+        )
+    }
+
+    fn get_tag(&mut self, id: &str) -> CoreResult<Option<Tag>> {
+        Ok(self.list_tags()?.into_iter().find(|t| t.id == id))
+    }
+
+    fn insert_tag(&mut self, id: &str, r: &TagRow, created_at: Option<&str>) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "INSERT INTO tags (id, name, color, budget_cents, archived, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, COALESCE(?6, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))",
+                params![id, r.name, r.color, r.budget_cents, r.archived, created_at],
+            )
+            .map_err(db_err)?;
+        Ok(())
+    }
+
+    fn update_tag(&mut self, id: &str, r: &TagRow) -> CoreResult<u64> {
+        let n = self
+            .conn
+            .execute(
+                "UPDATE tags SET name = ?2, color = ?3, budget_cents = ?4, archived = ?5 WHERE id = ?1",
+                params![id, r.name, r.color, r.budget_cents, r.archived],
+            )
+            .map_err(db_err)?;
+        Ok(n as u64)
+    }
+
+    fn delete_tag(&mut self, id: &str) -> CoreResult<()> {
+        self.conn.execute("DELETE FROM tags WHERE id = ?1", [id]).map_err(db_err)?;
+        Ok(())
+    }
+
+    fn list_tx_tags(&mut self) -> CoreResult<Vec<(String, String)>> {
+        self.list("SELECT transaction_id, tag_id FROM transaction_tags ORDER BY rowid", |r| Ok((r.get(0)?, r.get(1)?)))
+    }
+
+    fn tags_of_tx(&mut self, transaction_id: &str) -> CoreResult<Vec<String>> {
+        let mut stmt = self.conn.prepare("SELECT tag_id FROM transaction_tags WHERE transaction_id = ?1 ORDER BY rowid").map_err(db_err)?;
+        let rows = stmt.query_map([transaction_id], |r| r.get(0)).map_err(db_err)?.collect::<Result<Vec<String>, _>>().map_err(db_err)?;
+        Ok(rows)
+    }
+
+    fn set_tx_tags(&mut self, transaction_id: &str, tag_ids: &[String]) -> CoreResult<()> {
+        self.conn.execute("DELETE FROM transaction_tags WHERE transaction_id = ?1", [transaction_id]).map_err(db_err)?;
+        for t in tag_ids {
+            self.add_tx_tag(transaction_id, t)?;
+        }
+        Ok(())
+    }
+
+    fn add_tx_tag(&mut self, transaction_id: &str, tag_id: &str) -> CoreResult<()> {
+        self.conn
+            .execute("INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?1, ?2)", [transaction_id, tag_id])
+            .map_err(db_err)?;
+        Ok(())
+    }
+
+    fn remove_tx_tag(&mut self, transaction_id: &str, tag_id: &str) -> CoreResult<()> {
+        self.conn
+            .execute("DELETE FROM transaction_tags WHERE transaction_id = ?1 AND tag_id = ?2", [transaction_id, tag_id])
+            .map_err(db_err)?;
+        Ok(())
+    }
+
     fn list_settings(&mut self) -> CoreResult<Vec<(String, String)>> {
         self.list("SELECT key, value FROM settings", |r| Ok((r.get(0)?, r.get(1)?)))
     }
@@ -405,7 +486,7 @@ impl DataStore for SqliteStore<'_> {
     }
 
     fn clear_all(&mut self) -> CoreResult<()> {
-        for table in ["goal_accounts", "goals", "budgets", "recurring_items", "transactions", "accounts", "categories"] {
+        for table in ["transaction_tags", "tags", "goal_accounts", "goals", "budgets", "recurring_items", "transactions", "accounts", "categories"] {
             self.conn.execute(&format!("DELETE FROM {table}"), []).map_err(db_err)?;
         }
         Ok(())

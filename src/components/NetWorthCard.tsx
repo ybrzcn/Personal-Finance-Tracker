@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipProps } from "recharts";
-import { rangePoints, type NetWorthRange } from "../lib/networth";
+import type { NetWorthRange } from "../lib/networth";
 import type { NetWorthPoint, NetWorthReport } from "../lib/types";
 import { useSettings } from "../state/settings";
 import { Segmented } from "./common";
@@ -60,7 +60,9 @@ export function NetWorthCard({ report, error }: { report: NetWorthReport | null;
   const [view, setView] = useState<View>("total");
   const [accountId, setAccountId] = useState("");
 
-  const points: NetWorthPoint[] = useMemo(() => rangePoints(report?.points ?? [], range), [report, range]);
+  // Dönemin ilk noktası ve değişimi Rust'tan (1 yıl / 3 yıl önceki kesim)
+  const summary = report?.ranges[range] ?? null;
+  const points: NetWorthPoint[] = useMemo(() => (report && summary ? report.points.slice(summary.start) : []), [report, summary]);
 
   const data = useMemo(
     () =>
@@ -89,10 +91,9 @@ export function NetWorthCard({ report, error }: { report: NetWorthReport | null;
   if (!report) return <section className="card h-72 animate-pulse" aria-label="Net servet yükleniyor" />;
   if (report.points.length === 0) return null;
 
-  const first = points[0];
   const last = points.at(-1)!;
-  const change = last.netCents - first.netCents;
-  const fxGain = last.netCents - last.netCostCents - (first.netCents - first.netCostCents);
+  const change = summary?.changeCents ?? 0;
+  const fxGain = summary?.fxGainCents ?? 0;
   const signed = (c: number) => `${c > 0 ? "+" : ""}${formatMoney(c / 100)}`;
   const rangeLabel = RANGES.find((r) => r.value === range)!.label;
 

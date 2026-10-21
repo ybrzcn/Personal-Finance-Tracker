@@ -1,7 +1,7 @@
 {
   "name": "finans",
   "private": true,
-  "version": "1.6.1",
+  "version": "1.17.0",
   "license": "MIT",
   "repository": "github:ybrzcn/Personal-Finance-Tracker",
   "type": "module",
@@ -9,9 +9,9 @@
   "scripts": {
     "postinstall": "tauri icon app-icon.png",
     "dev": "vite",
-    "dev:web": "vite --mode web --port 1430",
+    "dev:web": "vite --port 1430",
     "build": "tsc --noEmit && vite build",
-    "build:web": "tsc --noEmit && vite build --mode web",
+    "build:web": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",

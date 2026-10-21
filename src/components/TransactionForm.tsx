@@ -1,21 +1,18 @@
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { bankBalanceCents, nativeBalanceMinor } from "../lib/accounts";
-import { errorMessage } from "../lib/api";
-import { installmentPostings } from "../lib/cards";
-import { cashAdvancePlan } from "../lib/loans";
-import { amountToInput, daysBetween, formatDateShort, formatMonthYear, parseAmount, parseDecimal, parseQuantity, todayISO } from "../lib/format";
-import { defaultSide, formatQty, formatRate, isForeign, isFund, qtyDecimals, qtyRule, tlAmount, TRY, unitDivisor, unitLabel } from "../lib/fx";
-import { shiftMonth } from "../lib/recurring";
-import { buildHistory, suggestCategory } from "../lib/statementImport";
-import type { Account, Transaction, TransactionInput, TxType } from "../lib/types";
+import { api, errorMessage } from "../lib/api";
+import { amountToInput, formatDateShort, formatMonthYear, parseAmount, parseDecimal, parseQuantity, todayISO } from "../lib/format";
+import { formatQty, formatRate, isForeign, isFund, qtyDecimals, qtyRule, TRY, unitLabel } from "../lib/fx";
+import type { Account, Transaction, TransactionDraft, TransactionInput, TransactionPreview, TxType } from "../lib/types";
 import { useData } from "../state/data";
+import { useFormPreview } from "../state/formPreview";
 import { useRates } from "../state/rates";
 import { useSettings } from "../state/settings";
 import { useUI, type AmountHint, type TransactionDefaults } from "../state/ui";
 import { AccountOptions } from "./AccountOptions";
 import { MoneyInput, Term, TERMS } from "./common";
 import { Modal } from "./Modal";
+import { TagPicker } from "./TagPicker";
 
 interface Props {
   transaction?: Transaction;
@@ -73,11 +70,12 @@ function AccountSelect({
 }
 
 export function TransactionForm({ transaction, defaults, hints, onClose, onSaved }: Props) {
-  const { categories, accounts, accountById, transactions, addTransaction, updateTransaction } = useData();
+  const { categories, accounts, accountById, addTransaction, updateTransaction, reloadTransactions } = useData();
   const { confirm } = useUI();
-  const { formatMoney, settings } = useSettings();
+  const { formatMoney } = useSettings();
   const editing = !!transaction;
   const init: Partial<TransactionInput> = transaction ?? defaults ?? {};
+  const [tagIds, setTagIds] = useState<string[]>(init.tagIds ?? []);
 
   const initialAccount = () => {
     if (init.accountId) return init.accountId;
@@ -109,11 +107,6 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
   // Yalnız gelir: bütçede hangi ayın geliri sayılacağı ("" = otomatik, işlem tarihinin ayı)
   const [budgetMonth, setBudgetMonth] = useState(init.budgetMonth ?? "");
   const monthLabel = (ym: string) => formatMonthYear(new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1));
-  const budgetMonthOptions = useMemo(() => {
-    const base = (date || todayISO()).slice(0, 7);
-    const list = [-3, -2, -1, 0, 1].map((d) => shiftMonth(base, d));
-    return budgetMonth && !list.includes(budgetMonth) ? [budgetMonth, ...list] : list;
-  }, [date, budgetMonth]);
   const { rates, refresh, rateAt } = useRates();
   const decimalText = (v: number | null | undefined) => (v == null ? "" : String(v).replace(".", ","));
   const [qty, setQty] = useState(decimalText(init.origAmount));
@@ -137,15 +130,12 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
   // Açıklamaya göre kategori önerisi (kullanıcı kategoriyi kendisi seçmediyse)
   const categoryTouched = useRef(!!init.categoryId);
   const [suggestedName, setSuggestedName] = useState<string | null>(null);
-  const history = useMemo(() => buildHistory(transactions), [transactions]);
+  // Öneri Rust'ta (taslağın açıklamasıyla); yalnız kullanıcı açıklamayı yazınca uygulanır (tür değişince ya da dolu açıklamayla
+  // açılınca değil)
+  const descriptionEdited = useRef(false);
   const onDescription = (v: string) => {
     setDescription(v);
-    if (categoryTouched.current || type === "transfer" || !v.trim()) return;
-    const id = suggestCategory(v, type, history, categories, settings.categoryRules);
-    if (id) {
-      setCategoryId(id);
-      setSuggestedName(categories.find((c) => c.id === id)?.name ?? null);
-    }
+    descriptionEdited.current = true;
   };
   // Çok kayıtlı kaydetmede (nakit avans) yarıda kalırsa kaç kaydın eklendiği
   const partialSaved = useRef(0);
@@ -174,19 +164,58 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
   const rateVal = fromFx ? parseDecimal(rate, 6) : null;
   const toQtyVal = toFx ? parseQuantity(toQty, qtyDecimals(toCur)) : null;
   const toRateVal = toFx ? parseDecimal(toRate, 6) : null;
-  // TL karşılığı: TL dışı kaynaktan, o yoksa TL dışı hedeften; ikisi de TL ise girilen tutar
-  const tlValue = fromFx
-    ? qtyVal && qtyVal > 0 && rateVal && rateVal > 0
-      ? tlAmount(qtyVal, rateVal, fromCur)
-      : null
-    : toFx
-      ? toQtyVal && toQtyVal > 0 && toRateVal && toRateVal > 0
-        ? tlAmount(toQtyVal, toRateVal, toCur)
-        : null
-      : parsed;
+  const isAdvance = canInstall && cashAdvance && !editing;
+  // Önizleme hesapları Rust'ta (finans-core::forms); form taslağı gönderir
+  const draft: TransactionDraft | null = accountId
+    ? {
+        type,
+        description,
+        accountId,
+        toAccountId: type === "transfer" ? toAccountId || null : null,
+        date,
+        amount: parsed,
+        installments,
+        qty: qtyVal,
+        rate: rateVal,
+        toQty: toQtyVal,
+        toRate: toRateVal,
+        editingId: transaction?.id ?? null,
+        budgetMonth: budgetMonth || null,
+        cashAdvance: isAdvance
+          ? {
+              feeRatePct: parseAmount(feeRate) ?? 0,
+              fee: feeInput !== null ? (parseAmount(feeInput) ?? 0) : null,
+              ratePct: parseAmount(advRate) ?? 0,
+              installment: advInstallmentInput !== null ? (parseAmount(advInstallmentInput) ?? 0) : null,
+              total: advTotalInput !== null ? (parseAmount(advTotalInput) ?? 0) : null,
+              parts: advParts
+                ? { faiz: parseAmount(advParts.faiz) ?? 0, kkdf: parseAmount(advParts.kkdf) ?? 0, bsmv: parseAmount(advParts.bsmv) ?? 0 }
+                : null,
+            }
+          : null,
+      }
+    : null;
+  const { preview, source, failed, latest } = useFormPreview(draft, api.previewTransaction);
+  useEffect(() => {
+    if (!descriptionEdited.current || categoryTouched.current || type === "transfer" || !description.trim()) return;
+    // Cevap şimdiki açıklamaya aitse uygulanır; boş öneri mevcut kategoriye dokunmaz
+    if (!preview || source?.description !== description) return;
+    descriptionEdited.current = false;
+    const id = preview.suggestedCategoryId;
+    if (id) {
+      setCategoryId(id);
+      setSuggestedName(categories.find((c) => c.id === id)?.name ?? null);
+    }
+  }, [preview, source, description, type, categories]);
+  // TL karşılığı: TL dışı kaynaktan, o yoksa TL dışı hedeften (Rust); ikisi de TL ise girilen tutar
+  const tlOf = (p: TransactionPreview | null) => (fromFx || toFx ? (p?.tlCents != null ? p.tlCents / 100 : null) : parsed);
+  const tlValue = tlOf(preview);
   // Döviz → döviz: hedef miktarı boşsa TL karşılığından önerilir
-  const toQtySuggestion =
-    fromFx && toFx && tlValue && toRateVal ? Math.round((tlValue / toRateVal) * 10 ** qtyDecimals(toCur)) / 10 ** qtyDecimals(toCur) : null;
+  const toQtySuggestion = preview?.toQtySuggestion ?? null;
+  // Kur tarafı yalnız şimdiki hesaplara ait önizlemeden (hesap değişince eski taraf doldurulmasın)
+  const sameAccounts = !!source && source.accountId === accountId && (source.toAccountId ?? null) === (type === "transfer" ? toAccountId || null : null);
+  const fromSide = sameAccounts ? (preview?.fromSide ?? null) : null;
+  const toSide = sameAccounts ? (preview?.toSide ?? null) : null;
 
   // Dövizli hesap seçilince kurlar kaynaktan yenilenir (en çok dakikada bir)
   useEffect(() => {
@@ -220,54 +249,36 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
       }
     };
     setRateNote(null);
-    if (fromFx && !rateTouched.current) void fill(fromCur, defaultSide(fromCur, toFx ? toCur : null), setRate);
-    if (toFx && !toRateTouched.current) void fill(toCur, defaultSide(fromCur, toCur), setToRate);
+    // Alış ya da satış kuru Rust önizlemesinden; gelene kadar doldurulmaz
+    if (fromFx && fromSide && !rateTouched.current) void fill(fromCur, fromSide, setRate);
+    if (toFx && toSide && !toRateTouched.current) void fill(toCur, toSide, setToRate);
+    if (failed && ((fromFx && !rateTouched.current) || (toFx && !toRateTouched.current))) setRateNote("Kur doldurulamadı; kuru elle girin.");
     return () => {
       cancelled = true;
     };
-  }, [fromFx, toFx, fromCur, toCur, date, rateAt, rates]);
-  const isAdvance = canInstall && cashAdvance && !editing;
+  }, [fromFx, toFx, fromCur, toCur, fromSide, toSide, failed, date, rateAt, rates]);
   // Banka yöntemi: taksitler çekim gününden itibaren ekstrelere yazılır; ilk dönemin faizi çekimden ilk son ödeme
   // tarihine kadar işler (ör. kesim 23 / ödeme 2 kartta 26 Eylül çekim → 2 Kasım, 37 gün)
-  const firstDue = isAdvance && account && date ? installmentPostings(account, date, 1, 1)[0].dueDate : null;
-  const advance = useMemo(() => {
-    if (!isAdvance || !parsed || parsed <= 0) return null;
-    const principalCents = Math.round(parsed * 100);
-    const feePct = parseAmount(feeRate) ?? 0;
-    const fee = feeInput !== null ? (parseAmount(feeInput) ?? 0) : Math.round(principalCents * feePct) / 10000;
-    let installment = parsed;
-    // Banka yöntemi: ilk dönem faizi çekimden ilk taksite kadar geçen günle; ilk taksit tarihi yoksa 30 gün
-    const days = firstDue ? daysBetween(date, firstDue) : 30;
-    const auto = n > 1 ? cashAdvancePlan(principalCents, (parseAmount(advRate) ?? 0) / 100, n, days) : null;
-    if (auto) installment = advInstallmentInput !== null ? (parseAmount(advInstallmentInput) ?? 0) : auto.paymentsCents[0] / 100;
-    const cents = (v: string) => Math.round((parseAmount(v) ?? 0) * 100);
-    // Toplam elle yazıldıysa (ödeme planındaki "Toplam") kuruş farkı olmadan o kullanılır
-    let totalCents = auto && advInstallmentInput === null ? auto.totalCents : Math.round(installment * n * 100);
-    if (n > 1 && advParts) totalCents = principalCents + cents(advParts.faiz) + cents(advParts.kkdf) + cents(advParts.bsmv);
-    else if (n > 1 && advTotalInput !== null) totalCents = cents(advTotalInput);
-    const total = n > 1 ? totalCents / 100 : parsed;
-    if (n > 1 && (advParts || advTotalInput !== null)) installment = Math.round(totalCents / n) / 100;
-    const interestCents = Math.max(0, n > 1 ? totalCents - principalCents : 0);
-    // Faiz kalemleri: elle yazılmadıysa KKDF ve BSMV faizin %15'er (toplam faizin 1,3'te biri akdi faiz)
-    let faizCents = Math.round(interestCents / 1.3);
-    let kkdfCents = Math.round(faizCents * 0.15);
-    let bsmvCents = interestCents - faizCents - kkdfCents;
-    if (auto && totalCents === auto.totalCents) [faizCents, kkdfCents, bsmvCents] = [auto.interestCents, auto.kkdfCents, auto.bsmvCents];
-    if (advParts) [faizCents, kkdfCents, bsmvCents] = [cents(advParts.faiz), cents(advParts.kkdf), cents(advParts.bsmv)];
+  const firstDue = isAdvance ? (preview?.firstDue ?? null) : null;
+  // Nakit avans planı (Rust): faiz, KKDF ve BSMV kalemleri
+  const advanceOf = (p: TransactionPreview | null) => {
+    const a = isAdvance ? p?.advance : null;
+    if (!a) return null;
     return {
-      fee,
-      installment,
-      total,
-      interest: interestCents / 100,
-      parts: { faiz: faizCents / 100, kkdf: kkdfCents / 100, bsmv: bsmvCents / 100 },
+      fee: a.fee,
+      installment: a.installment,
+      total: a.total,
+      interest: a.interestCents / 100,
+      parts: { faiz: a.faizCents / 100, kkdf: a.kkdfCents / 100, bsmv: a.bsmvCents / 100 },
     };
-  }, [isAdvance, parsed, feeRate, feeInput, advRate, advInstallmentInput, advTotalInput, advParts, n, date, firstDue]);
-  const postDate = date;
-  const perInstallment = n > 1 && parsed && parsed > 0 ? parsed / n : null;
+  };
+  const advance = advanceOf(preview);
+  const perInstallment = preview?.perInstallment ?? null;
+  const budgetMonthOptions = preview?.budgetMonthOptions ?? (budgetMonth ? [budgetMonth] : []);
   // Kart harcamasının ekstrelere dağılımı; takip başlangıcından önceki taksitler ödenmiş sayılır
   const cardInfo = useMemo(() => {
-    if (type !== "expense" || account?.kind !== "credit_card" || !parsed || parsed <= 0 || !postDate) return null;
-    const postings = installmentPostings(account, postDate, parsed, n);
+    const postings = preview?.postings;
+    if (!postings) return null;
     const open = postings.filter((p) => !p.settled);
     const settled = postings.length - open.length;
     if (!open.length) return `Tüm taksitler takip başlangıcından önceki ekstrelere düşüyor (ödenmiş sayılır); borca eklenmez.`;
@@ -278,16 +289,33 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
     return settled > 0
       ? `${settled}/${postings.length} taksit önceki ekstrelerde ödenmiş sayılır; kalan ${open.length} taksit ${range} yazılır.`
       : `${open.length > 1 ? `${open.length} taksit ` : ""}${range} yazılır.`;
-  }, [type, account, parsed, n, postDate]);
+  }, [preview]);
 
   const switchType = (t: TxType) => {
     setType(t);
+    descriptionEdited.current = false;
     // Tür değişince uyumsuz kategori seçimini temizle
     if (t === "transfer" || (categoryId && !categories.some((c) => c.id === categoryId && c.type === t))) setCategoryId("");
   };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    const source = accountById.get(accountId);
+    // Kaydedilen değer hesaptan geliyorsa son taslağın taze hesabı alınır (eski girdinin sonucu kaydedilmesin)
+    const needsPreview = fromFx || toFx || isAdvance || (source?.kind === "cash" && type !== "income");
+    let fresh: TransactionPreview | null = null;
+    if (needsPreview && draft) {
+      try {
+        fresh = await latest(draft);
+      } catch (err) {
+        setError(`Hesap yapılamadı: ${errorMessage(err)}`);
+        setErrorField(null);
+        return;
+      }
+    }
+    const tlValue = needsPreview ? tlOf(fresh) : parsed;
+    const toQtySuggestion = fresh?.toQtySuggestion ?? null;
+    const advance = advanceOf(fresh);
     if (fromFx && !(qtyVal && qtyVal > 0)) return fail(`Geçerli bir miktar girin (${qtyRule(fromCur)}).`, "tx-qty");
     if (fromFx && !(rateVal && rateVal > 0)) return fail("Kuru girin (1 birimin TL fiyatı).", "tx-rate");
     const toQtyFinal = toQtyVal ?? toQtySuggestion;
@@ -298,16 +326,14 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
     if (!accountId) return fail("Bir hesap seçin.", "tx-account");
     if (type === "transfer" && !toAccountId) return fail("Paranın gideceği hesabı seçin.", "tx-to-account");
     if (type === "transfer" && toAccountId === accountId) return fail("Kaynak ve hedef hesap aynı olamaz.", "tx-to-account");
-    // Nakit hesabı eksiye düşemez: muhtemelen yanlış hesap ya da tutar
-    const source = accountById.get(accountId);
-    if (source?.kind === "cash" && type !== "income") {
-      const others = transactions.filter((t) => t.id !== transaction?.id);
-      const before = fromFx ? nativeBalanceMinor(source, others) : bankBalanceCents(source, others);
-      const after = before - (fromFx ? Math.round(qtyVal! * unitDivisor(fromCur)) : Math.round(tlValue * 100));
+    // Nakit hesabı eksiye düşemez: muhtemelen yanlış hesap ya da tutar (bakiye Rust'ta)
+    const cashAfter = fresh?.cashAfter;
+    if (source && cashAfter) {
+      const after = cashAfter.minor / cashAfter.divisor;
       if (after < 0) {
         const ok = await confirm({
           title: "Nakit eksiye düşecek",
-          message: `${source.name} bakiyesi ${fromFx ? formatQty(after / unitDivisor(fromCur), fromCur) : formatMoney(after / 100)} olacak. Nakit eksiye düşemez; tutarı ya da hesabı kontrol edin. Yine de kaydedilsin mi?`,
+          message: `${source.name} bakiyesi ${fromFx ? formatQty(after, fromCur) : formatMoney(after)} olacak. Nakit eksiye düşemez; tutarı ya da hesabı kontrol edin. Yine de kaydedilsin mi?`,
           confirmLabel: "Yine de kaydet",
         });
         if (!ok) return;
@@ -332,6 +358,7 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
         fxRate: fromFx ? rateVal : null,
         toOrigAmount: toFx ? toQtyFinal : null,
         toFxRate: toFx ? toRateVal : null,
+        tagIds,
       };
       if (transaction) {
         await updateTransaction({ ...transaction, ...payload });
@@ -341,30 +368,35 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
         const advCat = categories.find((c) => c.type === "expense" && c.name === "Nakit Avans");
         const feeCat = categories.find((c) => c.type === "expense" && c.name === "Faiz ve Masraflar");
         const label = description.trim() || "Nakit avans";
-        await addTransaction({ ...payload, categoryId: categoryId || advCat?.id || null, description: label });
-        partialSaved.current = 1;
-        if (n > 1)
-          for (const [amt, what] of [
-            [advance.parts.faiz, "faizi"],
-            [advance.parts.kkdf, "KKDF"],
-            [advance.parts.bsmv, "BSMV"],
-          ] as const)
-            if (amt > 0)
-              (await addTransaction({
-                ...payload,
-                amount: amt,
-                categoryId: feeCat?.id ?? null,
-                description: `${label} ${what} (${n} taksit)`,
-              }),
-                partialSaved.current++);
-        if (advance.fee > 0)
-          await addTransaction({
-            ...payload,
-            amount: advance.fee,
-            installments: 1,
-            categoryId: feeCat?.id ?? null,
-            description: `${label} ücreti`,
-          });
+        // Birden çok işlem yazılır; liste sonda bir kez (yarıda kalsa da) yeniden okunur
+        try {
+          await api.createTransaction({ ...payload, categoryId: categoryId || advCat?.id || null, description: label });
+          partialSaved.current = 1;
+          if (n > 1)
+            for (const [amt, what] of [
+              [advance.parts.faiz, "faizi"],
+              [advance.parts.kkdf, "KKDF"],
+              [advance.parts.bsmv, "BSMV"],
+            ] as const)
+              if (amt > 0)
+                (await api.createTransaction({
+                  ...payload,
+                  amount: amt,
+                  categoryId: feeCat?.id ?? null,
+                  description: `${label} ${what} (${n} taksit)`,
+                }),
+                  partialSaved.current++);
+          if (advance.fee > 0)
+            await api.createTransaction({
+              ...payload,
+              amount: advance.fee,
+              installments: 1,
+              categoryId: feeCat?.id ?? null,
+              description: `${label} ücreti`,
+            });
+        } finally {
+          await reloadTransactions().catch(() => {});
+        }
         onSaved("Nakit avans eklendi.");
       } else {
         await addTransaction(payload);
@@ -523,6 +555,13 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
               onChange={(e) => onDescription(e.target.value)}
             />
             {suggestedName && <p className="mt-1 text-xs text-zinc-500">Kategori açıklamaya göre seçildi: {suggestedName}</p>}
+          </div>
+
+          <div>
+            <label className="label" htmlFor="tx-tags">
+              Etiketler
+            </label>
+            <TagPicker id="tx-tags" value={tagIds} onChange={setTagIds} />
           </div>
 
           {type === "transfer" ? (
@@ -784,9 +823,9 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
                   </div>
                 </details>
               )}
-              {n > 1 && firstDue && (
+              {n > 1 && firstDue && preview?.firstPeriodDays != null && (
                 <p className="text-xs font-medium text-indigo-600 dark:text-indigo-300">
-                  Çekim {formatDateShort(date)} → ilk son ödeme {formatDateShort(firstDue)}: ilk taksitte {daysBetween(date, firstDue)} gün
+                  Çekim {formatDateShort(date)} → ilk son ödeme {formatDateShort(firstDue)}: ilk taksitte {preview?.firstPeriodDays} gün
                   faiz.
                 </p>
               )}

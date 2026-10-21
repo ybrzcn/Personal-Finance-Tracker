@@ -15,6 +15,7 @@ import {
   Plus,
   Settings,
   Sun,
+  Tag as TagIcon,
   Tags,
   TrendingDown,
   Wallet,
@@ -37,6 +38,7 @@ const NAV: { page: Page; label: string; icon: typeof LayoutDashboard; key?: stri
   { page: "plan", label: "Ödeme Takvimi", icon: CalendarRange, key: "6" },
   { page: "debt", label: "Borç Planı", icon: TrendingDown, key: "7" },
   { page: "categories", label: "Kategoriler", icon: Tags, key: "8" },
+  { page: "tags", label: "Etiketler", icon: TagIcon },
   { page: "settings", label: "Ayarlar", icon: Settings, key: "9" },
 ];
 

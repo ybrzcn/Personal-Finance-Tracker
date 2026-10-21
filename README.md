@@ -27,6 +27,14 @@ Data is stored in PostgreSQL (one schema, rows isolated per user with row-level 
 
 **Savings goals:** Set a target amount (TRY, foreign currency or gold) and an optional date, then link the accounts you save in. The app shows progress, how much you need to save per month, your pace over the last 3 months and when you will reach the goal at that pace. Each account belongs to one goal; the nearest goals appear on the Overview. (Requires the server or desktop app.)
 
+**Tags:** Add tags to transactions independent of categories (e.g. "Holiday 2026", "Business expense"); a transaction can have several. Filter by tag on the Transactions page and add/remove tags on many transactions at once. The Tags page shows net spending per tag (refunds deducted), a category breakdown, the monthly trend and an optional total budget. (Requires the server or desktop app.)
+
+**Account summaries:** Card statements, loan schedules, overdraft and FX values are computed by the same Rust code on desktop and server, so the figures match everywhere.
+
+**Budget:** Category budgets, matching of recurring income and expenses, assigning card spending to the month of the salary that pays it, and expected income are computed by the same Rust code on desktop and server. (Requires the server or desktop app.)
+
+**Payment calendar:** Which salary pays each card statement, loan installment and recurring payment, plus the period's already paid statements and received income, is computed by the same Rust code on desktop and server. (Requires the server or desktop app.)
+
 **Profit/loss:** the Kâr/Zarar page shows, for each foreign currency and gold account, the weighted average cost, current value and unrealised profit/loss, plus realised profit/loss for every sale or foreign-currency expense with a monthly chart. Buying and selling are entered as transfers. With a free TCMB EVDS API key (evds3.tcmb.gov.tr → sign up → Profile → API key) it also compares returns with consumer price inflation (TÜFE): set `FINANS_EVDS_KEY` in `.env` on the server (Postgres stores the series), or enter the key under Settings in the desktop app (kept only on that device).
 
 Put it behind HTTPS (Cloudflare Tunnel, Caddy, nginx). The server serves the web app and `/api`; the landing page offers the desktop downloads. Configuration (environment variables) is documented in the Turkish section [Sunucu (self-host)](#sunucu-self-host).
@@ -41,19 +49,23 @@ Put it behind HTTPS (Cloudflare Tunnel, Caddy, nginx). The server serves the web
 
 ## Özellikler
 
-- **Dashboard:** Toplam Gelir / Gider / Net Bakiye kartları (Bu Ay · Son 30 Gün · Tümü), bu ayın kategori bazlı harcama halkası, son 30 günün kategori çubuk grafiği, son 6 ayın gelir-gider karşılaştırması, son 10 işlem, yaklaşan kart ödemeleri (30 gün).
+- **Dashboard:** Toplam Gelir / Gider / Net Bakiye kartları (Bu Ay · Son 30 Gün · Tümü), bu ayın kategori bazlı harcama halkası, son 30 günün kategori çubuk grafiği, son 6 ayın gelir-gider karşılaştırması, son 10 işlem, yaklaşan kart ödemeleri (30 gün). İstatistikler (dönem toplamları, harcama dağılımı, son 6 ay) masaüstünde ve sunucuda aynı Rust kodunda hesaplanır.
 - **Hesaplar:** Vadesiz hesap (isteğe bağlı KMH limiti ve faiz oranı), nakit ve kredi kartları. Kartlarda kesim / son ödeme günü, limit, aylık akdi faiz, asgari ödeme oranı; ekstre borcu, son ödeme tarihi, asgari tutar ve ödeme durumu işlemlerden otomatik hesaplanır. Taksitli harcamalar ekstrelere bölünür. Kart tanımlanırken yalnızca "son ekstre ödendi mi?" sorulur; borç, karta girilen harcamalardan hesaplanır. Eski taksitli alışverişler alış tarihi ve toplam taksit sayısıyla girilir, takip başlangıcından önceki ekstrelere düşen taksitler ödenmiş sayılır. Kart ödemesi ve hesaplar arası para aktarımı **transfer** olarak girilir (gider sayılmaz).
 - **Döviz ve altın hesapları:** Vadesiz hesap ve nakit; döviz (TCMB'nin yayımladığı 21 para birimi), gram altın/gümüş (has, külçe, 22 ve 14 ayar) ya da ziynet altın (çeyrek, yarım, tam, Ata, beşli, gremse; yeni/eski) olarak tutulabilir. Bakiye kendi biriminde, TL karşılığı güncel alış kuruyla gösterilir ve net servete eklenir. Dövizli gelir, gider ve transferde kur (döviz alımında satış, diğerlerinde alış) kendiliğinden gelir ve değiştirilebilir; geçmiş tarihli işlemde o günün TCMB kuru kullanılır. **Kurlar** sayfasında alış, satış, günlük değişim ve geçmiş grafiği bulunur. Kaynaklar: dövizde TCMB (iş günü 15:30), altın ve gümüşte Harem Altın (resmî olmayan akış; ulaşılamazsa son fiyat gösterilir, kur her zaman elle girilebilir).
-- **Yatırım fonları:** TEFAS'taki yatırım fonları ve borsa yatırım fonları (BYF) ayrı hesaplar olarak tutulur (birim: pay). Hesap formunda "Yatırım fonu" seçilip fon kodu ya da adıyla aranır. Alım-satım TL hesabından transferle girilir (pay adedi ve fiyat; fiyat o günün TEFAS fiyatıyla gelir). Fiyat TEFAS'tan günde bir alınır; **Kurlar** sayfasında "Fonlarım" altında son fiyat, günlük değişim ve 3 aylık grafik bulunur. Kâr/zarar ve enflasyon karşılaştırması döviz/altınla aynı çalışır. Fiyat kaynağı TEFAS sitesinin kullandığı servistir; resmî ve belgelenmiş değildir, dakikada en çok birkaç istek kabul eder (ulaşılamazsa son fiyat "eski" uyarısıyla gösterilir). Tarayıcı modunda kullanılamaz.
-- **Net servet geçmişi:** Hesaplar sayfasında her ay sonundaki net servet (varlıklar − kart, kredi ve KMH borcu). Döviz, altın ve fonlar bugünkü fiyatla değerlenir; yanında maliyetle değer çizilir, aradaki fark kur/fiyat kazancıdır. Toplam, varlık ve borç, tür ve hesap kırılımı görünümleri; 1 yıl / 3 yıl / Tümü. Hesaplar sayfasındaki kutular da aynı hesaptan gelir; ileri tarihli kart ve kredi işlemleri tarihi gelince sayılır. Hesap Rust'ta yapılır; tarayıcı modunda kullanılamaz.
-- **Birikim hedefleri:** Hedef tutarı (TL, döviz ya da altın) ve isteğe bağlı tarih koy, biriktirdiğin hesapları bağla. Uygulama ilerlemeyi, ayda ne kadar biriktirmen gerektiğini, son 3 ayın hızını ve bu hızla hedefe ne zaman ulaşacağını gösterir. Her hesap bir hedefe bağlanır; Genel Bakış'ta en yakın hedefler görünür. (Sunucu ya da masaüstü gerekir.)
+- **Yatırım fonları:** TEFAS'taki yatırım fonları ve borsa yatırım fonları (BYF) ayrı hesaplar olarak tutulur (birim: pay). Hesap formunda "Yatırım fonu" seçilip fon kodu ya da adıyla aranır. Alım-satım TL hesabından transferle girilir (pay adedi ve fiyat; fiyat o günün TEFAS fiyatıyla gelir). Fiyat TEFAS'tan günde bir alınır; **Kurlar** sayfasında "Fonlarım" altında son fiyat, günlük değişim ve 3 aylık grafik bulunur. Kâr/zarar ve enflasyon karşılaştırması döviz/altınla aynı çalışır. Fiyat kaynağı TEFAS sitesinin kullandığı servistir; resmî ve belgelenmiş değildir, dakikada en çok birkaç istek kabul eder (ulaşılamazsa son fiyat "eski" uyarısıyla gösterilir).
+- **Net servet geçmişi:** Hesaplar sayfasında her ay sonundaki net servet (varlıklar − kart, kredi ve KMH borcu). Döviz, altın ve fonlar bugünkü fiyatla değerlenir; yanında maliyetle değer çizilir, aradaki fark kur/fiyat kazancıdır. Toplam, varlık ve borç, tür ve hesap kırılımı görünümleri; 1 yıl / 3 yıl / Tümü. Hesaplar sayfasındaki kutular da aynı hesaptan gelir; ileri tarihli kart ve kredi işlemleri tarihi gelince sayılır. Hesap Rust'ta yapılır.
+- **Birikim hedefleri:** Hedef tutarı (TL, döviz ya da altın) ve isteğe bağlı tarih koy, biriktirdiğin hesapları bağla. Uygulama ilerlemeyi, ayda ne kadar biriktirmen gerektiğini, son 3 ayın hızını ve bu hızla hedefe ne zaman ulaşacağını gösterir. Her hesap bir hedefe bağlanır; Genel Bakış'ta en yakın hedefler görünür.
+- **Etiketler:** İşlemlere kategoriden bağımsız etiketler ekle (ör. "Tatil 2026", "İş masrafı"); bir işlem birden çok etiket taşıyabilir. İşlemler sayfasında etikete göre süz, birden çok işlemi seçip toplu etiket ekle/kaldır. Etiketler sayfası etiket başına net harcamayı (iadeler düşülür), kategori kırılımını, aylık seyri ve isteğe bağlı toplam bütçenin durumunu gösterir.
+- **Hesap özetleri:** Kart ekstreleri, kredi ödeme planı, KMH ve döviz değeri masaüstünde ve sunucuda aynı Rust kodunda hesaplanır; rakamlar her yerde aynıdır. Form önizlemeleri (nakit avans planı, taksitlerin düşeceği ekstreler, kart kesim tarihleri, kredi taksit önerisi, döviz karşılığı, nakit eksi uyarısı) de Rust'ta hesaplanır.
+- **Bütçe:** Kategori bütçeleri, düzenli gelir/gider eşleştirmesi, kart harcamalarının ödeyecek maaşın ayına yazılması ve beklenen gelir masaüstünde ve sunucuda aynı Rust kodunda hesaplanır.
+- **Ödeme takvimi:** Kart ekstreleri, kredi taksitleri ve düzenli ödemelerin hangi maaştan karşılanacağı, dönemin ödenmiş ekstreleri ve yatmış gelirleri masaüstünde ve sunucuda aynı Rust kodunda hesaplanır.
 - **Kâr/Zarar:** Döviz, altın ve fon hesaplarında ağırlıklı ortalama maliyet, güncel değer ve kâğıt üstü kâr/zarar; her satışın ve dövizle yapılan giderin gerçekleşen kâr/zararı, aylık grafikle. Alım ve satım transfer olarak girilir; açılış bakiyesinin maliyeti hesap formunda girilebilir (boşsa açılış günü kuru). TCMB EVDS anahtarı verilirse getiri TÜFE ile karşılaştırılır (reel kâr/zarar): anahtar evds3.tcmb.gov.tr'de ücretsiz üyelikle Profil → API Anahtarı'ndan alınır; sunucuda `.env`'deki `FINANS_EVDS_KEY`'e, masaüstünde Ayarlar'a girilir (yalnız o cihazda saklanır).
 - **Krediler:** Kalan anapara, aylık faiz, KKDF+BSMV, kalan vade ve sonraki taksit tarihiyle ödeme planı; "Taksit öde" anaparayı krediye transfer, faizi "Faiz ve Masraflar" gideri olarak kaydeder.
 - **Bütçe:** Gider kategorilerine aylık limit (ilerleme çubuğu, aşım uyarısı), düzenli gelirler (maaş günü) ve düzenli giderler (kira, fatura, abonelik).
 - **Ödeme Takvimi:** Önümüzdeki 1/3/6 ayın kart ekstreleri (kesilmemişler tahmini), kredi taksitleri ve düzenli giderleri; her ödeme son ödeme tarihinden önce yatan son gelire yazılır (hesap bazında elle seçilebilir), gelir başına "kalan" gösterilir.
-- **Analiz:** Abonelikler kategorisinden otomatik bulunan aboneliklerin aylık / yıllık maliyeti (ad, sıklık, iptal düzeltilebilir) ve seçili değişken gider kategorileri (varsayılan Eğlence, Restoran, Kafe, Market) için aylık / yıllık harcama tahmini ve ay sonu beklentisi.
-- **Borç Planı:** Aylık ayrılabilecek tutara göre Çığ / Kartopu / kendi sıranız / yalnız asgari stratejilerinin simülasyonu; toplam faiz, kapanma tarihi ve aylık ödeme tablosu.
-- **Ekstre içe aktarma:** Bankadan indirilen Excel (XLSX/XLS/ODS), PDF veya CSV/TXT hesap hareketi ya da kart ekstresi (PDF'te tarihle başlayan satırlar okunur; şifreli ve taranmış PDF desteklenmez); sütunlar otomatik tanınır, kategoriler geçmiş işlemlere ve bilinen işyerlerine göre önerilir, mükerrer kayıtlar ve kart ödemeleri işaretlenir.
+- **Analiz:** Abonelikler kategorisinden otomatik bulunan aboneliklerin aylık / yıllık maliyeti (ad, sıklık, iptal düzeltilebilir) ve seçili değişken gider kategorileri (varsayılan Eğlence, Restoran, Kafe, Market) için aylık / yıllık harcama tahmini ve ay sonu beklentisi. Hesap Rust'ta yapılır.
+- **Borç Planı:** Aylık ayrılabilecek tutara göre Çığ / Kartopu / kendi sıranız / yalnız asgari stratejilerinin simülasyonu; toplam faiz, kapanma tarihi ve aylık ödeme tablosu. Hesap masaüstünde ve sunucuda aynı Rust kodunda yapılır.
+- **Ekstre içe aktarma:** Bankadan indirilen Excel (XLSX/XLS/ODS), PDF veya CSV/TXT hesap hareketi ya da kart ekstresi (PDF'te tarihle başlayan satırlar okunur; şifreli ve taranmış PDF desteklenmez); sütunlar otomatik tanınır, kategoriler geçmiş işlemlere ve bilinen işyerlerine göre önerilir, mükerrer kayıtlar ve kart ödemeleri işaretlenir. Dosya en çok 25 MB, tablo en çok 20.000 satır olabilir. Okuma, eşleştirme ve kategori önerileri Rust'ta yapılır.
 - **İşlemler:** Ekleme / düzenleme / silme; açıklama-kategori-tutar araması, tür, kategori ve tarih aralığı filtreleri (hazır aralıklar dahil), tarih/tutar sıralama, filtrelenmiş sonucu CSV'ye aktarma.
 - **Kategoriler:** Varsayılan gelir/gider kategorileri, renk seçimli ekleme / düzenleme / silme. Silinen kategorinin işlemleri silinmez, "Kategorisiz" kalır.
 - **Yedekleme:** JSON yedek alma ve geri yükleme (atomik — hata olursa hiçbir veri değişmez), CSV dışa / içe aktarma (Excel uyumlu `;` ayırıcı, UTF-8 BOM). Eski (v1) yedekler geri yüklenince tüm işlemler "Genel Hesap"a atanır.
@@ -158,7 +170,7 @@ npm run tauri dev
 
 İlk derleme Rust bağımlılıkları nedeniyle birkaç dakika sürebilir; sonrakiler hızlıdır.
 
-> Yalnızca arayüz üzerinde çalışmak için `npm run dev` ile tarayıcıda (http://localhost:1420) açabilirsiniz. Bu modda veriler SQLite yerine tarayıcının localStorage'ında tutulur.
+> `npm run dev` düz tarayıcıda açılırsa (http://localhost:1420) 8080'deki sunucuya bağlanır (aşağıdaki sunucu komutu).
 
 ---
 
@@ -303,19 +315,47 @@ Tüm yanıtlar JSON; hata biçimi `{"error": "<mesaj>"}`. Kimlik: web'de `finans
 | `POST /api/auth/change-password` `{currentPassword, newPassword}` | Diğer oturumlar kapanır |
 | `POST /api/auth/recover` `{email, recoveryCode, newPassword, device?}` | Yeni şifre + yeni kurtarma kodu |
 | `GET /api/me`, `DELETE /api/me` `{password}` | Hesap bilgisi / hesabı ve tüm veriyi silme |
-| `GET, POST /api/{categories,accounts,transactions,recurring}` | Listele / ekle |
+| `GET, POST /api/{categories,accounts,transactions,recurring}` | Listele / ekle. Listeler arayüzün gösterdiği sırayla gelir (işlemler tarihe, hesaplar ve kategoriler Türkçe alfabetik ada göre) |
 | `PUT, DELETE /api/{categories,accounts,transactions,recurring}/{id}` | Güncelle / sil |
+| `PUT /api/recurring/{id}/exception` `{month, amount, note}` | Düzenli kaydın o aya özel tutarı (`amount: 0` "bu ay yatmayacak", `null` istisnayı kaldırır); güncel kaydı döndürür |
 | `GET /api/budgets`, `PUT /api/budgets/{categoryId}` `{amount}` | Bütçeler (`amount: null` kaldırır) |
 | `GET /api/settings`, `PUT /api/settings/{key}` | Borç planı / analiz ayarları |
 | `POST /api/restore`, `GET /api/export` | Tüm veriyi değiştir / indir |
-| `POST /api/statements/parse?name=<dosya>` (ham bayt) | Ekstre dosyasını okur (CSV, Excel, PDF) |
+| `POST /api/statements/parse?name=<dosya>` (ham bayt) | Ekstre dosyasını okur (CSV, Excel, PDF) ve çözümler: tablo, başlık satırı, tahmin edilen sütunlar ve ekstre özeti (kesim, son ödeme, dönem borcu, limit, faiz) |
+| `POST /api/statements/rows` | Ekstre tablosundan işlem satırları: tutar ve işaret, taksit, kart ödemesi algılama, mükerrer kayıt, önerilen kategori (`columns`/`signMode` boşsa tahmin edilir; en çok 20.000 satır, gövde en çok 32 MB) |
+| `POST /api/preview/statement-card` | Ekstre özetinin kart ayarlarından farkı ve ekstrenin takip başlangıcından önce olup olmadığı |
+| `POST /api/preview/statement-totals` | Seçili ekstre satırlarının gider/gelir toplamı ve dönem içi harcamayla uyumu (TL) |
+| `POST /api/preview/category-rule` | Kategori kuralı önizlemesi: kaydedilecek kelimeler ve kurala uyan işlemler |
+| `GET /api/categories/suggestions` | Kategorisiz işlemler için açıklamaya göre kategori önerileri (kurallar, geçmiş, bilinen işyerleri) |
+| `POST /api/export/csv` `{transactionIds}` | İşlemlerin CSV'si (`{csv}`; Excel için BOM, `;` ayırıcı, formül koruması). `transactionIds: null` bütün işlemler; dizi verilirse o işlemler o sırayla |
+| `GET /api/export/backup` | JSON yedek metni (`{json}`, sürüm 3): veri ile borç planı, analiz ve kategori kuralı ayarları |
+| `POST /api/backup/parse` `{text}` | Yedeği doğrular (v1/v2/v3; v1 yedek "Genel Hesap"a taşınır); geri yüklenecek veriyi döndürür (gövde en çok 64 MB) |
+| `POST /api/csv/parse` `{text}` | Finans CSV'sini okur: satırlar, atlanan satırlar ve nedenleri, "Hesap" sütunu var mı (gövde en çok 64 MB) |
+| `POST /api/csv/merge` `{rows, defaultAccountId}` | CSV satırlarından eklenecek yeni kategoriler ve işlemler; hedef hesabı ya da döviz bilgisi eksik satırların sayısı (veri yazmaz) |
+| `GET /api/reset/seed` | "Verileri sıfırla" sonrası başlangıç verisi: varsayılan kategoriler ve boş "Genel Hesap" (yeni kimliklerle; veri yazmaz) |
 | `GET /api/rates/latest[?refresh=1]`, `GET /api/rates/at?code=&date=`, `GET /api/rates/history?code=&from=&to=` | Kurlar; güncel listede kullanıcının fonları da (`FON:XXX`) bulunur (döviz/altın geçmişi yalnız Postgres; fon geçmişi her iki modda) |
 | `GET /api/funds/search?q=<kod ya da ad>` | TEFAS fon arama (en çok 20 sonuç) |
 | `GET /api/pnl?from=&to=&kind=all\|fx\|fund` | Kâr/zarar raporu (tutarlar kuruş, kurlar ×1.000.000, yüzdeler baz puan); `kind` döviz/altın ya da fonlarla sınırlar |
+| `GET /api/accounts/report` | Hesap özetleri: kart ekstreleri ve borcu, ödeme ipuçları, kredi ödeme planı, banka/KMH ve döviz değeri (tutarlar kuruş) |
+| `GET /api/budget/report?month=YYYY-MM` | Bütçe: kategori harcamaları ve limitleri, düzenli/düzensiz gelir ve gider, ayrılan bütçe, kalan, düzenli kayıtların o aydaki tarih ve tutarları (tutarlar kuruş) |
+| `GET /api/income/status` | Gelir durumu: bu ay beklenen gelir (maaş / diğer) ve yatış günü gelmiş ama girilmemiş düzenli gelirler (tutarlar kuruş) |
+| `GET /api/cashplan?months=N` | Ödeme takvimi (N = 1–24 ay): bugünkü nakit, maaş dönemleri ya da takvim ayları, her dönemin gelirleri, ödemeleri (hangi gelirden karşılandığı), ödenmiş/yatmış kalemleri ve tahmini bakiyesi (tutarlar kuruş) |
+| `GET /api/obligations/upcoming?days=N` | Önümüzdeki N gündeki (1–365) ve gecikmiş kart, kredi ve planlı ödemeler (tutarlar kuruş) |
+| `GET /api/debt/plan` | Borç planı: faiz işleyen borçlar, Çığ / Kartopu / hesap sırası / yalnız asgari ve "Kendi planım" simülasyonları (ayarlardaki aylık tutar, aya özel tutarlar, kurallar ve hücrelerle), en az faizli plan, ilk 24 ayın tablosu (tutarlar kuruş) |
+| `GET /api/overview?period=thisMonth\|lastMonth\|last30\|thisYear\|all` | Genel Bakış: dönemin gelir/gider/net toplamları (girilmemiş düzenli gelirin plan tutarı dahil), işlem sayısı, tasarruf oranı, kategori/hesap/satıcı gider dağılımı, önceki dönemin kategori dağılımı, son 6 ayın gelir ve gideri (tutarlar kuruş) |
+| `GET /api/categories/usage` | Kategori başına işlem sayısı ve tutar toplamı (tutarlar kuruş) |
+| `GET /api/analysis` | Analiz: Abonelikler kategorisinden bulunan abonelikler (kayıtlı düzeltmeler uygulanmış; aylık/yıllık maliyet, sonraki ödeme, gecikme) ve seçili kategorilerin aylık/yıllık harcama tahmini, ay sonu beklentisi, en çok harcanan yerler (tutarlar kuruş) |
+| `POST /api/preview/transaction` | İşlem formu önizlemesi: gövde formun taslağı; TL karşılığı, kur tarafı, nakit avans planı, taksitlerin düşeceği ekstreler, nakit eksi denetimi, gelirin bütçe ayı seçenekleri (tutarlar kuruş) |
+| `POST /api/preview/account` | Hesap formu önizlemesi: kartın sonraki ve son kesim/son ödeme tarihleri, yeni kartın takip başlangıcı, kredi taksit önerisi (kuruş), hesabın işlem kaydı var mı |
+| `POST /api/preview/recurring` | Düzenli kayıt formu önizlemesi: bugünkü tutar, değişiklik tarihi varsayılanı, hafta sonu kaymaları, miktarın TL karşılığı, kayıtta yazılacak tutar ve geçmiş |
 | `GET /api/networth` | Net servet geçmişi: her ay sonu (son nokta bugün) varlık, borç, bugünkü fiyatla ve maliyetle net, tür ve hesap kırılımı (tutarlar kuruş) |
 | `GET, POST /api/goals` | Birikim hedefleri (bağlı hesaplarıyla) / yeni hedef |
 | `PUT, DELETE /api/goals/{id}` | Hedefi ve bağlı hesaplarını değiştir / sil |
 | `GET /api/goals/report` | Hedeflerin ilerlemesi, son 3 ayın hızı, aylık gereken tutar ve tahmini tarih (tutarlar hedef biriminde) |
+| `GET, POST /api/tags` | Etiketler / yeni etiket (`{name, color, budget?}`) |
+| `PUT, DELETE /api/tags/{id}` | Etiketi değiştir / sil (işlemler kalır) |
+| `GET /api/tags/report` | Etiket başına net harcama, kategori kırılımı, aylık seyir ve bütçe durumu (TL) |
+| `POST /api/transactions/tags` `{transactionIds, add, remove}` | Seçili işlemlere toplu etiket ekle/kaldır (en çok 5.000) |
 | `GET /api/health` | Sağlık kontrolü |
 
 ## Masaüstü: hesap ve veri yeri

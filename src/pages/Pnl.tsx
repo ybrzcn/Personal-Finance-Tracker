@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { api, errorMessage } from "../lib/api";
 import { formatDate, todayISO } from "../lib/format";
-import { currencyLabel, formatQty, formatRate, unitDivisor } from "../lib/fx";
+import { currencyLabel, formatQty, formatRate } from "../lib/fx";
 import type { AccountPnl, PnlKind, PnlReport } from "../lib/types";
 import { backend } from "../lib/platform";
 import { useAuth } from "../state/auth";
@@ -165,7 +165,7 @@ export function PnlPage() {
                         <td className="py-2">
                           {accountById.get(i.accountId)?.name ?? "—"} <span className="text-xs text-zinc-400">{i.kind === "expense" ? "gider" : "satış"}</span>
                         </td>
-                        <td className="py-2 text-right">{formatQty(i.qtyMinor / unitDivisor(i.currency), i.currency)}</td>
+                        <td className="py-2 text-right">{formatQty(i.qty, i.currency)}</td>
                         <td className="py-2 text-right">{money(i.proceedsCents)}</td>
                         <td className="py-2 text-right">{i.costUnknown ? "bilinmiyor" : money(i.costCents)}</td>
                         <td className={`py-2 text-right ${tone(i.pnlCents)}`}>{signed(i.pnlCents)}</td>
@@ -236,7 +236,7 @@ function Holdings({ rows, cpiOk, money, signed }: { rows: AccountPnl[]; cpiOk: b
                   </span>
                   <div className="text-xs text-zinc-400">{currencyLabel(a.currency)}</div>
                 </td>
-                <td className="px-2 py-2 text-right">{formatQty(a.qtyMinor / unitDivisor(a.currency), a.currency)}</td>
+                <td className="px-2 py-2 text-right">{formatQty(a.qty, a.currency)}</td>
                 <td className="px-2 py-2 text-right">{a.avgCostMicros === null ? "—" : avgFmt.format(a.avgCostMicros / 1e6)}</td>
                 <td className="px-2 py-2 text-right">{a.rateMicros === null ? "—" : formatRate(a.rateMicros / 1e6)}</td>
                 <td className="px-2 py-2 text-right">{money(a.valueCents)}</td>

@@ -26,7 +26,7 @@ Project layout:
 ## Before opening a PR / PR açmadan önce
 
 ```bash
-npx tsc --noEmit && npx vite build && npx vite build --mode web
+npx tsc --noEmit && npx vite build
 (cd crates/finans-server && cargo clippy -- -D warnings)
 (cd src-tauri && cargo check)
 node scripts/check-release-names.mjs

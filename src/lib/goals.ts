@@ -1,5 +1,5 @@
 import { formatQty, TRY } from "./fx";
-import type { Goal, GoalStatus } from "./types";
+import type { GoalStatus } from "./types";
 
 /** Hedefe bağlanabilen hesap türleri (döviz/altın/fon hesapları da bu türlerde) */
 export const GOAL_ACCOUNT_KINDS = new Set(["bank", "cash"]);
@@ -17,13 +17,6 @@ export const STATUS_TONE: Record<GoalStatus, string> = {
   behind: "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300",
   unknown: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
 };
-
-/** Hedef tarihi en yakın önce, tarihsizler sonda; aynıysa oluşturma sırası */
-export function sortGoals<T extends Pick<Goal, "targetDate" | "createdAt">>(xs: T[]): T[] {
-  return [...xs].sort(
-    (a, b) => (a.targetDate ?? "9999-12-31").localeCompare(b.targetDate ?? "9999-12-31") || a.createdAt.localeCompare(b.createdAt),
-  );
-}
 
 /** TL uygulamanın para biçimiyle; döviz/altın miktar biçimiyle */
 export const formatGoalAmount = (v: number, code: string, money: (n: number) => string): string =>

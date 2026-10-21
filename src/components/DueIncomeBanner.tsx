@@ -1,21 +1,26 @@
 import { CircleDollarSign } from "lucide-react";
-import { useMemo } from "react";
-import { dueUnrecordedIncomes } from "../lib/budget";
 import { formatDateShort, todayISO } from "../lib/format";
 import { useData } from "../state/data";
+import { useIncomeStatus } from "../state/incomeStatus";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
 
 /**
- * Yatış günü gelmiş ama girilmemiş maaş vb. için uyarı: "Yattı, kaydet" formu plan tutarıyla açar.
+ * Yatış günü gelmiş ama girilmemiş maaş vb. için uyarı (liste Rust'ta hesaplanır): "Yattı, kaydet" formu plan tutarıyla açar.
  * Kaydedilince bakiyeye eklenir ve "beklenen" olmaktan çıkar.
  */
 export function DueIncomeBanner() {
-  const { transactions, recurring } = useData();
+  const { recurring } = useData();
   const { formatMoney } = useSettings();
   const { openTransactionForm } = useUI();
+  const { status } = useIncomeStatus();
   const today = todayISO();
-  const due = useMemo(() => dueUnrecordedIncomes(transactions, recurring, today), [transactions, recurring, today]);
+  // Silinmiş kayda ait (henüz yenilenmemiş) satır atlanır
+  const byId = new Map(recurring.map((r) => [r.id, r]));
+  const due = (status?.due ?? []).flatMap((d) => {
+    const item = byId.get(d.recurringId);
+    return item ? [{ item, date: d.date, amount: d.amountCents / 100 }] : [];
+  });
   if (!due.length) return null;
   return (
     <div className="mb-4 space-y-2">

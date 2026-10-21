@@ -20,15 +20,12 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { PageHeader } from "../components/common";
-import { makeDefaultAccount } from "../lib/accounts";
-import { api, DEFAULT_CATEGORIES, errorMessage, type DatabaseInfo } from "../lib/api";
-import { createBackup, mergeCsvRows, parseBackup } from "../lib/backup";
+import { api, errorMessage, type DatabaseInfo } from "../lib/api";
+import type { CsvParseResult } from "../lib/types";
 import { CsvImportDialog } from "../components/CsvImportDialog";
 import { UninstallDialog } from "../components/UninstallDialog";
 import { clearErrors, getErrors } from "../lib/errorLog";
-import { parseTransactionsCsv, transactionsToCsv, type CsvParseResult } from "../lib/csv";
 import { SAVED_HINT, openTextFile, pickDatabaseFile, pickDatabaseSavePath, revealInFolder, saveTextFile } from "../lib/fileio";
-import { newId } from "../lib/id";
 import { todayISO } from "../lib/format";
 import { backend, isMac, isMobile, isTauri, modKey } from "../lib/platform";
 import { ChangePasswordDialog, DeleteAccountDialog } from "../components/AccountDialogs";
@@ -95,7 +92,7 @@ const THEME_OPTIONS: { value: ThemePref; label: string; icon: LucideIcon }[] = [
 ];
 
 export function SettingsPage() {
-  const { categories, accounts, transactions, categoryById, accountById, snapshot, latest, restore, reload } = useData();
+  const { categories, accounts, transactions, latest, restore, reload } = useData();
   const { settings, update } = useSettings();
   const { confirm, toast, openStatementImport, setAccountFilter, openErrorReport } = useUI();
   const [uninstalling, setUninstalling] = useState(false);
@@ -130,24 +127,14 @@ export function SettingsPage() {
 
   const exportJson = () =>
     run(async () => {
-      const { debtBudget, debtBudgetOverrides, debtRules, debtCells, subscriptionOverrides, forecastCategoryIds, categoryRules } = settings;
-      const json = JSON.stringify(
-        createBackup(
-          snapshot(),
-          { debtBudget, debtBudgetOverrides, debtRules, debtCells },
-          { subscriptionOverrides, forecastCategoryIds },
-          categoryRules,
-        ),
-        null,
-        2,
-      );
+      const json = await api.exportBackup();
       if (await saveTextFile(`finans-yedek-${todayISO()}.json`, json, { name: "JSON Yedek", extensions: ["json"] }))
         toast(`Yedek başarıyla kaydedildi.${SAVED_HINT}`);
     });
 
   const exportCsv = () =>
     run(async () => {
-      const csv = transactionsToCsv(transactions, categoryById, accountById);
+      const csv = await api.exportCsv(null);
       if (await saveTextFile(`finans-islemler-${todayISO()}.csv`, csv, { name: "CSV", extensions: ["csv"] }))
         toast(`${transactions.length} işlem CSV olarak dışa aktarıldı.${SAVED_HINT}`);
     });
@@ -156,7 +143,7 @@ export function SettingsPage() {
     run(async () => {
       const file = await openTextFile({ name: "JSON Yedek", extensions: ["json"] });
       if (!file) return;
-      const backup = parseBackup(file.contents);
+      const backup = await api.parseBackup(file.contents);
       const ok = await confirm({
         title: "Yedekten geri yükle",
         message: (
@@ -169,6 +156,7 @@ export function SettingsPage() {
               <strong>{backup.transactions.length} işlem</strong>, <strong>{backup.accounts.length} hesap</strong>,{" "}
               <strong>{backup.categories.length} kategori</strong>
               {backup.goals?.length ? <>, <strong>{backup.goals.length} hedef</strong></> : null}
+              {backup.tags?.length ? <>, <strong>{backup.tags.length} etiket</strong></> : null}
             </p>
             <p className="mt-2 text-xs text-zinc-500">İpucu: Devam etmeden önce mevcut verinin yedeğini almak isteyebilirsiniz.</p>
           </>
@@ -177,7 +165,7 @@ export function SettingsPage() {
         danger: true,
       });
       if (!ok) return;
-      await restore({ ...backup, goals: backup.goals ?? [] });
+      await restore({ ...backup, goals: backup.goals ?? [], tags: backup.tags ?? [] });
       // Borç planı ayarları yedekte varsa onlar da geri yüklenir (eski yedeklerde yoksa mevcutlar kalır)
       // Ayarlar yazılamazsa run() hatayı gösterir; başarı mesajı çıkmaz
       if (backup.debtPlan) await update(backup.debtPlan);
@@ -194,7 +182,7 @@ export function SettingsPage() {
     run(async () => {
       const file = await openTextFile({ name: "CSV", extensions: ["csv"] });
       if (!file) return;
-      const parsed = parseTransactionsCsv(file.contents);
+      const parsed = await api.parseCsv(file.contents);
       if (!parsed.rows.length) throw "İçe aktarılacak geçerli satır bulunamadı.";
       setPendingCsv({ ...parsed, name: file.name });
     });
@@ -204,10 +192,14 @@ export function SettingsPage() {
     setPendingCsv(null);
     if (!pending) return;
     void run(async () => {
+      const merged = await api.mergeCsv(pending.rows, accountId);
       const fresh = await latest();
-      const merged = mergeCsvRows(pending.rows, fresh, accountId);
-      await restore({ ...fresh, categories: merged.categories, transactions: merged.transactions });
-      const added = merged.transactions.length - fresh.transactions.length;
+      await restore({
+        ...fresh,
+        categories: [...fresh.categories, ...merged.newCategories],
+        transactions: [...fresh.transactions, ...merged.newTransactions],
+      });
+      const added = merged.newTransactions.length;
       const notes = [
         merged.createdCategories > 0 ? `${merged.createdCategories} yeni kategori` : "",
         merged.skippedTransfers > 0 ? `${merged.skippedTransfers} transfer atlandı (hedef hesap bulunamadı)` : "",
@@ -319,13 +311,16 @@ export function SettingsPage() {
       });
       if (!ok) return;
       const backupPath = await api.backupDatabase();
+      // Varsayılan kategoriler ve boş "Genel Hesap" Rust'tan
+      const seed = await api.resetSeed();
       await restore({
-        categories: DEFAULT_CATEGORIES.map((c) => ({ ...c, id: newId() })),
-        accounts: [makeDefaultAccount(todayISO())],
+        categories: seed.categories,
+        accounts: seed.accounts,
         transactions: [],
         recurring: [],
         budgets: [],
         goals: [],
+        tags: [],
       });
       // Borç planı kuralları, analiz düzeltmeleri ve kategori kuralları silinen hesaplara/kategorilere bağlıydı
       await update({

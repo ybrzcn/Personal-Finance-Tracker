@@ -12,8 +12,8 @@ import { TransactionForm } from "../components/TransactionForm";
 import type { Account, Category, CategoryType, RecurringItem, Transaction, TransactionInput } from "../lib/types";
 import { UIContext } from "./contexts";
 
-export type Page = "dashboard" | "transactions" | "accounts" | "rates" | "pnl" | "budget" | "goals" | "analysis" | "plan" | "debt" | "categories" | "settings";
-const PAGES: Page[] = ["dashboard", "transactions", "accounts", "rates", "pnl", "budget", "goals", "analysis", "plan", "debt", "categories", "settings"];
+export type Page = "dashboard" | "transactions" | "accounts" | "rates" | "pnl" | "budget" | "goals" | "analysis" | "plan" | "debt" | "categories" | "tags" | "settings";
+const PAGES: Page[] = ["dashboard", "transactions", "accounts", "rates", "pnl", "budget", "goals", "analysis", "plan", "debt", "categories", "tags", "settings"];
 type ToastKind = "success" | "error" | "info";
 
 /** İşlem formunda tek tıkla doldurulabilen hazır tutar (ör. kart ödemesi). */
@@ -50,6 +50,10 @@ export interface UICtx {
   accountFilter: string;
   setAccountFilter(id: string): void;
   showAccountTransactions(accountId: string): void;
+  /** İşlemler sayfasının etiket süzgeci: "all", "none" (etiketsiz) veya etiket id */
+  tagFilter: string;
+  setTagFilter(id: string): void;
+  showTagTransactions(tagId: string): void;
   isModalOpen: boolean;
 }
 
@@ -85,6 +89,7 @@ export function UIProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [editor, setEditor] = useState<Editor>(null);
   const [accountFilter, setAccountFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState("all");
   const [confirmState, setConfirmState] = useState<(ConfirmOptions & { resolve(v: boolean): void }) | null>(null);
   const nextId = useRef(1);
 
@@ -133,9 +138,16 @@ export function UIProvider({ children }: { children: ReactNode }) {
         setAccountFilter(accountId);
         setPage("transactions");
       },
+      tagFilter,
+      setTagFilter,
+      showTagTransactions: (tagId) => {
+        setTagFilter(tagId);
+        setAccountFilter("all");
+        setPage("transactions");
+      },
       isModalOpen: editor !== null || confirmState !== null,
     }),
-    [page, toast, confirm, editor, confirmState, accountFilter],
+    [page, toast, confirm, editor, confirmState, accountFilter, tagFilter],
   );
 
   return (

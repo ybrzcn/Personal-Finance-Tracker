@@ -1,12 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import { ratesKey } from "../lib/networth";
-import { backend } from "../lib/platform";
 import type { GoalsReport } from "../lib/types";
 import { useData } from "./data";
 import { useRates } from "./rates";
 
-/** Hedef raporu (Rust); hedefler, hesaplar, işlemler ya da kurlar değişince yeniden alınır. Tarayıcı modunda yok. */
+/** Hedef raporu (Rust); hedefler, hesaplar, işlemler ya da kurlar değişince yeniden alınır. */
 export function useGoals() {
   const { goals, accounts, transactions } = useData();
   const { rates } = useRates();
@@ -14,10 +13,9 @@ export function useGoals() {
   const rateKey = useMemo(() => ratesKey(rates), [rates]);
   const [report, setReport] = useState<GoalsReport | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(backend !== "local");
+  const [loading, setLoading] = useState(true);
   const seq = useRef(0);
   const reload = useCallback(() => {
-    if (backend === "local") return;
     const n = ++seq.current;
     setLoading(true);
     api

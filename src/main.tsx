@@ -4,7 +4,9 @@ import App from "./App";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { installErrorLog } from "./lib/errorLog";
 import { AuthGate } from "./state/auth";
+import { AccountsReportProvider } from "./state/accountsReport";
 import { DataProvider } from "./state/data";
+import { IncomeStatusProvider } from "./state/incomeStatus";
 import { PnlProvider } from "./state/pnl";
 import { RatesProvider } from "./state/rates";
 import { SettingsProvider } from "./state/settings";
@@ -22,11 +24,15 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
         <DataProvider>
           <RatesProvider>
             <PnlProvider>
-              <SettingsProvider>
-                <UIProvider>
-                  <App />
-                </UIProvider>
-              </SettingsProvider>
+              <AccountsReportProvider>
+                <IncomeStatusProvider>
+                  <SettingsProvider>
+                    <UIProvider>
+                      <App />
+                    </UIProvider>
+                  </SettingsProvider>
+                </IncomeStatusProvider>
+              </AccountsReportProvider>
             </PnlProvider>
           </RatesProvider>
         </DataProvider>

@@ -1,18 +1,16 @@
 import { FileUp, Landmark, Plus } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { BankAccountCard, CreditCardCard, FundAccountCard, LoanCard } from "../components/AccountCards";
 import { EmptyState, PageHeader, SummaryTile, type TileTone } from "../components/common";
 import { DueIncomeBanner } from "../components/DueIncomeBanner";
 import { NetWorthCard } from "../components/NetWorthCard";
-import { netPosition } from "../lib/accounts";
-import { backend } from "../lib/platform";
-import { expectedIncomeThisMonth } from "../lib/budget";
 import { isFund } from "../lib/fx";
 import { monthName } from "../lib/recurring";
 import { todayISO } from "../lib/format";
+import { useAccountsReport } from "../state/accountsReport";
 import { useData } from "../state/data";
+import { useIncomeStatus } from "../state/incomeStatus";
 import { useNetWorth } from "../state/networth";
-import { useRates } from "../state/rates";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
 
@@ -20,23 +18,18 @@ const NEG = "text-rose-600 dark:text-rose-400";
 const POS = "text-emerald-600 dark:text-emerald-400";
 
 export function Accounts() {
-  const { accounts, transactions, recurring } = useData();
+  const { accounts, transactions } = useData();
   const { formatMoney } = useSettings();
   const { openAccountForm, openStatementImport } = useUI();
   const [showArchived, setShowArchived] = useState(false);
   const today = todayISO();
 
-  const { rates } = useRates();
   const nw = useNetWorth();
-  const localPos = useMemo(
-    () => (backend === "local" ? netPosition(accounts, transactions, today, rates) : null),
-    [accounts, transactions, today, rates],
-  );
+  const ar = useAccountsReport();
   const last = nw.report?.points.at(-1);
-  // Kutular Rust raporunun son noktasından; tarayıcı modunda TS hesabı
+  // Kutular Rust raporunun son noktasından
   const pos =
-    localPos ??
-    (last
+    last
       ? {
           assetsCents: last.assetsCents,
           cardDebtCents: last.cardDebtCents,
@@ -47,11 +40,14 @@ export function Accounts() {
         }
       : nw.report
         ? { assetsCents: 0, cardDebtCents: 0, loanDebtCents: 0, overdraftCents: 0, netCents: 0, unvaluedCount: 0 }
-        : null);
-  const expected = useMemo(() => expectedIncomeThisMonth(transactions, recurring, today), [transactions, recurring, today]);
+        : null;
+  // Beklenen gelir Rust'ta hesaplanır; yokken "…" bekleniyor, "—" hata
+  const inc = useIncomeStatus();
+  const expected = inc.status?.expected ?? null;
+  const expectedPlaceholder = inc.loading && !inc.error ? "…" : "—";
   const expectedHint = [
-    expected.regularCents > 0 ? `Maaş ${formatMoney(expected.regularCents / 100)}` : "",
-    expected.otherCents > 0 ? `Diğer ${formatMoney(expected.otherCents / 100)}` : "",
+    expected && expected.regularCents > 0 ? `Maaş ${formatMoney(expected.regularCents / 100)}` : "",
+    expected && expected.otherCents > 0 ? `Diğer ${formatMoney(expected.otherCents / 100)}` : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -69,9 +65,10 @@ export function Accounts() {
     { label: "Varlıklar", cents: pos?.assetsCents ?? null, tone: "", color: "income" as TileTone, hint: "Bugüne kadarki bakiye" },
     {
       label: `Beklenen gelir · ${monthName(today.slice(0, 7))}`,
-      cents: expected.totalCents,
-      tone: expected.totalCents > 0 ? POS : "",
-      hint: expectedHint || "Bu ay beklenen gelir yok",
+      cents: expected?.totalCents ?? null,
+      placeholder: expectedPlaceholder,
+      tone: (expected?.totalCents ?? 0) > 0 ? POS : "",
+      hint: expected ? expectedHint || "Bu ay beklenen gelir yok" : null,
     },
     {
       label: "Kart borcu",
@@ -107,6 +104,14 @@ export function Accounts() {
         }
       />
 
+      {ar.error && (
+        <div role="alert" className="card mb-4 flex items-center justify-between gap-3 px-5 py-4 text-sm">
+          <span className="text-rose-600 dark:text-rose-400">Hesap özetleri alınamadı: {ar.error}</span>
+          <button className="btn-secondary px-3 py-1.5 text-xs" onClick={ar.reload}>
+            Tekrar dene
+          </button>
+        </div>
+      )}
       <DueIncomeBanner />
 
       {nw.error && (
@@ -124,7 +129,7 @@ export function Accounts() {
           <SummaryTile
             key={t.label}
             label={t.label}
-            value={t.cents === null ? "…" : formatMoney(t.cents / 100)}
+            value={t.cents === null ? ("placeholder" in t && t.placeholder) || "…" : formatMoney(t.cents / 100)}
             tone={"color" in t ? t.color : "plain"}
             valueClass={t.tone}
             hint={"hint" in t ? t.hint : undefined}
@@ -137,11 +142,7 @@ export function Accounts() {
         </p>
       )}
       <div className="mb-6">
-        {backend === "local" ? (
-          <p className="text-xs text-zinc-500">Net servet geçmişi sunucu ya da masaüstü uygulaması gerektirir.</p>
-        ) : (
-          <NetWorthCard report={nw.report} error={nw.error} />
-        )}
+        <NetWorthCard report={nw.report} error={nw.error} />
       </div>
 
       {visible.length === 0 ? (

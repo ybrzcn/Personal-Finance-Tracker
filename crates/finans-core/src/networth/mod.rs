@@ -1,21 +1,20 @@
 //! Net servet geçmişi: ilk hesabın açılış ayından bugüne her ay sonu (son nokta bugün) için hesapların TL değeri.
 //! Döviz/altın/fon bugünkü alış fiyatıyla ve maliyetle (Kâr/Zarar motoru o tarihe kadar yürütülür) değerlenir.
 
-pub mod cards;
-
 use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
 use crate::cpi::{CpiData, CpiStatus};
 use crate::db::{Account, Transaction};
-use crate::fx::amount::RATE_SCALE;
 use crate::fx::time::{civil_from_days, days_from_civil, parse_ymd, ymd};
-use crate::fx::{self, Unit};
+use crate::fx;
 use crate::pnl::{self, AssetFilter, CurrentRate, PnlInput};
 use crate::CoreResult;
 
-use cards::{card_movements, debt_at, js_cents, js_round};
+use crate::accounts::bank::{qty_at, tl_balance, value_cents};
+use crate::accounts::cards::{card_movements, debt_at, Movement};
+use crate::accounts::loans::loan_balance;
 
 pub struct NetWorthInput<'a> {
     pub accounts: &'a [Account],
@@ -48,7 +47,7 @@ pub struct AccountValue {
     pub value_cents: i64,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Point {
     pub date: String,
@@ -82,6 +81,49 @@ pub struct AccountInfo {
 pub struct NetWorthReport {
     pub points: Vec<Point>,
     pub accounts: Vec<AccountInfo>,
+    /// 1 yıl / 3 yıl / Tümü görünümleri: ilk nokta ve dönemdeki değişim
+    pub ranges: Ranges,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct Ranges {
+    #[serde(rename = "1y")]
+    pub y1: RangeSummary,
+    #[serde(rename = "3y")]
+    pub y3: RangeSummary,
+    pub all: RangeSummary,
+}
+
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RangeSummary {
+    /// Görünümün ilk noktası (`points` dizini)
+    pub start: usize,
+    /// İlk noktadan son noktaya net servet değişimi (bugünkü fiyatla)
+    pub change_cents: i64,
+    /// Değişimin kur/fiyat kazancından gelen kısmı
+    pub fx_gain_cents: i64,
+}
+
+/// Görünümün özeti: ilk nokta `start`, son nokta bugün
+pub fn range_summary(points: &[Point], start: usize) -> RangeSummary {
+    match (points.get(start), points.last()) {
+        (Some(f), Some(l)) => RangeSummary {
+            start,
+            change_cents: l.net_cents - f.net_cents,
+            fx_gain_cents: l.net_cents - l.net_cost_cents - (f.net_cents - f.net_cost_cents),
+        },
+        _ => RangeSummary { start, ..Default::default() },
+    }
+}
+
+/// Net servet döneminin (son `years` yıl) başlangıç noktası: kesim gününden (son noktadan `years` yıl önce) önceki ya da
+/// o günkü son nokta; böylece dönemdeki değişim tam dönemi ölçer. Kesim dizge olarak kurulur (29 Şubat → "YYYY-02-29").
+pub fn range_start(dates: &[&str], years: i64) -> usize {
+    let Some(today) = dates.last() else { return 0 };
+    let year: i64 = today.get(..4).and_then(|y| y.parse().ok()).unwrap_or(0);
+    let cutoff = format!("{}{}", year - years, today.get(4..).unwrap_or(""));
+    dates.iter().rposition(|d| *d <= cutoff.as_str()).unwrap_or(0)
 }
 
 fn last_day(y: i64, m: u32) -> String {
@@ -103,66 +145,6 @@ pub fn month_ends(first: &str, today: &str) -> Vec<String> {
     out
 }
 
-/// TS `toMinor`: değer × bölen, JS yuvarlaması
-fn minor(v: f64, unit: Unit) -> i64 {
-    js_round(v * unit.divisor() as f64)
-}
-
-/// TS `tlCents` (işaret korunur)
-pub(crate) fn value_cents(qty: i64, rate: i64, unit: Unit) -> i64 {
-    if qty == 0 {
-        return 0;
-    }
-    let num = qty.unsigned_abs() as i128 * rate as i128 * 100;
-    let den = unit.divisor() as i128 * RATE_SCALE as i128;
-    qty.signum() * ((num + den / 2) / den) as i64
-}
-
-pub(crate) fn tl_balance(a: &Account, txs: &[Transaction], d: &str) -> i64 {
-    let mut b = js_cents(a.opening_balance);
-    for t in txs.iter().filter(|t| t.date.as_str() <= d) {
-        let c = js_cents(t.amount);
-        if t.account_id == a.id {
-            b += if t.kind == "income" { c } else { -c };
-        }
-        if t.kind == "transfer" && t.to_account_id.as_deref() == Some(a.id.as_str()) {
-            b += c;
-        }
-    }
-    b
-}
-
-pub(crate) fn qty_at(a: &Account, unit: Unit, txs: &[Transaction], d: &str) -> i64 {
-    let mut q = minor(a.opening_balance, unit);
-    for t in txs.iter().filter(|t| t.date.as_str() <= d) {
-        if t.account_id == a.id {
-            if let Some(o) = t.orig_amount {
-                q += if t.kind == "income" { 1 } else { -1 } * minor(o, unit);
-            }
-        }
-        if t.kind == "transfer" && t.to_account_id.as_deref() == Some(a.id.as_str()) {
-            if let Some(o) = t.to_orig_amount {
-                q += minor(o, unit);
-            }
-        }
-    }
-    q
-}
-
-fn loan_balance(a: &Account, txs: &[Transaction], d: &str) -> i64 {
-    let mut b = js_cents(a.opening_balance);
-    for t in txs.iter().filter(|t| t.date.as_str() <= d) {
-        let c = js_cents(t.amount);
-        if t.account_id == a.id {
-            b += if t.kind == "income" { -c } else { c };
-        }
-        if t.kind == "transfer" && t.to_account_id.as_deref() == Some(a.id.as_str()) {
-            b -= c;
-        }
-    }
-    b.max(0)
-}
-
 pub fn report(input: &NetWorthInput) -> CoreResult<NetWorthReport> {
     let accounts = input.accounts;
     for a in accounts {
@@ -171,9 +153,9 @@ pub fn report(input: &NetWorthInput) -> CoreResult<NetWorthReport> {
         }
     }
     let Some(first) = accounts.iter().map(|a| a.opening_date.as_str()).min() else {
-        return Ok(NetWorthReport { points: Vec::new(), accounts: Vec::new() });
+        return Ok(NetWorthReport { points: Vec::new(), accounts: Vec::new(), ranges: Ranges::default() });
     };
-    let cards: HashMap<&str, Vec<(String, i64)>> =
+    let cards: HashMap<&str, Vec<Movement>> =
         accounts.iter().filter(|a| a.kind == "credit_card").map(|a| (a.id.as_str(), card_movements(a, input.transactions))).collect();
     let has_foreign = accounts.iter().any(|a| a.kind != "loan" && a.kind != "credit_card" && a.currency != fx::TRY);
     let no_cpi = CpiData { series: None, status: CpiStatus::NoKey, message: None };
@@ -280,5 +262,11 @@ pub fn report(input: &NetWorthInput) -> CoreResult<NetWorthReport> {
         .filter(|a| seen.contains(&a.id))
         .map(|a| AccountInfo { account_id: a.id.clone(), name: a.name.clone(), kind: a.kind.clone(), currency: a.currency.clone() })
         .collect();
-    Ok(NetWorthReport { points, accounts: infos })
+    let dates: Vec<&str> = points.iter().map(|p| p.date.as_str()).collect();
+    let ranges = Ranges {
+        y1: range_summary(&points, range_start(&dates, 1)),
+        y3: range_summary(&points, range_start(&dates, 3)),
+        all: range_summary(&points, 0),
+    };
+    Ok(NetWorthReport { points, accounts: infos, ranges })
 }
