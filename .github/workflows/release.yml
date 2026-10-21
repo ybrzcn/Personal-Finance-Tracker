@@ -28,7 +28,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { id: macos-universal, os: macos-latest, target: universal-apple-darwin, rust: "aarch64-apple-darwin,x86_64-apple-darwin", bundles: "dmg" }
+          # "app": uygulama içi güncellemenin paketi (.app.tar.gz) app paketinden üretilir
+          - { id: macos-universal, os: macos-latest, target: universal-apple-darwin, rust: "aarch64-apple-darwin,x86_64-apple-darwin", bundles: "app,dmg" }
           - { id: windows-x64, os: windows-latest, target: x86_64-pc-windows-msvc, rust: x86_64-pc-windows-msvc, bundles: "nsis,msi" }
           - { id: windows-x86, os: windows-latest, target: i686-pc-windows-msvc, rust: i686-pc-windows-msvc, bundles: "nsis" }
           - { id: windows-arm64, os: windows-latest, target: aarch64-pc-windows-msvc, rust: aarch64-pc-windows-msvc, bundles: "nsis" }
@@ -52,6 +53,10 @@ jobs:
       - run: npm ci
       - name: Derle
         run: npx tauri build --target ${{ matrix.target }} --bundles ${{ matrix.bundles }}
+        env:
+          # Uygulama içi güncellemenin imzası (createUpdaterArtifacts); genel anahtar tauri.conf.json'da
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
       - name: Sabit adlar
         run: node scripts/rename-artifacts.mjs ${{ matrix.id }} release-out
       - name: Yükle
@@ -64,6 +69,16 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Güncelleme bildirimi (latest.json)
+        # Uygulamalar releases/latest/download/latest.json'ı okur; imzalar yüklenen .sig dosyalarından
+        run: |
+          mkdir sigs
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern '*.sig' --dir sigs
+          node scripts/updater-manifest.mjs "$GITHUB_REF_NAME" sigs latest.json
+          gh release upload "$GITHUB_REF_NAME" latest.json --repo "$GITHUB_REPOSITORY" --clobber
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Yayınla
         # Ön sürümler "latest" olmaz: tanıtım sayfasının bağlantıları kararlı sürümde kalır
         run: |

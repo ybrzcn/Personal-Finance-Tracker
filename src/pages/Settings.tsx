@@ -17,6 +17,8 @@ import {
   type LucideIcon,
   Bug,
   Trash2,
+  Download,
+  RefreshCw,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { PageHeader } from "../components/common";
@@ -34,6 +36,8 @@ import { useAuth } from "../state/auth";
 import { useData } from "../state/data";
 import { useSettings, type ThemePref } from "../state/settings";
 import { useUI } from "../state/ui";
+import { updatesEnabled, useUpdates } from "../state/updates";
+import { openReleases } from "../lib/updater";
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
@@ -42,6 +46,56 @@ function Section({ title, description, children }: { title: string; description?
       {description && <p className="mt-0.5 text-sm text-zinc-500">{description}</p>}
       <div className="mt-4">{children}</div>
     </section>
+  );
+}
+
+/** Masaüstü: kurulu sürüm ve uygulama içi güncelleme */
+function UpdatesSection() {
+  const { update, phase, percent, error, lastChecked, check, install } = useUpdates();
+  const [version, setVersion] = useState<string | null>(null);
+  useEffect(() => {
+    api
+      .appInfo()
+      .then((i) => setVersion(i.version))
+      .catch(() => {});
+  }, []);
+  const working = phase === "downloading" || phase === "installing";
+  const status = working
+    ? phase === "installing"
+      ? "Kuruluyor; uygulama yeniden başlayacak…"
+      : `İndiriliyor${percent === null ? "…" : ` %${percent}`}`
+    : phase === "checking"
+      ? "Denetleniyor…"
+      : update
+        ? `Finans ${update.version} hazır.`
+        : lastChecked
+          ? `Güncel (son denetim ${lastChecked.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}).`
+          : "Yeni sürümler uygulama açıkken kendiliğinden denetlenir.";
+  return (
+    <Section title="Güncellemeler" description={version ? `Kurulu sürüm: ${version}` : undefined}>
+      <div className="flex flex-wrap items-center gap-3">
+        {update && !working ? (
+          update.canInstall ? (
+            <button className="btn-primary" onClick={() => void install()}>
+              <Download size={16} /> Güncelle ve yeniden başlat
+            </button>
+          ) : (
+            <button className="btn-primary" onClick={() => void openReleases()}>
+              <Download size={16} /> İndirme sayfasını aç
+            </button>
+          )
+        ) : (
+          <button className="btn-secondary" onClick={() => void check()} disabled={phase !== "idle"}>
+            <RefreshCw size={16} className={phase === "checking" ? "animate-spin" : ""} /> Güncellemeleri denetle
+          </button>
+        )}
+        <span className="text-xs text-zinc-500">{status}</span>
+      </div>
+      {update && !update.canInstall && !working && (
+        <p className="mt-2 text-xs text-zinc-500">Bu kurulum (taşınabilir, MSI ya da paket yöneticisi) kendini güncelleyemiyor.</p>
+      )}
+      {error && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{error}</p>}
+    </Section>
   );
 }
 
@@ -549,6 +603,8 @@ export function SettingsPage() {
           </ul>
         </Section>
         )}
+
+        {updatesEnabled && <UpdatesSection />}
 
         <Section title="Destek" description="Bir sorunla karşılaştığında hatayı rapor olarak kopyalayıp geliştiriciye iletebilirsin.">
           <div className="flex flex-wrap items-center gap-3">

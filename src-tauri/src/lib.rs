@@ -14,6 +14,7 @@ mod networth;
 mod pnl;
 mod rates;
 mod tags;
+mod updater;
 
 use finans_core::db;
 
@@ -34,6 +35,9 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            // Uygulama içi güncelleme yalnız masaüstünde (mobil mağazadan güncellenir)
+            #[cfg(desktop)]
+            app.handle().plugin(tauri_plugin_updater::Builder::new().build())?;
             // macOS:   ~/Library/Application Support/com.ybrzcn.finans/finans.db
             // Windows: %APPDATA%\com.ybrzcn.finans\finans.db
             // Linux:   ~/.local/share/com.ybrzcn.finans/finans.db
@@ -115,6 +119,8 @@ pub fn run() {
             commands::open_database,
             commands::use_default_database,
             maintenance::app_info,
+            updater::check_update,
+            updater::install_update,
             maintenance::uninstall_plan,
             maintenance::uninstall_app,
             commands::parse_statement_bytes,

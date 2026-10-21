@@ -2,6 +2,7 @@
 // Sürüm hattında: Tauri'nin ürettiği paketleri tanıtım sayfasının bağlandığı sabit adlara kopyalar
 // (scripts/release-names.json tek kaynaktır). Taşınabilir zip ve tarball'ı da burada üretir.
 // Kullanım: node scripts/rename-artifacts.mjs <matris-id> <çıktı-klasörü>
+// Uygulama içi güncellemenin paketleri ve imzaları (.sig) da sabit adlarla kopyalanır (latest.json bunlara bağlanır).
 // Beklenen bir dosya bulunamazsa çıkış kodu 1: o derleme başarısız sayılır, sürüm yayınlanmaz.
 
 import { execFileSync } from "node:child_process";
@@ -16,30 +17,35 @@ const fileFor = Object.fromEntries(
   Object.values(names.platforms).flatMap((p) => [p.primary, ...p.others]).map((d) => [d.id, d.file]),
 );
 
-/** Matris işi → üretilecek dosyalar. `bundle`: bundle/<klasör> içinde uzantı (+ isteğe bağlı ad parçası). */
+/** Matris işi → üretilecek dosyalar. `bundle`: bundle/<klasör> içinde uzantı (+ isteğe bağlı ad parçası).
+ * `sig`: güncelleme imzası da (<dosya>.sig) kopyalanır. `update`: yalnız güncellemede kullanılan paket (indirme
+ * sayfasında yok), verilen adla. */
 const PLAN = {
-  "macos-universal": [{ id: "macos-universal-dmg", bundle: "dmg", ext: ".dmg" }],
+  "macos-universal": [
+    { id: "macos-universal-dmg", bundle: "dmg", ext: ".dmg" },
+    { update: "Finans-macos-universal.app.tar.gz", bundle: "macos", ext: ".app.tar.gz", sig: true },
+  ],
   "windows-x64": [
-    { id: "windows-x64-setup", bundle: "nsis", ext: "-setup.exe" },
+    { id: "windows-x64-setup", bundle: "nsis", ext: "-setup.exe", sig: true },
     { id: "windows-x64-msi", bundle: "msi", ext: ".msi", contains: "tr-TR" },
     { id: "windows-x64-portable", portable: "zip" },
   ],
   "windows-x86": [
-    { id: "windows-x86-setup", bundle: "nsis", ext: "-setup.exe" },
+    { id: "windows-x86-setup", bundle: "nsis", ext: "-setup.exe", sig: true },
     { id: "windows-x86-portable", portable: "zip" },
   ],
   "windows-arm64": [
-    { id: "windows-arm64-setup", bundle: "nsis", ext: "-setup.exe" },
+    { id: "windows-arm64-setup", bundle: "nsis", ext: "-setup.exe", sig: true },
     { id: "windows-arm64-portable", portable: "zip" },
   ],
   "linux-x86_64": [
-    { id: "linux-x86_64-appimage", bundle: "appimage", ext: ".AppImage" },
+    { id: "linux-x86_64-appimage", bundle: "appimage", ext: ".AppImage", sig: true },
     { id: "linux-x86_64-deb", bundle: "deb", ext: ".deb" },
     { id: "linux-x86_64-rpm", bundle: "rpm", ext: ".rpm" },
     { id: "linux-x86_64-tar", portable: "tar" },
   ],
   "linux-aarch64": [
-    { id: "linux-aarch64-appimage", bundle: "appimage", ext: ".AppImage" },
+    { id: "linux-aarch64-appimage", bundle: "appimage", ext: ".AppImage", sig: true },
     { id: "linux-aarch64-deb", bundle: "deb", ext: ".deb" },
     { id: "linux-aarch64-rpm", bundle: "rpm", ext: ".rpm" },
     { id: "linux-aarch64-tar", portable: "tar" },
@@ -82,15 +88,25 @@ function findBinary() {
 
 let missing = 0;
 for (const item of plan) {
-  const target = join(outDir, fileFor[item.id]);
+  const target = join(outDir, item.update ?? fileFor[item.id]);
+  const label = item.id ?? item.update;
   if (item.bundle) {
     const src = findBundle(item.bundle, item.ext, item.contains);
     if (!src) {
-      console.error(`EKSİK: ${item.id} (bundle/${item.bundle}/*${item.ext})`);
+      console.error(`EKSİK: ${label} (bundle/${item.bundle}/*${item.ext})`);
       missing++;
       continue;
     }
     copyFileSync(src, target);
+    if (item.sig) {
+      if (!existsSync(`${src}.sig`)) {
+        console.error(`EKSİK: ${label} imzası (${basename(src)}.sig; TAURI_SIGNING_PRIVATE_KEY verildi mi?)`);
+        missing++;
+        continue;
+      }
+      copyFileSync(`${src}.sig`, `${target}.sig`);
+      console.log(`${basename(target)}.sig`);
+    }
   } else {
     const bin = findBinary();
     if (!bin) {

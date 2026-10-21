@@ -4,7 +4,8 @@
 
 - **Download:** [latest release](https://github.com/ybrzcn/Personal-Finance-Tracker/releases/latest) — macOS (Universal), Windows (x64 / x86 / ARM64, installer or portable), Linux (AppImage, .deb, .rpm, tarball; x86_64 / ARM64). Builds are not code-signed yet: on macOS right-click → Open on first launch; on Windows choose "More info → Run anyway".
 - **Self-host:** see [Self-host](#self-host) below.
-- **Build from source:** Node 20+, Rust (stable), then `npm ci && npm run tauri build`.
+- **Updates:** from 1.18.0 on, the desktop app checks for new releases and installs them in place (macOS, Windows installer, Linux AppImage); portable, MSI and .deb/.rpm installs get a notice with a download link.
+- **Build from source:** Node 20+, Rust (stable), then `npm ci && npm run tauri build -- --config '{"bundle":{"createUpdaterArtifacts":false}}'` (release builds sign update packages and need the project's updater key).
 - **License:** [MIT](LICENSE). Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md); security issues: [SECURITY.md](SECURITY.md).
 
 ### Self-host
@@ -69,6 +70,7 @@ Put it behind HTTPS (Cloudflare Tunnel, Caddy, nginx). The server serves the web
 - **İşlemler:** Ekleme / düzenleme / silme; açıklama-kategori-tutar araması, tür, kategori ve tarih aralığı filtreleri (hazır aralıklar dahil), tarih/tutar sıralama, filtrelenmiş sonucu CSV'ye aktarma.
 - **Kategoriler:** Varsayılan gelir/gider kategorileri, renk seçimli ekleme / düzenleme / silme. Silinen kategorinin işlemleri silinmez, "Kategorisiz" kalır.
 - **Yedekleme:** JSON yedek alma ve geri yükleme (atomik — hata olursa hiçbir veri değişmez), CSV dışa / içe aktarma (Excel uyumlu `;` ayırıcı, UTF-8 BOM). Eski (v1) yedekler geri yüklenince tüm işlemler "Genel Hesap"a atanır.
+- **Güncelleme:** Masaüstü uygulaması açıkken yeni sürümü kendisi denetler (açılışta ve 6 saatte bir) ve sağ altta bildirir; "Güncelle ve yeniden başlat" imzası doğrulanan paketi indirip kurar. macOS, Windows kurulumu ve Linux AppImage kendini günceller; taşınabilir, MSI ve .deb/.rpm kurulumlarında indirme sayfası açılır. Ayarlar → Güncellemeler'den elle de denetlenir.
 - **Masaüstü deneyimi:** Sistem temasını otomatik algılama + Açık/Koyu tema, macOS'ta modern overlay başlık çubuğu, Windows'ta native pencere kontrolleri, `⌘/Ctrl + N` yeni işlem, `⌘/Ctrl + 1-9` sayfa geçişi, macOS'ta standart `⌘Q` / `⌘W` menüsü.
 
 ## Verilerin saklandığı yer

@@ -125,7 +125,7 @@ fn custom_database(state: &AppState, data: &[PathBuf]) -> Vec<PathBuf> {
     out
 }
 
-fn app_removal() -> (AppRemoval, Option<PathBuf>) {
+pub(crate) fn app_removal() -> (AppRemoval, Option<PathBuf>) {
     let Ok(exe) = std::env::current_exe() else { return (AppRemoval::Manual, None) };
     let s = exe.to_string_lossy();
     if s.contains("/target/") || s.contains("\\target\\") {
