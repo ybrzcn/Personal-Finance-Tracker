@@ -90,7 +90,7 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
     requestAnimationFrame(() => document.getElementById(field)?.focus());
   };
   const bad = (field: string) => (errorField === field ? "border-rose-500 focus:border-rose-500 focus:ring-rose-500/20" : "");
-  const [accountId, setAccountId] = useState(item?.accountId ?? accounts.find((a) => a.kind === "bank" && !a.archived && !isFund(a.currency))?.id ?? "");
+  const [accountId, setAccountId] = useState(item?.accountId ?? accounts.find((a) => a.kind === "bank" && !a.archived && !isFund(a.currency) && !a.subtype)?.id ?? "");
   // Yeni maaşta kategori "Maaş" ile gelir
   const [categoryId, setCategoryId] = useState(
     item?.categoryId ?? (defaultType === "income" ? (categories.find((c) => c.type === "income" && c.name === "Maaş")?.id ?? "") : ""),

@@ -12,7 +12,7 @@ use crate::fx;
 use crate::pnl::{self, AssetFilter, CurrentRate, PnlInput};
 use crate::CoreResult;
 
-use crate::accounts::bank::{qty_at, tl_balance, value_cents};
+use crate::accounts::bank::{qty_at, tl_balance, tl_value, value_cents};
 use crate::accounts::cards::{card_movements, debt_at, Movement};
 use crate::accounts::loans::loan_balance;
 
@@ -33,6 +33,8 @@ pub struct ByKind {
     pub tl_cents: i64,
     pub fx_cents: i64,
     pub fund_cents: i64,
+    /// Vadeli mevduat, BES ve diğer varlıklar (ev, araba)
+    pub saving_cents: i64,
     /// Borçlar pozitif tutar
     pub card_cents: i64,
     pub loan_cents: i64,
@@ -175,6 +177,7 @@ pub fn report(input: &NetWorthInput) -> CoreResult<NetWorthReport> {
                 from: None,
                 to: None,
                 filter: AssetFilter::All,
+                income_categories: None,
             }) {
                 Ok(r) => r.accounts.into_iter().map(|p| (p.account_id, (p.cost_cents, p.qty_minor, p.inconsistent_since.is_some()))).collect(),
                 Err(_) => HashMap::new(),
@@ -236,6 +239,13 @@ pub fn report(input: &NetWorthInput) -> CoreResult<NetWorthReport> {
                     } else {
                         p.by_kind.fx_cents += v;
                     }
+                    v
+                }
+                _ if a.is_saving() => {
+                    // Mevduat (bakiye), BES ve diğer varlık (son elle değerleme)
+                    let v = tl_value(a, input.transactions, &d);
+                    p.assets_cents += v;
+                    p.by_kind.saving_cents += v;
                     v
                 }
                 _ => {

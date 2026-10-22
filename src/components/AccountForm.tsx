@@ -4,7 +4,7 @@ import { api, errorMessage } from "../lib/api";
 import { amountToInput, formatDate, parseAmount, parseQuantity, todayISO } from "../lib/format";
 import { fundCode, fundUnit, GROUP_LABEL, INSTRUMENTS, isForeign, isFund, qtyDecimals, qtyRule, TRY, unitLabel, type FxGroup } from "../lib/fx";
 import { DEFAULT_LOAN_TAX } from "../lib/loans";
-import { ACCOUNT_KIND_LABEL, type Account, type AccountDraft, type AccountInput, type AccountKind, type FundHit } from "../lib/types";
+import { ACCOUNT_KIND_LABEL, SUBTYPE_LABEL, type Account, type AccountDraft, type AccountInput, type AccountKind, type FundHit } from "../lib/types";
 import { useData } from "../state/data";
 import { useFormPreview } from "../state/formPreview";
 import { useSettings } from "../state/settings";
@@ -19,10 +19,12 @@ interface Props {
   onSaved(message: string): void;
 }
 
-/** Formdaki tür: "fund" veride bank + FON:XXX birimidir */
-type FormKind = AccountKind | "fund";
-const KINDS: FormKind[] = ["bank", "credit_card", "loan", "cash", "fund"];
-const KIND_LABEL: Record<FormKind, string> = { ...ACCOUNT_KIND_LABEL, fund: "Yatırım fonu" };
+/** Formdaki tür: "fund" veride bank + FON:XXX birimi; mevduat, BES ve varlık TL bank + alt tür */
+type Saving = "deposit" | "pension" | "asset";
+type FormKind = AccountKind | "fund" | Saving;
+const KINDS: FormKind[] = ["bank", "credit_card", "loan", "cash", "fund", "deposit", "pension", "asset"];
+const KIND_LABEL: Record<FormKind, string> = { ...ACCOUNT_KIND_LABEL, fund: "Yatırım fonu", ...SUBTYPE_LABEL, asset: "Ev, araba vb." };
+const isSaving = (k: FormKind): k is Saving => k === "deposit" || k === "pension" || k === "asset";
 const percentInput = (n: number | null) => (n === null ? "" : String(n).replace(".", ","));
 const isDay = (n: number) => Number.isInteger(n) && n >= 1 && n <= 31;
 
@@ -32,6 +34,9 @@ const OPENING_LABEL: Record<FormKind, string> = {
   cash: "Açılış bakiyesi",
   credit_card: "Açılış borcu",
   loan: "Kalan anapara",
+  deposit: "Anapara",
+  pension: "Bugüne kadarki katkılar",
+  asset: "Alış bedeli",
 };
 
 export function AccountForm({ account, onClose, onSaved }: Props) {
@@ -41,8 +46,16 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
   const incomes = recurring.filter((r) => r.type === "income");
 
   const [name, setName] = useState(account?.name ?? "");
-  const [formKind, setFormKind] = useState<FormKind>(account && isFund(account.currency) ? "fund" : (account?.kind ?? "bank"));
-  const kind: AccountKind = formKind === "fund" ? "bank" : formKind;
+  const [formKind, setFormKind] = useState<FormKind>(
+    account && isFund(account.currency) ? "fund" : account?.subtype ? account.subtype : (account?.kind ?? "bank"),
+  );
+  const terms = account?.details?.deposit ?? null;
+  const [depStart, setDepStart] = useState(terms?.start ?? todayISO());
+  const [depMaturity, setDepMaturity] = useState(terms?.maturity ?? "");
+  const [depRate, setDepRate] = useState(percentInput(terms?.rate ?? null));
+  const [depTax, setDepTax] = useState(percentInput(terms?.taxRate ?? 15));
+  const savingKind = isSaving(formKind) ? formKind : null;
+  const kind: AccountKind = formKind === "fund" || savingKind ? "bank" : (formKind as AccountKind);
   const fund = formKind === "fund";
   const [fundQuery, setFundQuery] = useState(account && isFund(account.currency) ? (fundCode(account.currency) ?? "") : "");
   const [fundHits, setFundHits] = useState<FundHit[]>([]);
@@ -83,7 +96,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
   // Fon hesabının fonu değiştirilemez; başka türden çevrilen hesapta fon seçilir
   const fundLocked = !!account && isFund(account.currency);
   const unitCode = fund ? (fundLocked ? account.currency : fundPick ? fundUnit(fundPick.code) : "") : currency;
-  const foreign = fund || (isForeign(currency) && (kind === "bank" || kind === "cash"));
+  const foreign = fund || (!savingKind && isForeign(currency) && (kind === "bank" || kind === "cash"));
   // Açılış maliyeti yalnız açılış bakiyesi varken anlamlı
   const openingPositive = foreign && (parseQuantity(opening, qtyDecimals(unitCode || currency)) ?? 0) > 0;
 
@@ -174,6 +187,9 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
       if (loan && (!termValue || termValue < 1)) throw "Kalan vade (ay) girin.";
       if (loan && !firstDue) throw "Sonraki taksit tarihini girin.";
       const costValue = openingPositive && openingCost.trim() ? parseAmount(openingCost) : null;
+      const depRateValue = savingKind === "deposit" ? optional(depRate, "yıllık faiz") : null;
+      const depTaxValue = savingKind === "deposit" ? (optional(depTax, "stopaj oranı") ?? 0) : null;
+      if (savingKind === "deposit" && (!depRateValue || !depMaturity)) throw "Yıllık faiz ve vade tarihini girin.";
       if (openingPositive && openingCost.trim() && (costValue === null || costValue <= 0)) throw "Geçerli bir açılış maliyeti girin.";
       input = {
         name,
@@ -182,8 +198,8 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
         // Düzenlemede formda olmayan kart açılış borcu korunur
         openingBalance: card ? (account?.kind === "credit_card" ? account.openingBalance : 0) : openingValue,
         openingDate: newCardOpening ?? openingDate,
-        creditLimit: cash || loan ? null : optional(limit, "limit"),
-        interestRate: cash ? null : optional(rate, "faiz oranı"),
+        creditLimit: cash || loan || savingKind ? null : optional(limit, "limit"),
+        interestRate: cash || savingKind ? null : optional(rate, "faiz oranı"),
         statementDay: card ? sd : null,
         dueDay: card ? dd : null,
         minPaymentRate: card ? (optional(minRate, "asgari ödeme oranı") ?? 20) : null,
@@ -198,6 +214,14 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
         openingInstallments: account?.openingInstallments ?? [],
         currency: fund ? unitCode : foreign ? currency : TRY,
         openingCost: openingPositive ? costValue : null,
+        subtype: savingKind ?? "",
+        // Değerlemeler hesap kartından girilir; düzenlemede korunur
+        details:
+          savingKind === "deposit"
+            ? { deposit: { start: depStart, maturity: depMaturity, rate: depRateValue!, taxRate: depTaxValue! } }
+            : savingKind
+              ? { valuations: account?.details?.valuations ?? [] }
+              : {},
       };
     } catch (err) {
       return setError(errorMessage(err));
@@ -280,7 +304,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
 
         <div>
           <span className="label">Tür</span>
-          <div className="grid grid-cols-3 gap-1 rounded-xl bg-zinc-100 p-1 sm:grid-cols-5 dark:bg-zinc-800/70">
+          <div className="grid grid-cols-2 gap-1 rounded-xl bg-zinc-100 p-1 sm:grid-cols-4 dark:bg-zinc-800/70">
             {KINDS.map((k) => (
               <button
                 key={k}
@@ -288,8 +312,8 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
                 disabled={used && k !== formKind}
                 onClick={() => {
                   setFormKind(k);
-                  // Kart ve kredi yalnız TL
-                  if (k === "credit_card" || k === "loan") setCurrency(TRY);
+                  // Kart, kredi, mevduat, BES ve varlık yalnız TL
+                  if (k === "credit_card" || k === "loan" || isSaving(k)) setCurrency(TRY);
                 }}
                 className={`rounded-lg py-1.5 text-sm font-medium transition disabled:opacity-40 ${
                   formKind === k ? "bg-white shadow-sm dark:bg-zinc-900" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
@@ -302,7 +326,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
           {used && <p className="mt-1 text-xs text-zinc-500">İşlemi olan hesabın türü değiştirilemez.</p>}
         </div>
 
-        {!fund && (kind === "bank" || kind === "cash") && (
+        {!fund && !savingKind && (kind === "bank" || kind === "cash") && (
           <div>
             <label className="label" htmlFor="acc-currency">
               Para birimi
@@ -405,11 +429,13 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
               ) : (
                 <MoneyInput id="acc-opening" placeholder="0,00" value={opening} onValueChange={setOpening} />
               )}
-              {kind === "bank" && !foreign && (
+              {kind === "bank" && !foreign && !savingKind && (
                 <p className="mt-1 text-xs text-zinc-500">
                   Eksi değer = <Term hint={TERMS.KMH}>KMH</Term> kullanımı
                 </p>
               )}
+              {savingKind === "pension" && <p className="mt-1 text-xs text-zinc-500">Sonraki katkıları bu hesaba transfer olarak girin.</p>}
+              {savingKind === "asset" && <p className="mt-1 text-xs text-zinc-500">Güncel değeri hesap kartından girin.</p>}
             </div>
             <div>
               <label className="label" htmlFor="acc-opening-date">
@@ -440,7 +466,46 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
           </div>
         )}
 
-        {!cash && !foreign && (
+        {savingKind === "deposit" && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label" htmlFor="acc-dep-start">
+                Dönem başı
+              </label>
+              <input id="acc-dep-start" type="date" className="input" value={depStart} onChange={(e) => setDepStart(e.target.value)} />
+            </div>
+            <div>
+              <label className="label" htmlFor="acc-dep-maturity">
+                Vade tarihi
+              </label>
+              <input id="acc-dep-maturity" type="date" className="input" value={depMaturity} onChange={(e) => setDepMaturity(e.target.value)} />
+            </div>
+            <div>
+              <label className="label" htmlFor="acc-dep-rate">
+                Yıllık brüt faiz (%)
+              </label>
+              <input
+                id="acc-dep-rate"
+                className="input tabular-nums"
+                inputMode="decimal"
+                placeholder="Örn. 42"
+                value={depRate}
+                onChange={(e) => setDepRate(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="label" htmlFor="acc-dep-tax">
+                Stopaj (%)
+              </label>
+              <input id="acc-dep-tax" className="input tabular-nums" inputMode="decimal" value={depTax} onChange={(e) => setDepTax(e.target.value)} />
+            </div>
+            <p className="col-span-2 text-xs text-zinc-500">
+              Faiz basit faizle (365 gün) hesaplanır; stopaj brüt faizden düşülür. Vade dolunca hesap kartından faizi kaydedip yenileyin.
+            </p>
+          </div>
+        )}
+
+        {!cash && !foreign && !savingKind && (
           <div className="grid grid-cols-2 gap-3">
             {!loan && (
               <div>

@@ -26,6 +26,7 @@ const DATA_DEFAULTS: AppDataSettings = {
   forecastCategoryIds: null,
   categoryRules: [],
   projection: {},
+  investmentIncomeCategoryIds: null,
 };
 
 const isAppKey = (k: string): k is AppSettingKey => (APP_SETTING_KEYS as string[]).includes(k);

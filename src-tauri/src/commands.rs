@@ -201,6 +201,20 @@ pub fn reset_seed() -> store::ResetSeed {
     store::reset_seed(&ymd(istanbul_today(unix_now())))
 }
 
+#[derive(serde::Serialize)]
+pub struct Matured {
+    account: Account,
+    transaction: Option<Transaction>,
+}
+
+/// Vadesi dolan mevduatın faizini kaydeder; yeniler ya da vadesize çevirir
+#[tauri::command]
+pub fn deposit_mature(state: State<'_, AppState>, id: String, renew: bool) -> CmdResult<Matured> {
+    let today = ymd(istanbul_today(unix_now()));
+    let (account, transaction) = sqlite::run(&mut *lock(&state)?, |s| store::deposit_mature(s, &id, renew, &today))?;
+    Ok(Matured { account, transaction })
+}
+
 /// Otomatik kaydı açık düzenli kayıtların günü gelmiş ödemelerini işlem olarak ekler; eklenenler ve eklenemeyenler
 #[tauri::command]
 pub fn auto_post_recurring(state: State<'_, AppState>) -> CmdResult<store::AutoPostResult> {

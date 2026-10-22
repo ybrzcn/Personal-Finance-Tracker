@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::accounts::bank::tl_value;
 use crate::accounts::cards::js_cents;
 use crate::accounts::loans::{liability_at, loan_schedule};
 use crate::budget::expenses::{budget_expenses, month_expenses};
@@ -241,8 +242,10 @@ pub fn report(input: &ProjectionInput) -> ProjectionReport {
     };
 
     let monthly_return = (1.0 + a.return_pct / 100.0).powf(1.0 / 12.0) - 1.0;
-    // Kart/KMH borcu başlangıçta nakitten düşülür: nakit = net servet + kalan kredi anaparası
-    let mut cash = input.net_worth_cents + start_loan;
+    // Ev, araba gibi varlıklar bugünkü değeriyle sabit taşınır (getiri kazanmaz, nakit sayılmaz)
+    let fixed: i64 = input.accounts.iter().filter(|a| a.subtype() == "asset").map(|a| tl_value(a, input.transactions, input.today)).sum();
+    // Kart/KMH borcu başlangıçta nakitten düşülür: nakit = net servet + kalan kredi anaparası − sabit varlıklar
+    let mut cash = input.net_worth_cents + start_loan - fixed;
     let (mut income_factor, mut expense_factor) = (1.0_f64, 1.0_f64);
     let mut points =
         vec![ProjectionPoint { month: today_month.clone(), net_worth_cents: input.net_worth_cents, real_net_worth_cents: input.net_worth_cents, debt_cents: start_loan }];
@@ -284,7 +287,7 @@ pub fn report(input: &ProjectionInput) -> ProjectionReport {
             first_negative = Some(m.clone());
         }
         let debt = debt_after(&m);
-        let net = cash.saturating_sub(debt);
+        let net = cash.saturating_sub(debt).saturating_add(fixed);
         let real = (net as f64 / expense_factor).round() as i64;
         points.push(ProjectionPoint { month: m.clone(), net_worth_cents: net, real_net_worth_cents: real, debt_cents: debt });
 

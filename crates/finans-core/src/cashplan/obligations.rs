@@ -51,9 +51,9 @@ pub fn is_foreign(currency: &str) -> bool {
     !currency.is_empty() && currency != fx::TRY
 }
 
-/// Takvimin nakdi: TL banka/nakit hesabı
+/// Takvimin nakdi: TL banka/nakit hesabı (vadeli mevduat, BES ve diğer varlık harcanabilir nakit değil)
 pub fn is_cash_account(a: &Account) -> bool {
-    (a.kind == "bank" || a.kind == "cash") && !is_foreign(&a.currency)
+    (a.kind == "bank" || a.kind == "cash") && !is_foreign(&a.currency) && !a.is_saving()
 }
 
 /// İki tarihin orta gününün ayı (TS `periodMidMonth`; Türkiye'de yaz saati yok)

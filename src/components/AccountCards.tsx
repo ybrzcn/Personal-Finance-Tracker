@@ -1,14 +1,16 @@
 import { AlertTriangle, Banknote, CalendarClock, CreditCard, FileUp, HandCoins, Landmark, List, Pencil, Plus, TrendingUp, Wallet } from "lucide-react";
 import { useState, type ReactNode } from "react";
 import { formatQty, formatRate, isForeign, isFund } from "../lib/fx";
-import { formatDateShort } from "../lib/format";
-import { ACCOUNT_KIND_LABEL, type Account, type AmountHintCents, type CardStatement, type CardStatementStatus } from "../lib/types";
+import { errorMessage } from "../lib/api";
+import { formatDate, formatDateShort, parseAmount, todayISO } from "../lib/format";
+import { ACCOUNT_KIND_LABEL, SUBTYPE_LABEL, type Account, type AmountHintCents, type BankSummary, type CardStatement, type CardStatementStatus } from "../lib/types";
+import { useData } from "../state/data";
 import { useAccountReport } from "../state/accountsReport";
 import { usePnlSummary } from "../state/pnl";
 import { useRates } from "../state/rates";
 import { useSettings } from "../state/settings";
 import { useUI, type AmountHint } from "../state/ui";
-import { Term, TERMS } from "./common";
+import { MoneyInput, Term, TERMS } from "./common";
 
 const STATUS: Record<CardStatementStatus, { label: string; cls: string }> = {
   none: { label: "Borç yok", cls: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400" },
@@ -80,7 +82,7 @@ function CardShell({ account, icon, children, footer }: { account: Account; icon
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{account.name}</div>
           <div className="text-xs text-zinc-500">
-            {isFund(account.currency) ? "Yatırım fonu" : ACCOUNT_KIND_LABEL[account.kind]}
+            {isFund(account.currency) ? "Yatırım fonu" : account.subtype ? SUBTYPE_LABEL[account.subtype] : ACCOUNT_KIND_LABEL[account.kind]}
             {account.archived && " · Arşivlendi"}
           </div>
         </div>
@@ -163,7 +165,9 @@ export function BankAccountCard({ account }: { account: Account }) {
         <>
           <span className="ml-auto" />
           <IconAction title="İşlemler" onClick={() => showAccountTransactions(account.id)} icon={<List size={16} />} />
-          {!foreign && <IconAction title="Ekstre yükle (Excel, PDF, CSV)" onClick={() => openStatementImport(account.id)} icon={<FileUp size={16} />} />}
+          {!foreign && !account.subtype && (
+            <IconAction title="Ekstre yükle (Excel, PDF, CSV)" onClick={() => openStatementImport(account.id)} icon={<FileUp size={16} />} />
+          )}
         </>
       }
     >
@@ -197,11 +201,14 @@ export function BankAccountCard({ account }: { account: Account }) {
             </div>
           )}
         </div>
+      ) : account.subtype === "pension" || account.subtype === "asset" ? (
+        <ValuationBlock account={account} s={s} placeholder={placeholder} />
       ) : (
         <div className={`text-2xl font-semibold tracking-tight tabular-nums ${s !== null && s.balanceCents < 0 ? "text-rose-600 dark:text-rose-400" : ""}`}>
           {s ? formatMoney(s.balanceCents / 100) : placeholder}
         </div>
       )}
+      {account.subtype === "deposit" && <DepositBlock account={account} s={s} placeholder={placeholder} />}
       {account.kind === "cash" && (foreign ? native !== null && native < 0 : s !== null && s.balanceCents < 0) && (
         <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
           Nakit eksiye düşemez; bir gider fazla ya da yanlış hesaba girilmiş olabilir.
@@ -218,6 +225,117 @@ export function BankAccountCard({ account }: { account: Account }) {
       )}
       {account.kind === "bank" && !foreign && account.interestRate !== null && <Row label={<Term hint={TERMS.KMH}>Aylık KMH faizi</Term>}>{rate(account.interestRate)}</Row>}
     </CardShell>
+  );
+}
+
+/** Vadeli mevduat: dönem, işleyen ve vade sonu net faiz (Rust); vade dolunca faiz kaydı ve yenileme */
+function DepositBlock({ account, s, placeholder }: { account: Account; s: BankSummary | null; placeholder: string }) {
+  const { formatMoney } = useSettings();
+  const { depositMature } = useData();
+  const { toast } = useUI();
+  const [busy, setBusy] = useState(false);
+  const terms = account.details?.deposit;
+  const d = s?.deposit ?? null;
+  if (!terms) return null;
+  const money = (c: number | undefined) => (c === undefined ? placeholder : formatMoney(c / 100));
+  const mature = async (renew: boolean) => {
+    setBusy(true);
+    try {
+      await depositMature(account.id, renew);
+      toast(renew ? "Faiz kaydedildi, mevduat yenilendi." : "Faiz kaydedildi, hesap vadesize çevrildi.");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <Row label="Vade">
+        {formatDate(terms.maturity)}
+        {d && <span className="ml-1 text-xs text-zinc-500">{d.matured ? "· doldu" : `· ${d.daysLeft} gün`}</span>}
+      </Row>
+      <Row label="Faiz">
+        %{terms.rate.toLocaleString("tr-TR")} brüt · %{terms.taxRate.toLocaleString("tr-TR")} stopaj
+      </Row>
+      <Row label="İşleyen net faiz">{money(d?.accruedNetCents)}</Row>
+      <Row label="Vade sonu">
+        {money(d?.maturityValueCents)} <span className="text-xs text-emerald-600 dark:text-emerald-400">(+{money(d?.netCents)})</span>
+      </Row>
+      {d?.matured && !account.archived && (
+        <div className="flex flex-wrap gap-2 pt-1">
+          <button className="btn-primary px-3 py-1.5 text-xs" disabled={busy} onClick={() => void mature(true)}>
+            Faizi kaydet, yenile
+          </button>
+          <button className="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onClick={() => void mature(false)}>
+            Faizi kaydet, vadesize çevir
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** BES ve diğer varlık: son elle değerleme ve katkılara / alış bedeline göre fark; yeni değer girişi */
+function ValuationBlock({ account, s, placeholder }: { account: Account; s: BankSummary | null; placeholder: string }) {
+  const { formatMoney } = useSettings();
+  const { updateAccount } = useData();
+  const { toast } = useUI();
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState("");
+  const [date, setDate] = useState(todayISO());
+  const [busy, setBusy] = useState(false);
+  const v = s?.valuation ?? null;
+  const save = async () => {
+    const n = parseAmount(value);
+    if (n === null || n < 0) return toast("Geçerli bir değer girin.", "error");
+    setBusy(true);
+    try {
+      const valuations = [...(account.details?.valuations ?? []).filter((x) => x.date !== date), { date, value: n }];
+      await updateAccount({ ...account, details: { valuations } });
+      setOpen(false);
+      setValue("");
+      toast("Değer kaydedildi.");
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const base = account.subtype === "pension" ? "Katkılar" : "Alış bedeli";
+  return (
+    <div>
+      <div className="text-2xl font-semibold tracking-tight tabular-nums">{s ? formatMoney((v ? v.valueCents : s.balanceCents) / 100) : placeholder}</div>
+      <div className="mt-0.5 text-xs text-zinc-500 tabular-nums">
+        {v ? (
+          <>
+            {formatDateShort(v.date)} değeri · {base.toLocaleLowerCase("tr")} {s ? formatMoney(s.balanceCents / 100) : placeholder} ·{" "}
+            <span className={v.gainCents >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>
+              {v.gainCents > 0 ? "+" : ""}
+              {formatMoney(v.gainCents / 100)}
+            </span>
+          </>
+        ) : (
+          `${base}; güncel değer girilmedi`
+        )}
+      </div>
+      {open ? (
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <MoneyInput aria-label="Güncel değer" placeholder="Güncel değer" value={value} onValueChange={setValue} />
+          <input type="date" aria-label="Değer tarihi" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+          <button className="btn-primary px-3 py-1.5 text-xs" disabled={busy} onClick={() => void save()}>
+            Kaydet
+          </button>
+          <button className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setOpen(false)}>
+            Vazgeç
+          </button>
+        </div>
+      ) : (
+        <button className="btn-secondary mt-2 px-3 py-1.5 text-xs" onClick={() => setOpen(true)}>
+          Değer gir
+        </button>
+      )}
+    </div>
   );
 }
 

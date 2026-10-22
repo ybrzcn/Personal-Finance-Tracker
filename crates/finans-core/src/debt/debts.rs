@@ -68,7 +68,7 @@ pub fn debts_from_accounts(accounts: &[Account], txs: &[Transaction], today: &st
                 let rate = effective_monthly_rate(a.interest_rate, Some(REVOLVING_TAX));
                 out.push(debt(bal, rate, Some(a.min_payment_rate.unwrap_or(20.0)), None, Some(billing)));
             }
-        } else if a.kind == "bank" && !is_foreign(&a.currency) {
+        } else if a.kind == "bank" && !is_foreign(&a.currency) && !a.is_saving() {
             let used = bank_summary(a, txs, today).overdraft_used_cents;
             if used > 0 {
                 out.push(debt(used, effective_monthly_rate(a.interest_rate, Some(REVOLVING_TAX)), None, None, None));

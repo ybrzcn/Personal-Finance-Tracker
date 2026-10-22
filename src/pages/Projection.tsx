@@ -299,6 +299,7 @@ export function ProjectionPage() {
                 <li>Düzenli gelir ve giderler bugünkü tutarlarıyla, başlangıç tarihleri gelince girer; aya özel istisnalar sayılmaz.</li>
                 <li>Kategori limitleri ve son ayların düzensiz gider ortalaması her ay harcanmış sayılır; düzensiz gelir sayılmaz.</li>
                 <li>Zam ve enflasyon her Ocak uygulanır; getiri yalnız artıdaki nakde aylık işler. Kredi taksitleri artmaz.</li>
+                <li>Ev, araba gibi varlıklar bugünkü değeriyle sabit kalır; getiri ve nakit hesabına girmez.</li>
                 <li>Bir krediyi ayrıca düzenli gider olarak da girdiyseniz iki kez düşülür.</li>
               </ul>
             </details>

@@ -162,7 +162,16 @@ pub fn report(input: &BudgetInput) -> CoreResult<BudgetReport> {
     if !valid_month(month) {
         return Err("Geçersiz ay".into());
     }
-    let (txs, rec) = (input.transactions, input.recurring);
+    // Mevduat, BES ve varlık hesaplarına giren gelir (vade faizi vb.) harcanabilir gelir değil: bütçeye girmez
+    let saving: Vec<&str> = input.accounts.iter().filter(|a| a.is_saving()).map(|a| a.id.as_str()).collect();
+    let kept: Vec<Transaction>;
+    let txs = if saving.is_empty() {
+        input.transactions
+    } else {
+        kept = input.transactions.iter().filter(|t| !(t.kind == "income" && saving.contains(&t.account_id.as_str()))).cloned().collect();
+        &kept[..]
+    };
+    let rec = input.recurring;
     let all = budget_expenses(txs, input.accounts, rec);
     let carry = carry_by_category(&all, input.budgets, month);
 

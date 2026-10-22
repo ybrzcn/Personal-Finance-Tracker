@@ -48,6 +48,38 @@ export interface Account {
   currency: string;
   /** Yalnız döviz/altın: açılış bakiyesinin TL maliyeti (kâr/zarar); boşsa açılış günü kuru */
   openingCost: number | null;
+  /** Yalnız TL vadesiz hesap: "" vadesiz, vadeli mevduat, BES, diğer varlık (ev, araba) */
+  subtype?: AccountSubtype;
+  /** Alt türün ayrıntıları: mevduat koşulları ya da elle değerlemeler */
+  details?: AccountDetails;
+}
+
+export type AccountSubtype = "" | "deposit" | "pension" | "asset";
+
+export const SUBTYPE_LABEL: Record<Exclude<AccountSubtype, "">, string> = {
+  deposit: "Vadeli mevduat",
+  pension: "BES",
+  asset: "Diğer varlık",
+};
+
+/** Vadeli mevduat: dönem başı, vade, yıllık brüt faiz ve stopaj (yüzde) */
+export interface DepositTerms {
+  start: string;
+  maturity: string;
+  rate: number;
+  taxRate: number;
+}
+
+/** Elle girilen değer (TL): o tarihten itibaren geçerli */
+export interface Valuation {
+  date: string;
+  value: number;
+}
+
+export interface AccountDetails {
+  deposit?: DepositTerms | null;
+  /** Tarihe göre sıralı */
+  valuations?: Valuation[];
 }
 
 /** Kart eklenirken girilen, devam eden taksitli harcama. */
@@ -182,7 +214,12 @@ export interface SubscriptionOverride {
 }
 
 /** Veritabanında saklanan, cihazlar arasında taşınan uygulama ayarları */
-export type AppDataSettings = DebtPlanSettings & AnalysisSettings & CategoryRuleSettings & ProjectionSettings;
+export type AppDataSettings = DebtPlanSettings & AnalysisSettings & CategoryRuleSettings & ProjectionSettings & InvestmentIncomeSettings;
+
+export interface InvestmentIncomeSettings {
+  /** Kâr/Zarar'da yatırım geliri sayılan gelir kategorileri; null = "Yatırım" */
+  investmentIncomeCategoryIds: string[] | null;
+}
 
 /** Uzun Vade varsayımları (oranlar yıllık yüzde); Rust `projection::Assumptions` */
 export interface ProjectionAssumptions {
@@ -260,6 +297,7 @@ export const APP_SETTING_KEYS: AppSettingKey[] = [
   "forecastCategoryIds",
   "categoryRules",
   "projection",
+  "investmentIncomeCategoryIds",
 ];
 
 /** "Açıklamada şu kelimelerden biri geçerse → bu kategori" kuralı. */
@@ -380,7 +418,26 @@ export interface PnlTotals {
   inflationBp: number | null;
   realizedCents: number;
   realRealizedCents: number | null;
+  /** Dönemdeki yatırım geliri (faiz, temettü, fon dağıtımı) */
+  incomeCents: number;
+  /** Kâğıt üstü + dönemde gerçekleşen + dönemdeki yatırım geliri */
+  totalGainCents: number;
   partial: boolean;
+}
+/** Rust `pnl::income::InvestmentIncome` */
+export interface InvestmentIncome {
+  categoryIds: string[];
+  /** Ayar yok: "Yatırım" kategorisi kullanıldı */
+  defaultCategories: boolean;
+  totalCents: number;
+  months: { month: string; cents: number }[];
+  byCategory: { categoryId: string; cents: number }[];
+}
+/** Rust `pnl::income::AllocationSlice` */
+export interface AllocationSlice {
+  key: "tl" | "deposit" | "pension" | "asset" | "fx" | "metal" | "fund";
+  valueCents: number;
+  shareBp: number;
 }
 export interface CpiInfo {
   status: "ok" | "noKey" | "unavailable";
@@ -393,6 +450,9 @@ export interface PnlReport {
   months: MonthTotal[];
   totals: PnlTotals;
   cpi: CpiInfo;
+  income: InvestmentIncome | null;
+  /** Bugünkü varlık dağılımı (süzgeçten bağımsız) */
+  allocation: AllocationSlice[];
 }
 
 /** TEFAS fon arama sonucu (Rust `fx::funds::FundHit`) */
@@ -416,6 +476,8 @@ export interface NetWorthByKind {
   tlCents: number;
   fxCents: number;
   fundCents: number;
+  /** Vadeli mevduat, BES ve diğer varlıklar */
+  savingCents: number;
   cardCents: number;
   loanCents: number;
   overdraftCents: number;
@@ -584,6 +646,24 @@ export interface BankSummary {
   balanceCents: number;
   overdraftUsedCents: number;
   availableCents: number | null;
+  /** BES ve diğer varlık: son elle değerleme */
+  valuation: { date: string; valueCents: number; gainCents: number } | null;
+  /** Vadeli mevduat dönemi (Rust `DepositInfo`) */
+  deposit: DepositInfo | null;
+}
+
+export interface DepositInfo {
+  principalCents: number;
+  termDays: number;
+  elapsedDays: number;
+  /** Vadeye gün (eksi: geçti) */
+  daysLeft: number;
+  grossCents: number;
+  taxCents: number;
+  netCents: number;
+  accruedNetCents: number;
+  maturityValueCents: number;
+  matured: boolean;
 }
 
 export interface FxSummary {

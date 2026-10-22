@@ -224,12 +224,19 @@ pub fn report(input: &PnlInput) -> CoreResult<PnlReport> {
         }
         accounts.push(account_row(a, acc[a.id.as_str()].1, h, input, series)?);
     }
+    let allocation = match input.income_categories {
+        Some(_) => super::income::allocation(input.accounts, input.transactions, &accounts, input.today),
+        None => Vec::new(),
+    };
     // Süzgeç yürüyüşten sonra: fondan dövize transferde maliyet doğru taşınsın
     accounts.retain(|a| input.filter.matches(&a.currency));
     realized.retain(|r| input.filter.matches(&r.currency));
     realized.sort_by(|x, y| (&x.date, &x.transaction_id).cmp(&(&y.date, &y.transaction_id)));
     let months = months(&realized, input)?;
-    let totals = totals(&accounts, &realized)?;
+    let income = input.income_categories.clone().map(|ids| super::income::investment_income(input.transactions, input.accounts, input.filter, ids, input.from, input.to, input.today));
+    let mut totals = totals(&accounts, &realized)?;
+    totals.income_cents = income.as_ref().map_or(0, |i| i.total_cents);
+    totals.total_gain_cents = totals.unrealized_cents + totals.realized_cents + totals.income_cents;
     let latest = series.and_then(|s| s.latest());
     Ok(PnlReport {
         accounts,
@@ -237,6 +244,8 @@ pub fn report(input: &PnlInput) -> CoreResult<PnlReport> {
         months,
         totals,
         cpi: CpiInfo { status: input.cpi.status, latest_month: latest.map(|(k, _)| month_label(k)), message: input.cpi.message.clone() },
+        income,
+        allocation,
     })
 }
 
@@ -376,6 +385,8 @@ fn totals(accounts: &[AccountPnl], items: &[RealizedItem]) -> CoreResult<PnlTota
         },
         realized_cents: to_i64(realized)?,
         real_realized_cents: if items.iter().any(|i| i.real_pnl_cents.is_some()) { real_realized.map(to_i64).transpose()? } else { None },
+        income_cents: 0,
+        total_gain_cents: 0,
         partial,
     })
 }

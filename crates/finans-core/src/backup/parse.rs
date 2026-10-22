@@ -34,6 +34,8 @@ pub fn make_default_account(opening_date: &str) -> Account {
         opening_installments: Vec::new(),
         currency: "TRY".into(),
         opening_cost: Some(None),
+        subtype: Some(String::new()),
+        details: Some(Default::default()),
     }
 }
 
@@ -261,6 +263,13 @@ fn parse_account(a: &Value, i: usize) -> CoreResult<Value> {
         .filter(|it| is_obj(it) && field(it, "amount").is_num() && field(it, "remaining").is_num())
         .map(|it| json!({ "description": string_or(field(it, "description"), ""), "amount": field(it, "amount"), "remaining": field(it, "remaining") }))
         .collect();
+    let details = parse_details(f("details"));
+    // Koşulları eksik mevduat vadesiz olarak döner (geri yükleme bütünüyle bozulmasın)
+    let subtype = match f("subtype").js_str() {
+        Some("deposit") if details["deposit"].is_null() => json!(""),
+        Some(t @ ("deposit" | "pension" | "asset")) => json!(t),
+        _ => json!(""),
+    };
     Ok(json!({
         "id": f("id"),
         "name": f("name"),
@@ -284,7 +293,27 @@ fn parse_account(a: &Value, i: usize) -> CoreResult<Value> {
         "currency": match f("currency").js_str() { Some(c) if !c.is_empty() => json!(c), _ => json!("TRY") },
         "openingCost": if f("openingCost").as_f64().is_some_and(|c| c > 0.0) { f("openingCost").clone() } else { Value::Null },
         "openingInstallments": installments,
+        "subtype": subtype,
+        "details": details,
     }))
+}
+
+/// Hesap ayrıntıları: biçimi uyanlar alınır (geçerlilik geri yüklemede denetlenir)
+fn parse_details(d: &Value) -> Value {
+    let dep = field(d, "deposit");
+    let deposit = if is_obj(dep) && ["start", "maturity"].iter().all(|k| field(dep, k).is_str()) && ["rate", "taxRate"].iter().all(|k| field(dep, k).is_num()) {
+        json!({ "start": field(dep, "start"), "maturity": field(dep, "maturity"), "rate": field(dep, "rate"), "taxRate": field(dep, "taxRate") })
+    } else {
+        Value::Null
+    };
+    let valuations: Vec<Value> = field(d, "valuations")
+        .as_array()
+        .map_or(&[][..], |v| v.as_slice())
+        .iter()
+        .filter(|v| is_obj(v) && field(v, "date").is_str() && field(v, "value").is_num())
+        .map(|v| json!({ "date": field(v, "date"), "value": field(v, "value") }))
+        .collect();
+    json!({ "deposit": deposit, "valuations": valuations })
 }
 
 fn parse_recurring(r: &Value, i: usize) -> CoreResult<Value> {

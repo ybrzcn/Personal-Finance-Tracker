@@ -21,6 +21,10 @@ pub trait DataStore {
     fn account_meta(&mut self, id: &str) -> CoreResult<Option<AccountMeta>>;
     /// Hesabın kaynak ya da hedef olduğu işlem sayısı
     fn account_usage(&mut self, id: &str) -> CoreResult<i64>;
+    /// Hesap satırını işlem sonuna kadar kilitler (eşzamanlı vade işlemi aynı faizi iki kez yazmasın); SQLite'ta gerekmez
+    fn lock_account(&mut self, _id: &str) -> CoreResult<()> {
+        Ok(())
+    }
     fn insert_account(&mut self, id: &str, row: &AccountRow) -> CoreResult<()>;
     fn update_account(&mut self, id: &str, row: &AccountRow) -> CoreResult<u64>;
     fn delete_account(&mut self, id: &str) -> CoreResult<()>;

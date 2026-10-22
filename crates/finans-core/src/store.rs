@@ -143,6 +143,8 @@ pub fn clean_account(a: &Account) -> CoreResult<AccountRow> {
         return Err("Geçersiz hesap türü.".into());
     }
     validate_date(&a.opening_date)?;
+    let (subtype, details) = clean_subtype(a, foreign)?;
+    let saving = !subtype.is_empty();
     let card = a.kind == "credit_card";
     let cash = a.kind == "cash";
     let loan = a.kind == "loan";
@@ -163,7 +165,7 @@ pub fn clean_account(a: &Account) -> CoreResult<AccountRow> {
         (None, None, None, None)
     };
     let limit_cents = match a.credit_limit {
-        Some(l) if !cash && !loan && !foreign => {
+        Some(l) if !cash && !loan && !foreign && !saving => {
             if !l.is_finite() || l < 0.0 {
                 return Err("Limit negatif olamaz.".into());
             }
@@ -187,7 +189,7 @@ pub fn clean_account(a: &Account) -> CoreResult<AccountRow> {
         opening_cents: if foreign { fxa::signed_value_to_minor(a.opening_balance, unit)? } else { to_signed_cents(a.opening_balance)? },
         opening_date: a.opening_date.clone(),
         limit_cents,
-        rate_bp: if cash || foreign { None } else { rate_bp(a.interest_rate, "Faiz oranı")? },
+        rate_bp: if cash || foreign || saving { None } else { rate_bp(a.interest_rate, "Faiz oranı")? },
         statement_day: if card { Some(day_of_month(a.statement_day, "Kesim günü")?) } else { None },
         due_day: if card { Some(day_of_month(a.due_day, "Son ödeme günü")?) } else { None },
         min_rate_bp: if card {
@@ -208,12 +210,63 @@ pub fn clean_account(a: &Account) -> CoreResult<AccountRow> {
         opening_installments: if card { clean_opening_installments(&a.opening_installments)? } else { "[]".into() },
         currency,
         opening_cost_cents,
+        subtype: subtype.to_string(),
+        details: serde_json::to_string(&details).map_err(|e| e.to_string())?,
         funding_income_id: if card || loan {
             a.funding_income_id.clone().filter(|s| !s.is_empty())
         } else {
             None
         },
     })
+}
+
+/// Alt tür yalnız TL vadesiz hesapta. Mevduat: dönem başı ≤ vade, yıllık brüt faiz (0–1000) ve stopaj (0–100) yüzde.
+/// BES ve diğer varlık: elle değerlemeler (tarih sıralı, aynı gün bir değer, eksi olamaz). Vadesizde ayrıntı tutulmaz.
+fn clean_subtype(a: &Account, foreign: bool) -> CoreResult<(&'static str, db::AccountDetails)> {
+    let subtype = match a.subtype() {
+        "" => return Ok(("", db::AccountDetails::default())),
+        "deposit" => "deposit",
+        "pension" => "pension",
+        "asset" => "asset",
+        other => return Err(format!("Geçersiz hesap alt türü: {other}")),
+    };
+    if a.kind != "bank" || foreign {
+        return Err("Vadeli mevduat, BES ve diğer varlık yalnız TL hesap olabilir.".into());
+    }
+    let details = a.details.clone().unwrap_or_default();
+    if subtype == "deposit" {
+        let d = details.deposit.ok_or("Vadeli mevduat için dönem başı, vade, faiz ve stopaj girin.")?;
+        validate_date(&d.start).map_err(|_| "Geçerli bir dönem başı girin.".to_string())?;
+        validate_date(&d.maturity).map_err(|_| "Geçerli bir vade tarihi girin.".to_string())?;
+        if d.maturity <= d.start {
+            return Err("Vade tarihi dönem başından sonra olmalıdır.".into());
+        }
+        if !d.rate.is_finite() || d.rate <= 0.0 || d.rate > 1000.0 {
+            return Err("Yıllık faiz oranı 0 ile 1000 arasında olmalıdır.".into());
+        }
+        if !d.tax_rate.is_finite() || !(0.0..=100.0).contains(&d.tax_rate) {
+            return Err("Stopaj oranı 0 ile 100 arasında olmalıdır.".into());
+        }
+        let deposit = db::DepositTerms { rate: (d.rate * 100.0).round() / 100.0, tax_rate: (d.tax_rate * 100.0).round() / 100.0, ..d };
+        return Ok((subtype, db::AccountDetails { deposit: Some(deposit), valuations: Vec::new() }));
+    }
+    let mut valuations = Vec::with_capacity(details.valuations.len());
+    for v in &details.valuations {
+        validate_date(&v.date).map_err(|_| format!("Geçersiz değerleme tarihi: {}", v.date))?;
+        if !v.value.is_finite() || v.value < 0.0 {
+            return Err(format!("{} değerlemesi eksi olamaz.", v.date));
+        }
+        to_cents(v.value.max(0.01))?;
+        valuations.push(db::Valuation { date: v.date.clone(), value: (v.value * 100.0).round() / 100.0 });
+    }
+    // Aynı gün için son girilen geçerli
+    valuations.reverse();
+    valuations.sort_by(|x, y| x.date.cmp(&y.date));
+    valuations.dedup_by(|b, a| a.date == b.date);
+    if valuations.len() > 1000 {
+        return Err("En çok 1000 değerleme girilebilir.".into());
+    }
+    Ok((subtype, db::AccountDetails { deposit: None, valuations }))
 }
 
 fn clean_opening_installments(items: &[db::OpeningInstallment]) -> CoreResult<String> {
@@ -367,6 +420,8 @@ pub fn seed_new_user(s: &mut dyn DataStore, today: &str) -> CoreResult<()> {
         opening_installments: Vec::new(),
         currency: fx::TRY.into(),
         opening_cost: None,
+        subtype: None,
+        details: None,
     };
     s.insert_account(&db::new_id(), &clean_account(&account)?)
 }
@@ -445,14 +500,30 @@ pub fn create_account(s: &mut dyn DataStore, input: AccountInput) -> CoreResult<
 
 pub fn update_account(s: &mut dyn DataStore, mut account: Account) -> CoreResult<Account> {
     // Alanı göndermeyen (eski) istemci açılış maliyetini silmesin
-    if account.opening_cost.is_none() {
-        account.opening_cost = Some(get_account(s, &account.id)?.opening_cost.flatten());
+    if account.opening_cost.is_none() || account.subtype.is_none() || account.details.is_none() {
+        let old = get_account(s, &account.id)?;
+        if account.opening_cost.is_none() {
+            account.opening_cost = Some(old.opening_cost.flatten());
+        }
+        // Alt türü bilmeyen (eski) istemci mevduat/BES/varlık bilgisini silmesin
+        if account.subtype.is_none() {
+            account.subtype = old.subtype;
+        }
+        if account.details.is_none() {
+            account.details = old.details;
+        }
     }
     let row = clean_account(&account)?;
     let old = account_meta(s, &account.id).map_err(|_| "Hesap bulunamadı.".to_string())?;
     let used = s.account_usage(&account.id)? > 0;
     if old.kind != row.kind && used {
         return Err("Bu hesapta işlem bulunduğu için türü değiştirilemez.".into());
+    }
+    // BES ve diğer varlıkta değer elle girilir: işlemli hesap bu türlere girip çıkamaz (vadesiz ↔ mevduat serbest)
+    let valued = |t: &str| t == "pension" || t == "asset";
+    let old_subtype = get_account(s, &account.id)?.subtype().to_string();
+    if used && old_subtype != row.subtype && (valued(&old_subtype) || valued(&row.subtype)) {
+        return Err("Bu hesapta işlem bulunduğu için BES ya da varlık türüne çevrilemez (ya da bu türden çıkarılamaz).".into());
     }
     if row.kind != "bank" && row.kind != "cash" {
         if let Some((_, gname)) = s.goal_of_account(&account.id)? {
@@ -470,6 +541,60 @@ pub fn update_account(s: &mut dyn DataStore, mut account: Account) -> CoreResult
 }
 
 /// İşlemi olan hesap silinemez; yalnızca arşivlenebilir.
+/// Vadesi dolan mevduat: dönemin net faizi vade tarihiyle bu hesaba gelir olarak kaydedilir ("Yatırım" gelir kategorisi
+/// varsa ona). `renew`: aynı süreyle yeni dönem (anapara faizle büyür); değilse hesap vadesize döner. Her iki yol da
+/// mevduatın durumunu değiştirir: aynı faiz iki kez kaydedilmez. Güncel hesap ve eklenen işlem (faiz 0 ise yok) döner.
+pub fn deposit_mature(s: &mut dyn DataStore, id: &str, renew: bool, today: &str) -> CoreResult<(Account, Option<Transaction>)> {
+    use crate::accounts::bank::deposit_info;
+    use crate::accounts::cards::add_days;
+    use crate::fx::time::days_between;
+
+    // Kilitten sonra okunur: eşzamanlı ikinci istek yenilenmiş dönemi görür ("vade henüz dolmadı")
+    s.lock_account(id)?;
+    let mut a = get_account(s, id)?;
+    let Some(terms) = a.deposit().cloned() else { return Err("Bu hesap vadeli mevduat değil.".into()) };
+    if today < terms.maturity.as_str() {
+        return Err("Vade henüz dolmadı.".into());
+    }
+    let txs = s.list_transactions()?;
+    let info = deposit_info(&a, &txs, &terms.maturity).ok_or("Bu hesap vadeli mevduat değil.")?;
+    let category_id = s
+        .list_categories()?
+        .into_iter()
+        .find(|c| c.kind == "income" && crate::fx::funds::tr_lower(c.name.trim()) == "yatırım")
+        .map(|c| c.id);
+    let tx = if info.net_cents > 0 {
+        let input = TransactionInput {
+            amount: info.net_cents as f64 / 100.0,
+            kind: "income".into(),
+            account_id: a.id.clone(),
+            to_account_id: None,
+            category_id,
+            date: terms.maturity.clone(),
+            description: format!("{} vade faizi", a.name),
+            installments: 1,
+            budget_month: None,
+            orig_amount: None,
+            fx_rate: None,
+            to_orig_amount: None,
+            to_fx_rate: None,
+            tag_ids: None,
+        };
+        Some(create_transaction(s, input)?)
+    } else {
+        None
+    };
+    if renew {
+        let days = days_between(&terms.start, &terms.maturity);
+        let next = db::DepositTerms { start: terms.maturity.clone(), maturity: add_days(&terms.maturity, days), ..terms };
+        a.details = Some(db::AccountDetails { deposit: Some(next), valuations: Vec::new() });
+    } else {
+        a.subtype = Some(String::new());
+        a.details = Some(db::AccountDetails::default());
+    }
+    Ok((update_account(s, a)?, tx))
+}
+
 pub fn delete_account(s: &mut dyn DataStore, id: &str) -> CoreResult<()> {
     let used = s.account_usage(id)?;
     if used > 0 {
@@ -1232,6 +1357,7 @@ pub const SETTING_KEYS: &[&str] = &[
     "forecastCategoryIds",
     "categoryRules",
     "projection",
+    "investmentIncomeCategoryIds",
 ];
 
 pub fn get_settings(s: &mut dyn DataStore) -> CoreResult<serde_json::Map<String, serde_json::Value>> {

@@ -27,8 +27,8 @@ export function SetupChecklist() {
     {
       title: "Banka hesabını ve bugünkü bakiyesini gir",
       hint: "Vadesiz hesabın (KMH varsa limitiyle) bakiyesi; nakit planı bundan başlar.",
-      done: accounts.some((a) => a.kind === "bank" && (a.openingBalance !== 0 || transactions.some((t) => t.accountId === a.id))),
-      action: () => openAccountForm(accounts.find((a) => a.kind === "bank")),
+      done: accounts.some((a) => a.kind === "bank" && !a.subtype && (a.openingBalance !== 0 || transactions.some((t) => t.accountId === a.id))),
+      action: () => openAccountForm(accounts.find((a) => a.kind === "bank" && !a.subtype)),
       label: "Hesabı düzenle",
     },
     {

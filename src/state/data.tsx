@@ -51,6 +51,8 @@ export interface DataCtx {
   deleteCategory(id: string): Promise<void>;
   addAccount(input: AccountInput): Promise<Account>;
   updateAccount(a: Account): Promise<Account>;
+  /** Vadesi dolan mevduat: faiz kaydedilir, yenilenir ya da vadesize çevrilir; hesaplar ve işlemler yeniden okunur */
+  depositMature(id: string, renew: boolean): Promise<void>;
   deleteAccount(id: string): Promise<void>;
   addRecurring(input: RecurringInput): Promise<RecurringItem>;
   updateRecurring(r: RecurringItem): Promise<RecurringItem>;
@@ -215,6 +217,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
       },
       async updateAccount(acc) {
         return refreshed(await api.updateAccount(acc), api.listAccounts, setAccounts);
+      },
+      async depositMature(id, renew) {
+        await api.depositMature(id, renew);
+        const [accs, txs] = await Promise.all([api.listAccounts(), api.listTransactions()]);
+        setAccounts(accs);
+        setTransactions(txs);
       },
       async deleteAccount(id) {
         await api.deleteAccount(id);

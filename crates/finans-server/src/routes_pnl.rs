@@ -35,8 +35,11 @@ async fn report(State(s): State<Arc<AppState>>, user: AuthUser, Query(q): Query<
     let (from, to) = (date(q.from)?, date(q.to)?);
     let filter = pnl::AssetFilter::parse(q.kind.as_deref()).map_err(ApiError::from)?;
     // Veri tek işlemde okunur; kur ve TÜFE (ağ) veritabanı işlemi dışında toplanır
-    let (accounts, txs) =
-        with_user_db(&s, &user, |c| Ok((store::list_accounts(c)?, store::list_transactions(c)?))).await?;
+    let (accounts, txs, income_categories) = with_user_db(&s, &user, |c| {
+        let ids = pnl::income_category_ids(&store::get_settings(c)?, &store::list_categories(c)?);
+        Ok((store::list_accounts(c)?, store::list_transactions(c)?, ids))
+    })
+    .await?;
     let out = blocking(move || {
         let today = ymd(istanbul_today(unix_now()));
         let mut views = s.rates.latest(false)?;
@@ -54,6 +57,7 @@ async fn report(State(s): State<Arc<AppState>>, user: AuthUser, Query(q): Query<
             from: from.as_deref(),
             to: to.as_deref(),
             filter,
+            income_categories: Some(income_categories),
         })
         .map_err(ApiError::from)
     })

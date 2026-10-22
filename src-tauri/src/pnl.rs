@@ -16,9 +16,12 @@ pub async fn pnl_report(app: tauri::AppHandle, from: Option<String>, to: Option<
     tauri::async_runtime::spawn_blocking(move || {
         let st = app.state::<AppState>();
         // Veri kilit altında okunur; kur ve TÜFE (ağ) kilit dışında
-        let (accounts, txs) = {
+        let (accounts, txs, income_categories) = {
             let mut conn = st.conn.lock().map_err(|_| "Veritabanı bağlantısı kullanılamıyor.".to_string())?;
-            sqlite::run(&mut conn, |s| Ok((store::list_accounts(s)?, store::list_transactions(s)?)))?
+            sqlite::run(&mut conn, |s| {
+                let ids = pnl::income_category_ids(&store::get_settings(s)?, &store::list_categories(s)?);
+                Ok((store::list_accounts(s)?, store::list_transactions(s)?, ids))
+            })?
         };
         let filter = pnl::AssetFilter::parse(kind.as_deref())?;
         let live = &app.state::<RatesState>().0;
@@ -39,6 +42,7 @@ pub async fn pnl_report(app: tauri::AppHandle, from: Option<String>, to: Option<
             from: from.as_deref().filter(|s| !s.is_empty()),
             to: to.as_deref().filter(|s| !s.is_empty()),
             filter,
+            income_categories: Some(income_categories),
         })
     })
     .await

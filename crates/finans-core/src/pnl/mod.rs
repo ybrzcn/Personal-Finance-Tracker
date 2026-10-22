@@ -3,12 +3,14 @@
 //! Bütün sayılar tam sayıdır: kuruş, kur ×1e6, baz puan, en küçük birim.
 
 mod engine;
+pub mod income;
 
 use std::collections::HashMap;
 
 use serde::Serialize;
 
 pub use engine::report;
+pub use income::{income_category_ids, AllocationSlice, InvestmentIncome};
 
 use crate::cpi::{CpiData, CpiStatus};
 use crate::db::{Account, Transaction};
@@ -67,6 +69,9 @@ pub struct PnlInput<'a> {
     pub to: Option<&'a str>,
     /// Süzgeç: hesaplar ve gerçekleşenler bu varlıklarla sınırlanır (yürüyüş tüm hesaplarla yapılır)
     pub filter: AssetFilter,
+    /// Yatırım geliri sayılan gelir kategorileri ve varsayılan mı (`income_category_ids`); None: gelir ve dağılım
+    /// hesaplanmaz (net servetin ay sonu maliyetleri)
+    pub income_categories: Option<(Vec<String>, bool)>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -77,6 +82,10 @@ pub struct PnlReport {
     pub months: Vec<MonthTotal>,
     pub totals: PnlTotals,
     pub cpi: CpiInfo,
+    /// Dönemdeki faiz, temettü ve fon dağıtımı (seçili gelir kategorileri)
+    pub income: Option<InvestmentIncome>,
+    /// Bugünkü varlık dağılımı (süzgeçten bağımsız)
+    pub allocation: Vec<AllocationSlice>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -158,6 +167,10 @@ pub struct PnlTotals {
     /// Dönemde gerçekleşen (maliyeti bilinenler)
     pub realized_cents: i64,
     pub real_realized_cents: Option<i64>,
+    /// Dönemdeki yatırım geliri
+    pub income_cents: i64,
+    /// Kâğıt üstü + dönemde gerçekleşen + dönemdeki yatırım geliri
+    pub total_gain_cents: i64,
     /// Bir hesap ya da satış toplama girmedi (kur yok, maliyet bilinmiyor)
     pub partial: bool,
 }

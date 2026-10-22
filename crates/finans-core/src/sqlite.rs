@@ -170,13 +170,13 @@ impl DataStore for SqliteStore<'_> {
                 "INSERT INTO accounts (id, name, kind, color, opening_balance_cents, opening_date, credit_limit_cents,
                                        interest_rate_bp, statement_day, due_day, min_payment_rate_bp, sort_order, archived,
                                        term_months, first_due_date, installment_cents, tax_rate_bp, funding_income_id,
-                                       opening_period_cents, opening_installments, currency, opening_cost_cents)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+                                       opening_period_cents, opening_installments, currency, opening_cost_cents, subtype, details)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
                 params![
                     id, r.name, r.kind, r.color, r.opening_cents, r.opening_date, r.limit_cents, r.rate_bp,
                     r.statement_day, r.due_day, r.min_rate_bp, r.sort_order, r.archived, r.term_months,
                     r.first_due_date, r.installment_cents, r.tax_rate_bp, r.funding_income_id, r.opening_period_cents,
-                    r.opening_installments, r.currency, r.opening_cost_cents
+                    r.opening_installments, r.currency, r.opening_cost_cents, r.subtype, r.details
                 ],
             )
             .map_err(db_err)?;
@@ -191,13 +191,14 @@ impl DataStore for SqliteStore<'_> {
                         credit_limit_cents = ?7, interest_rate_bp = ?8, statement_day = ?9, due_day = ?10,
                         min_payment_rate_bp = ?11, sort_order = ?12, archived = ?13, term_months = ?14,
                         first_due_date = ?15, installment_cents = ?16, tax_rate_bp = ?17, funding_income_id = ?18,
-                        opening_period_cents = ?19, opening_installments = ?20, currency = ?21, opening_cost_cents = ?22
+                        opening_period_cents = ?19, opening_installments = ?20, currency = ?21, opening_cost_cents = ?22,
+                        subtype = ?23, details = ?24
                  WHERE id = ?1",
                 params![
                     id, r.name, r.kind, r.color, r.opening_cents, r.opening_date, r.limit_cents, r.rate_bp,
                     r.statement_day, r.due_day, r.min_rate_bp, r.sort_order, r.archived, r.term_months,
                     r.first_due_date, r.installment_cents, r.tax_rate_bp, r.funding_income_id, r.opening_period_cents,
-                    r.opening_installments, r.currency, r.opening_cost_cents
+                    r.opening_installments, r.currency, r.opening_cost_cents, r.subtype, r.details
                 ],
             )
             .map_err(db_err)?;

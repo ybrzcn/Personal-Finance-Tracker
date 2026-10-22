@@ -102,6 +102,7 @@ pub fn run() {
             commands::set_recurring_exception,
             commands::reset_seed,
             commands::auto_post_recurring,
+            commands::deposit_mature,
             commands::delete_recurring,
             commands::list_budgets,
             commands::set_budget,

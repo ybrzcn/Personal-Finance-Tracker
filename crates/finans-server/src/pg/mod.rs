@@ -32,6 +32,7 @@ const MIGRATIONS: &[(i32, &str)] = &[
     (6, include_str!("migrations/0006_etiketler.sql")),
     (7, include_str!("migrations/0007_devreden_butce.sql")),
     (8, include_str!("migrations/0008_otomatik_kayit.sql")),
+    (9, include_str!("migrations/0009_hesap_alt_turu.sql")),
 ];
 
 fn make_tls() -> MakeRustlsConnect {

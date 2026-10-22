@@ -63,17 +63,95 @@ pub struct BankSummary {
     pub overdraft_used_cents: i64,
     /// Bakiye + KMH limiti; KMH yoksa None
     pub available_cents: Option<i64>,
+    /// BES ve diğer varlık: son elle değerleme (tarihi ve bakiyeye göre farkı); değerleme yoksa None
+    pub valuation: Option<ValuationInfo>,
+    /// Vadeli mevduat dönemi
+    pub deposit: Option<DepositInfo>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ValuationInfo {
+    pub date: String,
+    pub value_cents: i64,
+    /// Değer − defter bakiyesi (BES: katkılara göre kazanç; varlık: alış/maliyete göre)
+    pub gain_cents: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositInfo {
+    /// Anapara: dönem başındaki bakiye (yenilenen dönemde önceki faiz dahil; dönem içi giriş/çıkış faizi değiştirmez)
+    pub principal_cents: i64,
+    pub term_days: i64,
+    pub elapsed_days: i64,
+    /// Vadeye gün (eksi: vade geçti)
+    pub days_left: i64,
+    /// Dönem sonu brüt faiz, stopaj ve net faiz (basit faiz, 365 gün)
+    pub gross_cents: i64,
+    pub tax_cents: i64,
+    pub net_cents: i64,
+    /// Bugüne kadar işleyen net faiz (dönemle orantılı)
+    pub accrued_net_cents: i64,
+    pub maturity_value_cents: i64,
+    pub matured: bool,
+}
+
+/// Vadeli mevduat dönemi: anapara dönem başındaki bakiye; faiz = anapara × yıllık oran × gün / 365, stopaj brüt faizden
+pub fn deposit_info(a: &Account, txs: &[Transaction], today: &str) -> Option<DepositInfo> {
+    use crate::fx::time::days_between;
+    let d = a.deposit()?;
+    let principal = tl_balance(a, txs, &d.start);
+    let term = days_between(&d.start, &d.maturity).max(1);
+    let elapsed = days_between(&d.start, today).clamp(0, term);
+    let gross = js_round(principal.max(0) as f64 * d.rate / 100.0 * term as f64 / 365.0);
+    let tax = js_round(gross as f64 * d.tax_rate / 100.0);
+    let net = gross - tax;
+    Some(DepositInfo {
+        principal_cents: principal,
+        term_days: term,
+        elapsed_days: elapsed,
+        days_left: days_between(today, &d.maturity),
+        gross_cents: gross,
+        tax_cents: tax,
+        net_cents: net,
+        accrued_net_cents: js_round(net as f64 * elapsed as f64 / term as f64),
+        maturity_value_cents: principal + net,
+        matured: today >= d.maturity.as_str(),
+    })
+}
+
+/// TL hesabın `d` günündeki değeri: BES ve diğer varlıkta o güne kadarki son elle değerleme (yoksa defter bakiyesi),
+/// diğerlerinde bakiye
+pub fn tl_value(a: &Account, txs: &[Transaction], d: &str) -> i64 {
+    if matches!(a.subtype(), "pension" | "asset") {
+        if let Some(v) = a.valuations().iter().rev().find(|v| v.date.as_str() <= d) {
+            return js_cents(v.value);
+        }
+    }
+    tl_balance(a, txs, d)
 }
 
 /// TS `bankSummary(account, txs, today)`
 pub fn bank_summary(a: &Account, txs: &[Transaction], today: &str) -> BankSummary {
     let balance_cents = tl_balance(a, txs, today);
-    let is_bank = a.kind == "bank";
+    // Mevduat, BES ve varlıkta KMH yok
+    let is_bank = a.kind == "bank" && !a.is_saving();
     let limit = if is_bank { a.credit_limit.map(js_cents) } else { None };
+    let valuation = match a.subtype() {
+        "pension" | "asset" => a.valuations().iter().rev().find(|v| v.date.as_str() <= today).map(|v| ValuationInfo {
+            date: v.date.clone(),
+            value_cents: js_cents(v.value),
+            gain_cents: js_cents(v.value) - balance_cents,
+        }),
+        _ => None,
+    };
     BankSummary {
         balance_cents,
         overdraft_used_cents: if is_bank { (-balance_cents).max(0) } else { 0 },
         available_cents: limit.map(|l| balance_cents + l),
+        valuation,
+        deposit: deposit_info(a, txs, today),
     }
 }
 

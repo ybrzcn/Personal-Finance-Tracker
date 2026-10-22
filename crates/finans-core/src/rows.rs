@@ -23,6 +23,9 @@ pub struct AccountRow {
     pub opening_installments: String,
     pub currency: String,
     pub opening_cost_cents: Option<i64>,
+    pub subtype: String,
+    /// JSON (`AccountDetails`)
+    pub details: String,
 }
 
 pub struct RecurringRow {

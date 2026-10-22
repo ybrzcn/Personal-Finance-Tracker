@@ -154,6 +154,59 @@ pub struct Account {
     /// `null` (Some(None)) siler.
     #[serde(default, deserialize_with = "present")]
     pub opening_cost: Option<Option<f64>>,
+    /// Yalnız TL vadesiz (bank) hesap: "" vadesiz, "deposit" vadeli mevduat, "pension" BES, "asset" diğer varlık
+    /// (ev, araba). Alanı bilmeyen eski istemci düzenlerse (None) kayıtlı değer korunur.
+    #[serde(default)]
+    pub subtype: Option<String>,
+    /// Alt türün ayrıntıları (mevduat koşulları, elle değerlemeler); None: kayıtlı değer korunur
+    #[serde(default)]
+    pub details: Option<AccountDetails>,
+}
+
+impl Account {
+    /// Alt tür ("" vadesiz)
+    pub fn subtype(&self) -> &str {
+        self.subtype.as_deref().unwrap_or("")
+    }
+
+    /// Harcanabilir nakit değil (mevduat, BES, diğer varlık): ödeme takviminde ve KMH'de sayılmaz
+    pub fn is_saving(&self) -> bool {
+        !self.subtype().is_empty()
+    }
+
+    pub fn deposit(&self) -> Option<&DepositTerms> {
+        self.details.as_ref().and_then(|d| d.deposit.as_ref())
+    }
+
+    pub fn valuations(&self) -> &[Valuation] {
+        self.details.as_ref().map_or(&[], |d| d.valuations.as_slice())
+    }
+}
+
+/// Vadeli mevduat koşulları: dönem başı ve vade tarihi, yıllık brüt faiz ve stopaj (yüzde)
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DepositTerms {
+    pub start: String,
+    pub maturity: String,
+    pub rate: f64,
+    pub tax_rate: f64,
+}
+
+/// Elle girilen değer (BES fon değeri, ev/araba piyasa değeri): o tarihten itibaren geçerli, TL
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Valuation {
+    pub date: String,
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct AccountDetails {
+    pub deposit: Option<DepositTerms>,
+    /// Tarihe göre sıralı
+    pub valuations: Vec<Valuation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -204,6 +257,10 @@ pub struct AccountInput {
     /// Yalnız TL dışı hesap: açılış bakiyesinin TL maliyeti (kâr/zarar için); boşsa açılış günü kuru kullanılır
     #[serde(default)]
     pub opening_cost: Option<f64>,
+    #[serde(default)]
+    pub subtype: String,
+    #[serde(default)]
+    pub details: AccountDetails,
 }
 
 /// Düzenli gelir (maaş) veya gider (kira, fatura, abonelik).
@@ -396,6 +453,8 @@ impl AccountInput {
             opening_installments: self.opening_installments,
             currency: self.currency,
             opening_cost: Some(self.opening_cost),
+            subtype: Some(self.subtype),
+            details: Some(self.details),
         }
     }
 }
@@ -519,7 +578,7 @@ ALTER TABLE accounts ADD COLUMN opening_period_cents INTEGER;
 ALTER TABLE accounts ADD COLUMN opening_installments TEXT NOT NULL DEFAULT '[]';
 ";
 
-pub const LATEST_VERSION: i64 = 21;
+pub const LATEST_VERSION: i64 = 22;
 
 const DEFAULT_CATEGORIES: &[(&str, &str, &str)] = &[
     ("Maaş", "income", "#10b981"),
@@ -848,7 +907,17 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         )?;
         tx.commit()?;
     }
-    // Gelecekteki şema değişiklikleri: if version < 22 { ... PRAGMA user_version = 22; }
+    if version < 22 {
+        // v22: vadesiz hesabın alt türü (vadeli mevduat, BES, diğer varlık) ve ayrıntıları (JSON)
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(
+            "ALTER TABLE accounts ADD COLUMN subtype TEXT NOT NULL DEFAULT '';
+             ALTER TABLE accounts ADD COLUMN details TEXT NOT NULL DEFAULT '{}';
+             PRAGMA user_version = 22;",
+        )?;
+        tx.commit()?;
+    }
+    // Gelecekteki şema değişiklikleri: if version < 23 { ... PRAGMA user_version = 23; }
     Ok(())
 }
 
@@ -856,7 +925,7 @@ pub const CATEGORY_COLUMNS: &str = "id, name, type, color";
 pub const ACCOUNT_COLUMNS: &str = "id, name, kind, color, opening_balance_cents, opening_date, credit_limit_cents, \
      interest_rate_bp, statement_day, due_day, min_payment_rate_bp, sort_order, archived, \
      term_months, first_due_date, installment_cents, tax_rate_bp, funding_income_id, \
-     opening_period_cents, opening_installments, currency, opening_cost_cents";
+     opening_period_cents, opening_installments, currency, opening_cost_cents, subtype, details";
 pub const RECURRING_COLUMNS: &str =
     "id, name, type, amount_cents, day, account_id, category_id, active, sort_order, amount_history, amount_exceptions, \
      covers_previous_month, start_date, weekend_shift, orig_amount, \
@@ -907,6 +976,8 @@ pub fn row_to_account(r: &Row) -> rusqlite::Result<Account> {
         opening_installments: serde_json::from_str(&r.get::<_, String>(19)?).unwrap_or_default(),
         currency,
         opening_cost: Some(r.get::<_, Option<i64>>(21)?.map(cents_to_f64)),
+        subtype: Some(r.get(22)?),
+        details: Some(serde_json::from_str(&r.get::<_, String>(23)?).unwrap_or_default()),
     })
 }
 

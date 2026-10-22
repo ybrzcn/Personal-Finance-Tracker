@@ -68,6 +68,7 @@ export function createHttpApi(opts: HttpOptions = {}): Api {
     setRecurringException: (x, month, amount, note) => r<RecurringItem>("PUT", `/api/recurring/${id(x)}/exception`, { month, amount, note }),
     deleteRecurring: (x) => r<void>("DELETE", `/api/recurring/${id(x)}`),
     autoPostRecurring: () => r<AutoPostResult>("POST", "/api/recurring/auto-post"),
+    depositMature: (x, renew) => r<{ account: Account; transaction: Transaction | null }>("POST", `/api/accounts/${id(x)}/deposit/mature`, { renew }),
     resetSeed: () => r<ResetSeed>("GET", "/api/reset/seed"),
     listBudgets: () => r<Budget[]>("GET", "/api/budgets"),
     setBudget: (categoryId, amount) => r<void>("PUT", `/api/budgets/${id(categoryId)}`, { amount }),

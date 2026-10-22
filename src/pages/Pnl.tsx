@@ -1,10 +1,11 @@
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CategoryDonut } from "../components/charts";
 import { api, errorMessage } from "../lib/api";
 import { formatDate, todayISO } from "../lib/format";
 import { currencyLabel, formatQty, formatRate } from "../lib/fx";
-import type { AccountPnl, PnlKind, PnlReport } from "../lib/types";
+import type { AccountPnl, AllocationSlice, Category, InvestmentIncome, PnlKind, PnlReport } from "../lib/types";
 import { backend } from "../lib/platform";
 import { useAuth } from "../state/auth";
 import { useData } from "../state/data";
@@ -28,10 +29,21 @@ function periodRange(p: Period): [string | null, string | null] {
 /** Ortalama maliyet ×1e6 → en çok 4 ondalık (gösterim) */
 const avgFmt = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 const pct = (bp: number | null) => (bp === null ? "—" : `${bp >= 0 ? "+" : ""}${(bp / 100).toLocaleString("tr-TR", { maximumFractionDigits: 2 })}%`);
+const ALLOCATION: Record<AllocationSlice["key"], { name: string; color: string }> = {
+  tl: { name: "TL", color: "#10b981" },
+  deposit: { name: "Vadeli mevduat", color: "#059669" },
+  pension: { name: "BES", color: "#8b5cf6" },
+  asset: { name: "Diğer varlık", color: "#a16207" },
+  fx: { name: "Döviz", color: "#3b82f6" },
+  metal: { name: "Altın ve gümüş", color: "#d4a017" },
+  fund: { name: "Fonlar", color: "#0ea5a4" },
+};
+const MONTHS = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
+const monthLabel = (ym: string) => `${MONTHS[Number(ym.slice(5, 7)) - 1]} ${ym.slice(2, 4)}`;
 const tone = (v: number | null) => (v === null ? "text-zinc-400" : v >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400");
 
 export function PnlPage() {
-  const { transactions, accountById } = useData();
+  const { transactions, accountById, categories, appSettings, settingsRev, saveSetting } = useData();
   const { refresh } = useRates();
   const { formatMoney } = useSettings();
   const { openTransactionForm } = useUI();
@@ -57,7 +69,9 @@ export function PnlPage() {
     } finally {
       setLoading(false);
     }
-  }, [period, kind, transactions]);
+    // Yatırım geliri kategorileri kaydedilince de (yazım bitince artan sayaç; kayıt bitmeden eski ayarla okunmasın)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, kind, transactions, settingsRev]);
   useEffect(() => {
     void refresh().then(load);
   }, [refresh, load]);
@@ -87,10 +101,17 @@ export function PnlPage() {
       {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">{error}</p>}
       {report && t && (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
             <Stat label="Toplam değer" value={money(t.valueCents)} />
             <Stat label="Kâğıt üstü kâr/zarar" value={signed(t.unrealizedCents)} sub={pct(t.unrealizedBp)} cls={tone(t.unrealizedCents)} />
             <Stat label={`Gerçekleşen (${PERIOD_LABEL[period].toLocaleLowerCase("tr")})`} value={signed(t.realizedCents)} cls={tone(t.realizedCents)} />
+            <Stat label={`Yatırım geliri (${PERIOD_LABEL[period].toLocaleLowerCase("tr")})`} value={signed(t.incomeCents)} sub="faiz, temettü, fon dağıtımı" cls={tone(t.incomeCents)} />
+            <Stat
+              label="Toplam kazanç"
+              value={signed(t.totalGainCents)}
+              sub={period === "all" ? "kâğıt üstü + gerçekleşen + gelir" : `bugünkü kâğıt üstü + ${PERIOD_LABEL[period].toLocaleLowerCase("tr")} gerçekleşen ve gelir`}
+              cls={tone(t.totalGainCents)}
+            />
             {cpiOk && <Stat label="Reel getiri / enflasyon" value={pct(t.realUnrealizedBp)} sub={`enflasyon ${pct(t.inflationBp)}`} cls={tone(t.realUnrealizedBp)} />}
           </div>
           {t.partial && <p className="text-xs text-amber-600 dark:text-amber-400">Bazı hesaplar ya da satışlar (kur alınamadı ya da maliyet bilinmiyor) toplama girmedi.</p>}
@@ -107,6 +128,27 @@ export function PnlPage() {
             </p>
           )}
           <Holdings rows={report.accounts} cpiOk={cpiOk} money={money} signed={signed} />
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            {report.income && (
+              <IncomeCard
+                income={report.income}
+                pending={appSettings.investmentIncomeCategoryIds}
+                categories={categories}
+                periodLabel={PERIOD_LABEL[period].toLocaleLowerCase("tr")}
+                money={money}
+                onChange={(ids) => void saveSetting("investmentIncomeCategoryIds", ids).catch((e) => setError(errorMessage(e)))}
+              />
+            )}
+            {report.allocation.length > 0 && (
+              <section className="card p-4">
+                <h2 className="mb-3 text-sm font-semibold">Varlık dağılımı</h2>
+                <CategoryDonut
+                  data={report.allocation.map((a) => ({ id: a.key, name: ALLOCATION[a.key].name, color: ALLOCATION[a.key].color, value: a.valueCents / 100 }))}
+                />
+                <p className="mt-3 text-xs text-zinc-500">Bugünkü değerle; kredi ve kart borçları düşülmez (net servet için Hesaplar).</p>
+              </section>
+            )}
+          </div>
           <section className="card p-4">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <h2 className="text-sm font-semibold">Gerçekleşenler</h2>
@@ -185,6 +227,83 @@ export function PnlPage() {
         </>
       )}
     </div>
+  );
+}
+
+function IncomeCard({
+  income,
+  pending,
+  categories,
+  periodLabel,
+  money,
+  onChange,
+}: {
+  income: InvestmentIncome;
+  /** Kaydedilmekte olan seçim (rapor yenilenene kadar düğmeler bunu gösterir) */
+  pending: string[] | null | undefined;
+  categories: Category[];
+  periodLabel: string;
+  money: (c: number | null) => string;
+  onChange(ids: string[]): void;
+}) {
+  const { formatMoney } = useSettings();
+  const incomeCats = categories.filter((c) => c.type === "income");
+  const chosen = new Set(pending ?? income.categoryIds);
+  const nameOf = (id: string) => categories.find((c) => c.id === id)?.name ?? "Silinmiş kategori";
+  const toggle = (id: string) => onChange(incomeCats.filter((c) => (c.id === id ? !chosen.has(c.id) : chosen.has(c.id))).map((c) => c.id));
+  return (
+    <section className="card p-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-sm font-semibold">Yatırım geliri</h2>
+        <span className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{money(income.totalCents)}</span>
+      </div>
+      <p className="text-xs text-zinc-500">Faiz, temettü ve fon dağıtımı ({periodLabel}); seçili gelir kategorilerindeki işlemler.</p>
+      <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="Yatırım geliri kategorileri">
+        {incomeCats.map((c) => (
+          <button
+            key={c.id}
+            aria-pressed={chosen.has(c.id)}
+            onClick={() => toggle(c.id)}
+            className={`rounded-full border px-2.5 py-1 text-xs ${
+              chosen.has(c.id)
+                ? "border-emerald-500 bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300"
+                : "border-zinc-200 text-zinc-500 dark:border-zinc-700"
+            }`}
+          >
+            {c.name}
+          </button>
+        ))}
+      </div>
+      {income.categoryIds.length === 0 ? (
+        <p className="mt-3 text-sm text-zinc-500">Faiz, temettü ve fon gelirlerinin kaydedildiği gelir kategorisini seçin.</p>
+      ) : income.months.length === 0 ? (
+        <p className="mt-3 text-sm text-zinc-500">Bu dönemde seçili kategorilerde gelir yok.</p>
+      ) : (
+        <>
+          <div className="mt-3 h-40">
+            <ResponsiveContainer>
+              <BarChart data={income.months.map((m) => ({ ay: monthLabel(m.month), tl: m.cents / 100 }))}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                <XAxis dataKey="ay" fontSize={11} />
+                <YAxis fontSize={11} width={70} tickFormatter={(v: number) => formatMoney(v)} />
+                <Tooltip formatter={(v: number) => formatMoney(v)} />
+                <Bar dataKey="tl" name="Gelir" fill="#10b981" isAnimationActive={false} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+          {income.byCategory.length > 1 && (
+            <ul className="mt-2 space-y-1 text-xs">
+              {income.byCategory.map((c) => (
+                <li key={c.categoryId} className="flex justify-between">
+                  <span className="text-zinc-500">{nameOf(c.categoryId)}</span>
+                  <span className="tabular-nums">{money(c.cents)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
   );
 }
 

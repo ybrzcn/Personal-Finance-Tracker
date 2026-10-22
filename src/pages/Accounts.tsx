@@ -53,7 +53,9 @@ export function Accounts() {
     .join(" · ");
   const visible = accounts.filter((a) => showArchived || !a.archived);
   const cards = visible.filter((a) => a.kind === "credit_card");
-  const banks = visible.filter((a) => (a.kind === "bank" || a.kind === "cash") && !isFund(a.currency));
+  const banks = visible.filter((a) => (a.kind === "bank" || a.kind === "cash") && !isFund(a.currency) && !a.subtype);
+  // Vadeli mevduat, BES, ev/araba: harcanabilir nakitten ayrı
+  const savings = visible.filter((a) => !!a.subtype);
   const funds = visible.filter((a) => isFund(a.currency));
   const loans = visible.filter((a) => a.kind === "loan");
   const hasArchived = accounts.some((a) => a.archived);
@@ -189,6 +191,16 @@ export function Accounts() {
                 ))}
               </div>
             </div>
+          )}
+          {savings.length > 0 && (
+            <section>
+              <h2 className="mb-3 text-sm font-semibold">Birikim ve Varlıklar</h2>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+                {savings.map((a) => (
+                  <BankAccountCard key={a.id} account={a} />
+                ))}
+              </div>
+            </section>
           )}
           {funds.length > 0 && (
             <section>

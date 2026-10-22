@@ -9,7 +9,7 @@ use crate::db::{Account, Goal, Transaction};
 use crate::fx::amount::RATE_SCALE;
 use crate::fx::time::{civil_from_days, parse_ymd, ymd};
 use crate::fx::{self, Unit};
-use crate::accounts::bank::{qty_at, tl_balance, value_cents};
+use crate::accounts::bank::{qty_at, tl_value, value_cents};
 use crate::accounts::cards::clamped_date;
 use crate::networth::month_ends;
 use crate::pnl::CurrentRate;
@@ -88,10 +88,10 @@ fn account_minor(a: &Account, goal_cur: &str, goal_unit: Unit, input: &GoalsInpu
     }
     let txs = input.transactions;
     if a.currency == goal_cur {
-        return Some(if a.currency == fx::TRY { tl_balance(a, txs, d) } else { qty_at(a, goal_unit, txs, d) });
+        return Some(if a.currency == fx::TRY { tl_value(a, txs, d) } else { qty_at(a, goal_unit, txs, d) });
     }
     let cents = if a.currency == fx::TRY {
-        tl_balance(a, txs, d)
+        tl_value(a, txs, d)
     } else {
         let unit = fx::unit_or_try(Some(&a.currency));
         value_cents(qty_at(a, unit, txs, d), input.rates.get(&a.currency)?.buy, unit)
