@@ -234,6 +234,51 @@ pub fn reports_report(
     })?)
 }
 
+/// İşleme ek: ham gövde dosya içeriği; işlem kimliği ve ad (URL kodlu) başlıklarda. Eşzamansız: büyük dosya arayüzü
+/// bekletmesin
+#[tauri::command]
+pub async fn attachment_add(state: State<'_, AppState>, request: tauri::ipc::Request<'_>) -> CmdResult<db::Attachment> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("Dosya içeriği okunamadı.".into()) };
+    let header = |k: &str| request.headers().get(k).and_then(|v| v.to_str().ok()).unwrap_or("").to_string();
+    let name = percent_decode(&header("x-name"));
+    let tx = header("x-transaction-id");
+    sqlite::run(&mut *lock(&state)?, |s| store::add_attachment(s, &tx, &name, bytes, None))
+}
+
+#[tauri::command]
+pub fn attachment_list(state: State<'_, AppState>, transaction_id: String) -> CmdResult<Vec<db::Attachment>> {
+    sqlite::run(&mut *lock(&state)?, |s| store::list_attachments(s, &transaction_id))
+}
+
+#[tauri::command]
+pub fn attachment_counts(state: State<'_, AppState>) -> CmdResult<std::collections::BTreeMap<String, i64>> {
+    sqlite::run(&mut *lock(&state)?, store::attachment_counts)
+}
+
+/// Ek içeriği ham bayt olarak (arayüzde ArrayBuffer)
+#[tauri::command]
+pub async fn attachment_content(state: State<'_, AppState>, id: String) -> CmdResult<tauri::ipc::Response> {
+    let found = sqlite::run(&mut *lock(&state)?, |s| store::get_attachment(s, &id))?;
+    found.map(|(_, data)| tauri::ipc::Response::new(data)).ok_or_else(|| "Belge bulunamadı.".to_string())
+}
+
+#[tauri::command]
+pub fn attachment_delete(state: State<'_, AppState>, id: String) -> CmdResult<()> {
+    if sqlite::run(&mut *lock(&state)?, |s| store::delete_attachment(s, &id))? {
+        Ok(())
+    } else {
+        Err("Belge bulunamadı.".into())
+    }
+}
+
+/// PDF fişten tutar ve tarih önerisi (ham gövde); ayrıştırıcı panikleri yakalanır
+#[tauri::command]
+pub async fn receipt_parse(request: tauri::ipc::Request<'_>) -> CmdResult<finans_core::receipt::ReceiptHint> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else { return Err("Dosya içeriği okunamadı.".into()) };
+    let bytes = bytes.clone();
+    tauri::async_runtime::spawn_blocking(move || finans_core::receipt::parse_pdf(&bytes)).await.map_err(|e| e.to_string())?
+}
+
 /// Vadesi dolan mevduatın faizini kaydeder; yeniler ya da vadesize çevirir
 #[tauri::command]
 pub fn deposit_mature(state: State<'_, AppState>, id: String, renew: bool) -> CmdResult<Matured> {

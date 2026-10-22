@@ -1443,3 +1443,19 @@ export interface ReportsQuery {
   kind: "expense" | "income";
   group: ReportGroup;
 }
+
+/** İşlem eki (fiş, fatura); içerik ayrı okunur */
+export interface Attachment {
+  id: string;
+  transactionId: string;
+  name: string;
+  mime: "image/jpeg" | "image/png" | "image/webp" | "application/pdf";
+  size: number;
+  createdAt: string;
+}
+
+/** PDF fişten öneri (Rust `receipt::ReceiptHint`) */
+export interface ReceiptHint {
+  amount: number | null;
+  date: string | null;
+}

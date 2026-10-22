@@ -8,6 +8,7 @@ import { AuthGate } from "./state/auth";
 import { AccountsReportProvider } from "./state/accountsReport";
 import { DataProvider } from "./state/data";
 import { IncomeStatusProvider } from "./state/incomeStatus";
+import { AttachmentsProvider } from "./state/attachments";
 import { PnlProvider } from "./state/pnl";
 import { RatesProvider } from "./state/rates";
 import { SettingsProvider } from "./state/settings";
@@ -30,11 +31,13 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
               <PnlProvider>
                 <AccountsReportProvider>
                   <IncomeStatusProvider>
-                    <SettingsProvider>
-                      <UIProvider>
-                        <App />
-                      </UIProvider>
-                    </SettingsProvider>
+                    <AttachmentsProvider>
+                      <SettingsProvider>
+                        <UIProvider>
+                          <App />
+                        </UIProvider>
+                      </SettingsProvider>
+                    </AttachmentsProvider>
                   </IncomeStatusProvider>
                 </AccountsReportProvider>
               </PnlProvider>

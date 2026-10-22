@@ -183,6 +183,19 @@ impl Account {
     }
 }
 
+/// İşleme eklenmiş belge (fiş, fatura): içerik ayrı okunur
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    pub id: String,
+    pub transaction_id: String,
+    pub name: String,
+    /// "image/jpeg" | "image/png" | "image/webp" | "application/pdf"
+    pub mime: String,
+    pub size: i64,
+    pub created_at: String,
+}
+
 /// Vadeli mevduat koşulları: dönem başı ve vade tarihi, yıllık brüt faiz ve stopaj (yüzde)
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -578,7 +591,7 @@ ALTER TABLE accounts ADD COLUMN opening_period_cents INTEGER;
 ALTER TABLE accounts ADD COLUMN opening_installments TEXT NOT NULL DEFAULT '[]';
 ";
 
-pub const LATEST_VERSION: i64 = 22;
+pub const LATEST_VERSION: i64 = 23;
 
 const DEFAULT_CATEGORIES: &[(&str, &str, &str)] = &[
     ("Maaş", "income", "#10b981"),
@@ -917,7 +930,25 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         )?;
         tx.commit()?;
     }
-    // Gelecekteki şema değişiklikleri: if version < 23 { ... PRAGMA user_version = 23; }
+    if version < 23 {
+        // v23: işlem ekleri (fiş, fatura); işlem silinince ekleri de silinir
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(
+            "CREATE TABLE attachments (
+                 id              TEXT PRIMARY KEY,
+                 transaction_id  TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+                 name            TEXT NOT NULL,
+                 mime            TEXT NOT NULL,
+                 size            INTEGER NOT NULL,
+                 data            BLOB NOT NULL,
+                 created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+             );
+             CREATE INDEX attachments_tx ON attachments (transaction_id);
+             PRAGMA user_version = 23;",
+        )?;
+        tx.commit()?;
+    }
+    // Gelecekteki şema değişiklikleri: if version < 24 { ... PRAGMA user_version = 24; }
     Ok(())
 }
 

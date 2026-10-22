@@ -36,6 +36,8 @@ pub struct Config {
     pub db_pool: u32,
     /// TCMB EVDS API anahtarı (TÜFE); yoksa enflasyon karşılaştırması yapılmaz
     pub evds_key: Option<String>,
+    /// Kullanıcı başına belge (fiş, fatura) kotası, MB; 0 sınırsız
+    pub attachment_quota_mb: u64,
 }
 
 impl Config {
@@ -61,6 +63,7 @@ impl Config {
             database_url: var("FINANS_DATABASE_URL"),
             db_pool: var("FINANS_DB_POOL").and_then(|v| v.parse().ok()).filter(|n| *n > 0).unwrap_or(8),
             evds_key: var("FINANS_EVDS_KEY"),
+            attachment_quota_mb: var("FINANS_ATTACHMENT_QUOTA_MB").and_then(|v| v.parse().ok()).unwrap_or(1024),
         }
     }
 }

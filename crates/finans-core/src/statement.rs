@@ -80,7 +80,7 @@ fn read_excel_inner(bytes: &[u8], ext: &str) -> CoreResult<Vec<Vec<String>>> {
     Ok(best)
 }
 
-fn read_pdf(bytes: &[u8]) -> CoreResult<String> {
+pub(crate) fn read_pdf(bytes: &[u8]) -> CoreResult<String> {
     // pdf-extract bazı bozuk/alışılmadık PDF'lerde panikleyebilir; uygulamayı düşürmemesi için yakalanır.
     let result = std::panic::catch_unwind(|| pdf_extract::extract_text_from_mem(bytes));
     match result {

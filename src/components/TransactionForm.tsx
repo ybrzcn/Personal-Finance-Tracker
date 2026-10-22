@@ -1,9 +1,11 @@
+import { AttachmentsField, ReceiptHintBar, uploadPending } from "./AttachmentsField";
+import { useAttachmentCounts } from "../state/attachments";
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../lib/api";
 import { amountToInput, formatDateShort, formatMonthYear, parseAmount, parseDecimal, parseQuantity, todayISO } from "../lib/format";
 import { formatQty, formatRate, isForeign, isFund, qtyDecimals, qtyRule, TRY, unitLabel } from "../lib/fx";
-import type { Account, Transaction, TransactionDraft, TransactionInput, TransactionPreview, TxType } from "../lib/types";
+import type { Account, ReceiptHint, Transaction, TransactionDraft, TransactionInput, TransactionPreview, TxType } from "../lib/types";
 import { useData } from "../state/data";
 import { useFormPreview } from "../state/formPreview";
 import { useRates } from "../state/rates";
@@ -71,6 +73,10 @@ function AccountSelect({
 
 export function TransactionForm({ transaction, defaults, hints, onClose, onSaved }: Props) {
   const { categories, accounts, accountById, addTransaction, updateTransaction, reloadTransactions } = useData();
+  const { reload: reloadAttachmentCounts } = useAttachmentCounts();
+  // Yeni işlemde seçilen belgeler kaydedilince yüklenir; PDF'ten tutar/tarih önerisi
+  const [pendingFiles, setPendingFiles] = useState<File[]>([]);
+  const [receiptHint, setReceiptHint] = useState<{ hint: ReceiptHint; name: string } | null>(null);
   const { confirm } = useUI();
   const { formatMoney } = useSettings();
   const editing = !!transaction;
@@ -399,8 +405,10 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
         }
         onSaved("Nakit avans eklendi.");
       } else {
-        await addTransaction(payload);
-        onSaved(SAVED[type]);
+        const created = await addTransaction(payload);
+        const failed = pendingFiles.length ? await uploadPending(created.id, pendingFiles) : [];
+        if (pendingFiles.length) reloadAttachmentCounts();
+        onSaved(failed.length ? `${SAVED[type]} Yüklenemeyen belge: ${failed.join(", ")}` : SAVED[type]);
       }
       try {
         localStorage.setItem(LAST_ACCOUNT_KEY, accountId);
@@ -563,6 +571,27 @@ export function TransactionForm({ transaction, defaults, hints, onClose, onSaved
             </label>
             <TagPicker id="tx-tags" value={tagIds} onChange={setTagIds} />
           </div>
+
+          {!isAdvance && (
+            <AttachmentsField
+              transactionId={transaction?.id ?? null}
+              pending={pendingFiles}
+              onPending={setPendingFiles}
+              onHint={(hint, name) => setReceiptHint({ hint, name })}
+            />
+          )}
+          {receiptHint && (
+            <ReceiptHintBar
+              hint={receiptHint.hint}
+              name={receiptHint.name}
+              onApply={() => {
+                if (receiptHint.hint.amount !== null) setAmount(amountToInput(receiptHint.hint.amount));
+                if (receiptHint.hint.date) setDate(receiptHint.hint.date);
+                setReceiptHint(null);
+              }}
+              onDismiss={() => setReceiptHint(null)}
+            />
+          )}
 
           {type === "transfer" ? (
             <div className="grid grid-cols-2 gap-3">

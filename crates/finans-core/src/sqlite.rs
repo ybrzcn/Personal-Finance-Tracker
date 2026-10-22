@@ -4,7 +4,7 @@ use rusqlite::{params, Connection, ErrorCode, OptionalExtension};
 
 use crate::data_store::DataStore;
 use crate::db::{
-    row_to_account, row_to_category, row_to_recurring, row_to_transaction, Account, Budget, Category, Goal, RecurringItem, Tag,
+    row_to_account, row_to_category, row_to_recurring, row_to_transaction, Account, Attachment, Budget, Category, Goal, RecurringItem, Tag,
     Transaction, ACCOUNT_COLUMNS, CATEGORY_COLUMNS, RECURRING_COLUMNS, TRANSACTION_COLUMNS,
 };
 use crate::fx;
@@ -342,6 +342,69 @@ impl DataStore for SqliteStore<'_> {
         Ok(())
     }
 
+    fn list_attachments(&mut self, transaction_id: &str) -> CoreResult<Vec<Attachment>> {
+        let mut st = self
+            .conn
+            .prepare("SELECT id, transaction_id, name, mime, size, created_at FROM attachments WHERE transaction_id = ?1 ORDER BY created_at, id")
+            .map_err(db_err)?;
+        let rows = st
+            .query_map([transaction_id], |r| {
+                Ok(Attachment { id: r.get(0)?, transaction_id: r.get(1)?, name: r.get(2)?, mime: r.get(3)?, size: r.get(4)?, created_at: r.get(5)? })
+            })
+            .map_err(db_err)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(db_err)
+    }
+
+    fn attachment_counts(&mut self) -> CoreResult<Vec<(String, i64)>> {
+        let mut st = self.conn.prepare("SELECT transaction_id, COUNT(*) FROM attachments GROUP BY transaction_id").map_err(db_err)?;
+        let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?))).map_err(db_err)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>().map_err(db_err)
+    }
+
+    fn attachment_bytes(&mut self) -> CoreResult<i64> {
+        self.conn.query_row("SELECT COALESCE(SUM(size), 0) FROM attachments", [], |r| r.get(0)).map_err(db_err)
+    }
+
+    fn get_attachment(&mut self, id: &str) -> CoreResult<Option<(Attachment, Vec<u8>)>> {
+        use rusqlite::OptionalExtension;
+        self.conn
+            .query_row("SELECT id, transaction_id, name, mime, size, created_at, data FROM attachments WHERE id = ?1", [id], |r| {
+                Ok((Attachment { id: r.get(0)?, transaction_id: r.get(1)?, name: r.get(2)?, mime: r.get(3)?, size: r.get(4)?, created_at: r.get(5)? }, r.get(6)?))
+            })
+            .optional()
+            .map_err(db_err)
+    }
+
+    fn insert_attachment(&mut self, a: &Attachment, data: &[u8]) -> CoreResult<()> {
+        self.conn
+            .execute(
+                "INSERT INTO attachments (id, transaction_id, name, mime, size, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![a.id, a.transaction_id, a.name, a.mime, a.size, data],
+            )
+            .map_err(db_err)?;
+        Ok(())
+    }
+
+    fn delete_attachment(&mut self, id: &str) -> CoreResult<u64> {
+        Ok(self.conn.execute("DELETE FROM attachments WHERE id = ?1", [id]).map_err(db_err)? as u64)
+    }
+
+    fn stash_attachments(&mut self) -> CoreResult<()> {
+        self.conn
+            .execute_batch("DROP TABLE IF EXISTS temp.attachments_keep; CREATE TEMP TABLE attachments_keep AS SELECT * FROM attachments;")
+            .map_err(db_err)
+    }
+
+    fn unstash_attachments(&mut self) -> CoreResult<()> {
+        self.conn
+            .execute_batch(
+                "INSERT OR IGNORE INTO attachments SELECT * FROM temp.attachments_keep
+                     WHERE transaction_id IN (SELECT id FROM transactions);
+                 DROP TABLE temp.attachments_keep;",
+            )
+            .map_err(db_err)
+    }
+
     fn list_budgets(&mut self) -> CoreResult<Vec<Budget>> {
         self.list("SELECT category_id, amount_cents, rollover_from FROM budgets", |r| {
             Ok(Budget { category_id: r.get(0)?, amount: r.get::<_, i64>(1)? as f64 / 100.0, rollover_from: r.get(2)? })
@@ -512,7 +575,7 @@ impl DataStore for SqliteStore<'_> {
     }
 
     fn clear_all(&mut self) -> CoreResult<()> {
-        for table in ["transaction_tags", "tags", "goal_accounts", "goals", "budgets", "recurring_items", "transactions", "accounts", "categories"] {
+        for table in ["attachments", "transaction_tags", "tags", "goal_accounts", "goals", "budgets", "recurring_items", "transactions", "accounts", "categories"] {
             self.conn.execute(&format!("DELETE FROM {table}"), []).map_err(db_err)?;
         }
         Ok(())

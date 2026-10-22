@@ -212,7 +212,10 @@ export function SettingsPage() {
               {backup.goals?.length ? <>, <strong>{backup.goals.length} hedef</strong></> : null}
               {backup.tags?.length ? <>, <strong>{backup.tags.length} etiket</strong></> : null}
             </p>
-            <p className="mt-2 text-xs text-zinc-500">İpucu: Devam etmeden önce mevcut verinin yedeğini almak isteyebilirsiniz.</p>
+            <p className="mt-2 text-xs text-zinc-500">
+              İpucu: Devam etmeden önce mevcut verinin yedeğini almak isteyebilirsiniz. JSON yedek işlem belgelerini (fiş, fatura) içermez;
+              yedekte de bulunan işlemlerin belgeleri korunur.
+            </p>
           </>
         ),
         confirmLabel: "Geri yükle",

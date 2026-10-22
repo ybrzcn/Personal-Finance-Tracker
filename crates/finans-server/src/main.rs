@@ -22,6 +22,7 @@ mod routes_goals;
 mod routes_networth;
 mod routes_projection;
 mod routes_reports;
+mod routes_attachments;
 mod routes_pnl;
 mod routes_rates;
 mod routes_tags;
@@ -50,6 +51,8 @@ async fn main() {
         // Ekstre ayrıştırma alt süreci (sunucu kendini çağırır): kötü niyetli dosya belleği/işlemciyi tüketse bile
         // yalnız bu süreç ölür. Girdi stdin, çıktı stdout'ta JSON.
         Some("parse-statement") => parse_statement_child(args.get(1).map(String::as_str).unwrap_or("")),
+        // Fiş/fatura PDF'inden tutar ve tarih önerisi: aynı sınırlı alt süreç
+        Some("parse-receipt") => parse_receipt_child(),
         // Docker HEALTHCHECK: /api/health 200 dönerse 0 (imaja curl girmesin)
         Some("health") => {
             use std::io::{Read, Write};
@@ -101,6 +104,32 @@ async fn main() {
             std::process::exit(2);
         }
     }
+}
+
+/// Alt süreç: 1 GiB bellek ve 30 sn işlemci sınırıyla fiş/fatura PDF'inden tutar ve tarih önerisi çıkarır.
+fn parse_receipt_child() -> ! {
+    use std::io::{Read, Write};
+    #[cfg(unix)]
+    unsafe {
+        let mem = libc::rlimit { rlim_cur: 1 << 30, rlim_max: 1 << 30 };
+        libc::setrlimit(libc::RLIMIT_AS, &mem);
+        let cpu = libc::rlimit { rlim_cur: 30, rlim_max: 30 };
+        libc::setrlimit(libc::RLIMIT_CPU, &cpu);
+    }
+    let mut bytes = Vec::new();
+    let result = std::io::stdin()
+        .take(finans_core::store::ATTACHMENT_MAX_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())
+        .and_then(|_| finans_core::receipt::parse_pdf(&bytes));
+    let out = match result {
+        Ok(hint) => serde_json::json!({ "ok": true, "hint": hint }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e }),
+    };
+    let mut stdout = std::io::stdout();
+    let _ = serde_json::to_writer(&mut stdout, &out);
+    let _ = stdout.flush();
+    std::process::exit(0);
 }
 
 /// Alt süreç: 1 GiB bellek ve 30 sn işlemci sınırıyla ekstreyi ayrıştırır.
@@ -221,6 +250,7 @@ async fn serve(config: Config) {
         .merge(routes_networth::router())
         .merge(routes_projection::router())
         .merge(routes_reports::router())
+        .merge(routes_attachments::router())
         .merge(routes_goals::router())
         .merge(routes_tags::router())
         .route("/api/health", get(health))
@@ -327,8 +357,9 @@ async fn cache_headers(req: axum::extract::Request, next: axum::middleware::Next
     res
 }
 
-/// Web arayüzü yalnız kendi kökeninden script/istek yükler; başka sitelerde çerçeve içine alınamaz.
-const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; \
+/// Web arayüzü yalnız kendi kökeninden script/istek yükler; başka sitelerde çerçeve içine alınamaz. `blob:` belge
+/// önizlemesi için (içerik sunucuda türü doğrulanmış ek).
+const CSP: &str = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; frame-src blob:; object-src 'self' blob:; \
                    font-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
 
 /// Tauri webview kökenleri için CORS; çerez gönderilmez (istemciler Bearer token kullanır).

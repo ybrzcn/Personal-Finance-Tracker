@@ -1,7 +1,7 @@
 //! `DataStore`'un Postgres uygulaması. Her sorgu `user_id` ile süzülür (RLS ayrıca korur).
 
 use finans_core::data_store::DataStore;
-use finans_core::db::{cents_to_f64, Account, Budget, Category, Goal, RecurringItem, Tag, Transaction};
+use finans_core::db::{cents_to_f64, Account, Attachment, Budget, Category, Goal, RecurringItem, Tag, Transaction};
 use finans_core::fx::amount::stored_to_api;
 use finans_core::rows::{AccountMeta, AccountRow, GoalRow, RecurringRow, TagRow, TransactionRow};
 use finans_core::CoreResult;
@@ -85,6 +85,10 @@ fn recurring(r: &Row) -> RecurringItem {
         auto_post: r.get(16),
         auto_posted_until: r.get(17),
     }
+}
+
+fn attachment(r: &Row) -> Attachment {
+    Attachment { id: r.get(0), transaction_id: r.get(1), name: r.get(2), mime: r.get(3), size: r.get(4), created_at: r.get(5) }
 }
 
 fn transaction(r: &Row) -> Transaction {
@@ -422,6 +426,75 @@ impl DataStore for PgStore<'_, '_> {
         Ok(())
     }
 
+    fn list_attachments(&mut self, transaction_id: &str) -> CoreResult<Vec<Attachment>> {
+        let u = self.user_id.clone();
+        let rows = self
+            .tx
+            .query(
+                "SELECT id, transaction_id, name, mime, size, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')
+                 FROM attachments WHERE user_id = $1 AND transaction_id = $2 ORDER BY created_at, id",
+                &[&u, &transaction_id],
+            )
+            .map_err(pg_err)?;
+        Ok(rows.iter().map(attachment).collect())
+    }
+
+    fn attachment_counts(&mut self) -> CoreResult<Vec<(String, i64)>> {
+        let u = self.user_id.clone();
+        let rows = self.tx.query("SELECT transaction_id, COUNT(*) FROM attachments WHERE user_id = $1 GROUP BY transaction_id", &[&u]).map_err(pg_err)?;
+        Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
+    }
+
+    fn attachment_bytes(&mut self) -> CoreResult<i64> {
+        let u = self.user_id.clone();
+        Ok(self.tx.query_one("SELECT COALESCE(SUM(size), 0)::bigint FROM attachments WHERE user_id = $1", &[&u]).map_err(pg_err)?.get(0))
+    }
+
+    fn get_attachment(&mut self, id: &str) -> CoreResult<Option<(Attachment, Vec<u8>)>> {
+        let u = self.user_id.clone();
+        let row = self
+            .tx
+            .query_opt(
+                "SELECT id, transaction_id, name, mime, size, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), data
+                 FROM attachments WHERE user_id = $1 AND id = $2",
+                &[&u, &id],
+            )
+            .map_err(pg_err)?;
+        Ok(row.map(|r| (attachment(&r), r.get(6))))
+    }
+
+    fn insert_attachment(&mut self, a: &Attachment, data: &[u8]) -> CoreResult<()> {
+        let u = self.user_id.clone();
+        self.exec(
+            "INSERT INTO attachments (user_id, id, transaction_id, name, mime, size, data) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            &[&u, &a.id, &a.transaction_id, &a.name, &a.mime, &a.size, &data],
+        )?;
+        Ok(())
+    }
+
+    fn delete_attachment(&mut self, id: &str) -> CoreResult<u64> {
+        let u = self.user_id.clone();
+        self.exec("DELETE FROM attachments WHERE user_id = $1 AND id = $2", &[&u, &id])
+    }
+
+    fn stash_attachments(&mut self) -> CoreResult<()> {
+        let u = self.user_id.clone();
+        self.exec("DROP TABLE IF EXISTS pg_temp.attachments_keep", &[])?;
+        self.exec("CREATE TEMP TABLE attachments_keep ON COMMIT DROP AS SELECT * FROM attachments WHERE user_id = $1", &[&u])?;
+        Ok(())
+    }
+
+    fn unstash_attachments(&mut self) -> CoreResult<()> {
+        self.exec(
+            "INSERT INTO attachments SELECT k.* FROM pg_temp.attachments_keep k
+             WHERE EXISTS (SELECT 1 FROM transactions t WHERE t.user_id = k.user_id AND t.id = k.transaction_id)
+             ON CONFLICT DO NOTHING",
+            &[],
+        )?;
+        self.exec("DROP TABLE pg_temp.attachments_keep", &[])?;
+        Ok(())
+    }
+
     fn list_budgets(&mut self) -> CoreResult<Vec<Budget>> {
         self.list("SELECT category_id, amount_cents, rollover_from FROM budgets WHERE user_id = $1", |r| Budget {
             category_id: r.get(0),
@@ -609,7 +682,7 @@ impl DataStore for PgStore<'_, '_> {
 
     fn clear_all(&mut self) -> CoreResult<()> {
         let u = self.user_id.clone();
-        for table in ["transaction_tags", "tags", "goal_accounts", "goals", "budgets", "recurring_items", "transactions", "accounts", "categories"] {
+        for table in ["attachments", "transaction_tags", "tags", "goal_accounts", "goals", "budgets", "recurring_items", "transactions", "accounts", "categories"] {
             self.exec(&format!("DELETE FROM {table} WHERE user_id = $1"), &[&u])?;
         }
         Ok(())

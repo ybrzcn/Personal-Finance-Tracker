@@ -1007,6 +1007,78 @@ pub fn auto_post_recurring(s: &mut dyn DataStore, today: &str) -> CoreResult<Aut
     Ok(result)
 }
 
+// İşlem ekleri (fiş, fatura)
+
+/// Bir ekin en büyük boyutu ve bir işlemdeki en çok ek
+pub const ATTACHMENT_MAX_BYTES: usize = 10 * 1024 * 1024;
+pub const ATTACHMENT_MAX_COUNT: usize = 10;
+
+/// İçerikten tür (uzantıya güvenilmez): yalnız JPEG, PNG, WebP ve PDF
+pub fn sniff_attachment(bytes: &[u8]) -> Option<&'static str> {
+    match bytes {
+        [0xFF, 0xD8, 0xFF, ..] => Some("image/jpeg"),
+        [0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, ..] => Some("image/png"),
+        [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => Some("image/webp"),
+        [b'%', b'P', b'D', b'F', b'-', ..] => Some("application/pdf"),
+        _ => None,
+    }
+}
+
+/// İşleme ek: tür içerikten, ad 120 karakter (yol, denetim ve yön karakterleri atılır), boyut, adet ve (sunucuda)
+/// kullanıcının toplam kotası sınırlı (`quota_bytes`; masaüstünde None)
+pub fn add_attachment(s: &mut dyn DataStore, transaction_id: &str, name: &str, bytes: &[u8], quota_bytes: Option<i64>) -> CoreResult<db::Attachment> {
+    if s.get_transaction(transaction_id)?.is_none() {
+        return Err("İşlem bulunamadı.".into());
+    }
+    if bytes.is_empty() {
+        return Err("Dosya boş.".into());
+    }
+    if bytes.len() > ATTACHMENT_MAX_BYTES {
+        return Err("Dosya 10 MB'tan büyük olamaz.".into());
+    }
+    let mime = sniff_attachment(bytes).ok_or("Yalnız fotoğraf (JPEG, PNG, WebP) ya da PDF eklenebilir.")?;
+    if s.list_attachments(transaction_id)?.len() >= ATTACHMENT_MAX_COUNT {
+        return Err("Bir işleme en çok 10 belge eklenebilir.".into());
+    }
+    if let Some(q) = quota_bytes {
+        if s.attachment_bytes()? + bytes.len() as i64 > q {
+            return Err(format!("Belge kotası doldu ({} MB). Eski belgeleri silin ya da sunucu yöneticisine başvurun.", q / 1024 / 1024));
+        }
+    }
+    let base = name.rsplit(['/', '\\']).next().unwrap_or("");
+    // Yön değiştiren görünmez karakterler (U+202E…) adı yanıltıcı gösterebilir
+    let bidi = |c: &char| matches!(*c, '\u{200E}' | '\u{200F}' | '\u{202A}'..='\u{202E}' | '\u{2066}'..='\u{2069}');
+    let clean: String = base.chars().filter(|c| !c.is_control() && !bidi(c)).collect::<String>().trim().chars().take(120).collect();
+    let a = db::Attachment {
+        id: db::new_id(),
+        transaction_id: transaction_id.to_string(),
+        name: if clean.is_empty() { "belge".into() } else { clean },
+        mime: mime.to_string(),
+        size: bytes.len() as i64,
+        created_at: String::new(),
+    };
+    s.insert_attachment(&a, bytes)?;
+    s.list_attachments(transaction_id)?.into_iter().find(|x| x.id == a.id).ok_or_else(|| "Belge eklenemedi.".into())
+}
+
+pub fn list_attachments(s: &mut dyn DataStore, transaction_id: &str) -> CoreResult<Vec<db::Attachment>> {
+    s.list_attachments(transaction_id)
+}
+
+/// İşlem kimliği → ek sayısı (listede ataç simgesi)
+pub fn attachment_counts(s: &mut dyn DataStore) -> CoreResult<std::collections::BTreeMap<String, i64>> {
+    Ok(s.attachment_counts()?.into_iter().collect())
+}
+
+pub fn get_attachment(s: &mut dyn DataStore, id: &str) -> CoreResult<Option<(db::Attachment, Vec<u8>)>> {
+    s.get_attachment(id)
+}
+
+/// Yoksa false
+pub fn delete_attachment(s: &mut dyn DataStore, id: &str) -> CoreResult<bool> {
+    Ok(s.delete_attachment(id)? > 0)
+}
+
 pub fn delete_recurring(s: &mut dyn DataStore, id: &str) -> CoreResult<()> {
     s.clear_funding_income(id)?;
     s.delete_recurring(id)
@@ -1238,6 +1310,8 @@ pub fn restore_data(
     for (tx, tag) in old_links {
         kept.entry(tx).or_default().push(tag);
     }
+    // Yedek ekleri içermez: işlemi geri gelenlerin ekleri korunur
+    s.stash_attachments()?;
     s.clear_all()?;
 
     // Etiketler işlemlerden önce (işlem bağlantıları için)
@@ -1342,7 +1416,8 @@ pub fn restore_data(
         s.insert_goal(&id, &row, created).map_err(|e| format!("{}. hedef eklenemedi: {e}", i + 1))?;
     }
     // Silinmiş düzenli gelire işaret eden finansman bağlantılarını temizle
-    s.clear_dangling_funding()
+    s.clear_dangling_funding()?;
+    s.unstash_attachments()
 }
 
 // Uygulama ayarları

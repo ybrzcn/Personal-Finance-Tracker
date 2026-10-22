@@ -1,7 +1,7 @@
 //! Kullanıcı verisinin ilkel okuma/yazma işlemleri. Geçerlilik kararı vermez (o `store.rs`'in işi);
 //! SQLite (`sqlite.rs`) ve Postgres (finans-server) uygular. Her çağrı dizisi tek bir veritabanı işleminde çalışır.
 
-use crate::db::{Account, Budget, Category, Goal, RecurringItem, Tag, Transaction};
+use crate::db::{Account, Attachment, Budget, Category, Goal, RecurringItem, Tag, Transaction};
 use crate::rows::{AccountMeta, AccountRow, GoalRow, RecurringRow, TagRow, TransactionRow};
 use crate::CoreResult;
 
@@ -48,6 +48,22 @@ pub trait DataStore {
     fn clear_funding_income(&mut self, recurring_id: &str) -> CoreResult<()>;
     /// Var olmayan ya da gelir olmayan düzenli kayda işaret eden finansman bağlantılarını boşaltır
     fn clear_dangling_funding(&mut self) -> CoreResult<()>;
+
+    /// İşlemin ekleri (eklenme sırasıyla), içeriksiz
+    fn list_attachments(&mut self, transaction_id: &str) -> CoreResult<Vec<Attachment>>;
+    /// İşlem kimliği → ek sayısı
+    fn attachment_counts(&mut self) -> CoreResult<Vec<(String, i64)>>;
+    /// Eklerin toplam boyutu (bayt)
+    fn attachment_bytes(&mut self) -> CoreResult<i64>;
+    /// Ek ve içeriği
+    fn get_attachment(&mut self, id: &str) -> CoreResult<Option<(Attachment, Vec<u8>)>>;
+    fn insert_attachment(&mut self, a: &Attachment, data: &[u8]) -> CoreResult<()>;
+    /// Silinen satır sayısı
+    fn delete_attachment(&mut self, id: &str) -> CoreResult<u64>;
+    /// Geri yükleme öncesi ekleri kenara alır (yedek ekleri içermez; işlemler silinince ekler de silinirdi)
+    fn stash_attachments(&mut self) -> CoreResult<()>;
+    /// Kenara alınan eklerden işlemi hâlâ var olanları geri koyar
+    fn unstash_attachments(&mut self) -> CoreResult<()>;
 
     fn list_budgets(&mut self) -> CoreResult<Vec<Budget>>;
     fn upsert_budget(&mut self, category_id: &str, amount_cents: i64) -> CoreResult<()>;

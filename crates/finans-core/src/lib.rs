@@ -17,6 +17,7 @@ pub mod networth;
 pub mod order;
 pub mod overview;
 pub mod pnl;
+pub mod receipt;
 pub mod projection;
 pub mod reports;
 pub mod rows;

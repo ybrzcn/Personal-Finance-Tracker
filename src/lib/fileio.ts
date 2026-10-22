@@ -47,6 +47,25 @@ export async function saveTextFile(defaultName: string, contents: string, filter
   return true;
 }
 
+/** Kaydet penceresiyle ikili dosya (belge eki) yazar; web'de indirir. İptal edilirse false. */
+export async function saveBinaryFile(defaultName: string, blob: Blob): Promise<boolean> {
+  if (isTauri && !isMobile) {
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const path = await save({ defaultPath: defaultName });
+    if (!path) return false;
+    const { writeFile } = await import("@tauri-apps/plugin-fs");
+    await writeFile(path, new Uint8Array(await blob.arrayBuffer()));
+    return true;
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = defaultName;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return true;
+}
+
 /** Aç penceresi ile tek bir metin dosyası okur. İptal edilirse null döner. */
 export async function openTextFile(filter: FileFilter): Promise<{ name: string; contents: string } | null> {
   if (isTauri && !isMobile) {

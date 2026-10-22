@@ -61,6 +61,7 @@ Put it behind HTTPS (Cloudflare Tunnel, Caddy, nginx). The server serves the web
 - **Bütçe:** Kategori bütçeleri, düzenli gelir/gider eşleştirmesi, kart harcamalarının ödeyecek maaşın ayına yazılması ve beklenen gelir masaüstünde ve sunucuda aynı Rust kodunda hesaplanır.
 - **Ödeme takvimi:** Kart ekstreleri, kredi taksitleri ve düzenli ödemelerin hangi maaştan karşılanacağı, dönemin ödenmiş ekstreleri ve yatmış gelirleri masaüstünde ve sunucuda aynı Rust kodunda hesaplanır.
 - **Mevduat, BES ve diğer varlıklar:** Vadeli mevduatta yıllık brüt faiz, stopaj ve vade girilir; kart dönemin brüt/net faizini, işleyen faizi ve vade sonu tutarını gösterir, vade dolunca net faiz tek tıkla "Yatırım" geliri olarak kaydedilip mevduat yenilenir ya da vadesize çevrilir. BES'te katkılar transferle, güncel fon değeri elle girilir; ev, araba gibi varlıklar alış bedeliyle eklenip değeri elle güncellenir. Bunlar net servete ve varlık dağılımına girer, ödeme takviminde harcanabilir nakit sayılmaz.
+- **Belgeler:** İşleme fiş, fatura gibi belgeler (fotoğraf ya da PDF, en çok 10 MB, işlem başına 10) eklenir; telefonda kamerayla çekilebilir. Metni olan PDF'teki genel toplam ve tarih işleme öneri olarak gelir (fotoğraftan metin okunmaz). Belgeler veritabanında saklanır; JSON yedek içermez, masaüstünün veritabanı yedeği içerir.
 - **Raporlar:** Dönem seç (bu ay, geçen ay, bu yıl, geçen yıl, son 12 ay ya da özel aralık); gider ya da geliri kategori, hesap veya etikete göre kır, önceki dönemle ya da geçen yılın aynı dönemiyle karşılaştır (tutar ve yüzde değişim), aylık seyri ve gelirin giderlere ve birikime akışını (Sankey) gör. Harcama tarihine göre; taksitler kendi aylarına düşer, transferler sayılmaz.
 - **Kâr/Zarar:** Döviz, altın ve fon hesaplarında ağırlıklı ortalama maliyet, güncel değer ve kâğıt üstü kâr/zarar; her satışın ve dövizle yapılan giderin gerçekleşen kâr/zararı, aylık grafikle. Alım ve satım transfer olarak girilir; açılış bakiyesinin maliyeti hesap formunda girilebilir (boşsa açılış günü kuru). TCMB EVDS anahtarı verilirse getiri TÜFE ile karşılaştırılır (reel kâr/zarar): anahtar evds3.tcmb.gov.tr'de ücretsiz üyelikle Profil → API Anahtarı'ndan alınır; sunucuda `.env`'deki `FINANS_EVDS_KEY`'e, masaüstünde Ayarlar'a girilir (yalnız o cihazda saklanır). Faiz, temettü ve fon dağıtımı seçilen gelir kategorilerinden (varsayılan "Yatırım") yatırım geliri olarak sayılır; toplam kazanç kâğıt üstü + gerçekleşen + yatırım gelirini gösterir. Varlık dağılımı TL, döviz, altın/gümüş ve fon paylarını gösterir.
 - **Krediler:** Kalan anapara, aylık faiz, KKDF+BSMV, kalan vade ve sonraki taksit tarihiyle ödeme planı; "Taksit öde" anaparayı krediye transfer, faizi "Faiz ve Masraflar" gideri olarak kaydeder.
@@ -247,6 +248,7 @@ Tablolar sunucu açılırken otomatik oluşturulur ve güncellenir.
 | `FINANS_DB_POOL` | `8` | PostgreSQL bağlantı havuzu boyutu |
 | `FINANS_MAX_USERS` | `0` (sınırsız) | En fazla hesap sayısı |
 | `FINANS_EVDS_KEY` | boş | TCMB EVDS API anahtarı; verilirse TÜFE günde bir çekilir (Postgres'te saklanır, SQLite modunda bellekte), Kâr/Zarar sayfasında enflasyon karşılaştırması açılır |
+| `FINANS_ATTACHMENT_QUOTA_MB` | 1024 | Kullanıcı başına işlem belgeleri (fiş, fatura) kotası, MB; 0 sınırsız |
 
 `FINANS_USER_QUOTA_MB` 1.1.0'da kaldırıldı (kullanıcı başına kota yok); verilirse yok sayılır.
 
@@ -359,6 +361,9 @@ Tüm yanıtlar JSON; hata biçimi `{"error": "<mesaj>"}`. Kimlik: web'de `finans
 | `GET /api/networth` | Net servet geçmişi: her ay sonu (son nokta bugün) varlık, borç, bugünkü fiyatla ve maliyetle net, tür ve hesap kırılımı (tutarlar kuruş) |
 | `GET /api/projection?years=&incomeGrowthPct=&expenseGrowthPct=&returnPct=&monthlyExtra=` | Uzun vadeli tahmin: bugünkü aylık akış, aylık net servet serisi, yıllık satırlar (giren, çıkan, getiri, kredi borcu, net servet, bugünün parasıyla), kredi bitiş ayı, nakdin eksiye düştüğü ay (tutarlar kuruş; varsayımlar `projection` ayarında saklanır) |
 | `GET /api/reports?preset=thisMonth\|lastMonth\|thisYear\|lastYear\|last12\|custom&from=&to=&compare=previous\|lastYear\|none&kind=expense\|income&group=category\|account\|tag` | Dönemsel rapor: dönem ve karşılaştırma aralığı, gelir/gider/net ve birikim oranı, kırılım satırları (pay, önceki, değişim), aylık seri, gelir akışı (tutarlar kuruş) |
+| `GET/POST /api/transactions/{id}/attachments` (`?name=`, gövde dosya) | İşlemin belgeleri / belge ekle (JPEG, PNG, WebP, PDF; içerikten tanınır) |
+| `GET /api/attachments/counts`, `GET/DELETE /api/attachments/{id}` | İşlem başına belge sayısı; belge içeriği (kum havuzunda) ya da silme |
+| `POST /api/receipts/parse` (gövde PDF) | Fiş/fatura PDF'inden toplam ve tarih önerisi |
 | `GET, POST /api/goals` | Birikim hedefleri (bağlı hesaplarıyla) / yeni hedef |
 | `PUT, DELETE /api/goals/{id}` | Hedefi ve bağlı hesaplarını değiştir / sil |
 | `GET /api/goals/report` | Hedeflerin ilerlemesi, son 3 ayın hızı, aylık gereken tutar ve tahmini tarih (tutarlar hedef biriminde) |

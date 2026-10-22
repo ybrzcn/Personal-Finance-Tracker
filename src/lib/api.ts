@@ -25,6 +25,8 @@ import type {
   ProjectionAssumptions,
   ProjectionReport,
   ReportsQuery,
+  Attachment,
+  ReceiptHint,
   ReportsReport,
   OverviewPeriod,
   OverviewReport,
@@ -159,6 +161,15 @@ export interface Api {
   parseCsv(text: string): Promise<CsvParseResult>;
   mergeCsv(rows: CsvRow[], defaultAccountId: string): Promise<CsvMerge>;
   netWorthReport(): Promise<NetWorthReport>;
+  /** İşleme belge ekler (fotoğraf ya da PDF, en çok 10 MB) */
+  addAttachment(transactionId: string, file: File): Promise<Attachment>;
+  listAttachments(transactionId: string): Promise<Attachment[]>;
+  /** İşlem kimliği → ek sayısı */
+  attachmentCounts(): Promise<Record<string, number>>;
+  attachmentContent(a: Attachment): Promise<Blob>;
+  deleteAttachment(id: string): Promise<void>;
+  /** PDF fişten tutar ve tarih önerisi */
+  parseReceipt(file: File): Promise<ReceiptHint>;
   /** Dönemsel raporlar: dönem, karşılaştırma, kırılım, gelir akışı */
   reportsReport(q: ReportsQuery): Promise<ReportsReport>;
   /** Uzun vadeli tahmin (bugünkü net servetten) */
@@ -280,6 +291,15 @@ const tauriApi: Api = {
   netWorthReport: () => invoke<NetWorthReport>("networth_report"),
   projectionReport: (assumptions) => invoke<ProjectionReport>("projection_report", { assumptions }),
   reportsReport: (q) => invoke<ReportsReport>("reports_report", { ...q }),
+  addAttachment: async (transactionId, file) =>
+    invoke<Attachment>("attachment_add", new Uint8Array(await file.arrayBuffer()), {
+      headers: { "x-transaction-id": transactionId, "x-name": encodeURIComponent(file.name) },
+    }),
+  listAttachments: (transactionId) => invoke<Attachment[]>("attachment_list", { transactionId }),
+  attachmentCounts: () => invoke<Record<string, number>>("attachment_counts"),
+  attachmentContent: async (a) => new Blob([await invoke<ArrayBuffer>("attachment_content", { id: a.id })], { type: a.mime }),
+  deleteAttachment: (id) => invoke<void>("attachment_delete", { id }),
+  parseReceipt: async (file) => invoke<ReceiptHint>("receipt_parse", new Uint8Array(await file.arrayBuffer())),
   listGoals: () => invoke<Goal[]>("list_goals"),
   createGoal: (input) => invoke<Goal>("create_goal", { input }),
   updateGoal: (goal) => invoke<Goal>("update_goal", { goal }),

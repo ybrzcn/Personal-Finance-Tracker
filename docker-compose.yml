@@ -35,6 +35,7 @@ services:
       FINANS_DATABASE_URL: postgres://finans:${FINANS_DB_PASSWORD}@db:5432/finans
       # TÜFE (Kâr/Zarar sayfasında enflasyon karşılaştırması): evds3.tcmb.gov.tr'den ücretsiz API anahtarı, .env'de; boşsa kapalı
       FINANS_EVDS_KEY: ${FINANS_EVDS_KEY:-}
+      FINANS_ATTACHMENT_QUOTA_MB: ${FINANS_ATTACHMENT_QUOTA_MB:-1024}
       # "closed" yapılırsa yeni hesap açılamaz
       FINANS_REGISTRATION: "open"
       # HTTPS (reverse proxy) arkasında değilse, yalnız yerel ağda deneme için "false" yapın

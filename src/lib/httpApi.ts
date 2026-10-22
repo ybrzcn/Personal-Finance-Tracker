@@ -1,5 +1,5 @@
 import type { Api } from "./api";
-import type { Account, AccountPreview, AutoPostResult, Backup, CsvMerge, CsvParseResult, CategoryRulePreview, CategorySuggestions, ImportRows, StatementCard, StatementTotals, AccountsReport, AnalysisReport, Budget, BudgetReport, CashPlanReport, Category, CategoryUsageReport, DebtPlanReport, FundHit, Goal, GoalsReport, IncomeStatus, NetWorthReport, OverviewReport, ProjectionReport, ReportsReport, PnlReport, RateQuote, RecurringItem, RecurringPreview, ResetSeed, Tag, TagsReport, Transaction, TransactionPreview, UpcomingObligations } from "./types";
+import type { Account, AccountPreview, AutoPostResult, Backup, CsvMerge, CsvParseResult, CategoryRulePreview, CategorySuggestions, ImportRows, StatementCard, StatementTotals, AccountsReport, AnalysisReport, Budget, BudgetReport, CashPlanReport, Category, CategoryUsageReport, DebtPlanReport, FundHit, Goal, GoalsReport, IncomeStatus, NetWorthReport, OverviewReport, ProjectionReport, ReportsReport, PnlReport, Attachment, ReceiptHint, RateQuote, RecurringItem, RecurringPreview, ResetSeed, Tag, TagsReport, Transaction, TransactionPreview, UpcomingObligations } from "./types";
 
 /** Oturum düşünce (401) yayınlanır; giriş kapısı giriş ekranına döner. */
 export const UNAUTHORIZED_EVENT = "finans:unauthorized";
@@ -115,6 +115,21 @@ export function createHttpApi(opts: HttpOptions = {}): Api {
     mergeCsv: (rows, defaultAccountId) => r<CsvMerge>("POST", "/api/csv/merge", { rows, defaultAccountId }),
     categoryUsage: () => r<CategoryUsageReport>("GET", "/api/categories/usage"),
     netWorthReport: () => r<NetWorthReport>("GET", "/api/networth"),
+    addAttachment: (transactionId, file) => r<Attachment>("POST", `/api/transactions/${id(transactionId)}/attachments?name=${encodeURIComponent(file.name)}`, file),
+    listAttachments: (transactionId) => r<Attachment[]>("GET", `/api/transactions/${id(transactionId)}/attachments`),
+    attachmentCounts: () => r<Record<string, number>>("GET", "/api/attachments/counts"),
+    attachmentContent: async (a) => {
+      const token = opts.getToken?.();
+      const res = await fetch(`${opts.baseUrl ?? ""}/api/attachments/${id(a.id)}`, {
+        credentials: "same-origin",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      }).catch(() => null);
+      if (res?.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+      if (!res?.ok) throw "Belge alınamadı.";
+      return new Blob([await res.arrayBuffer()], { type: a.mime });
+    },
+    deleteAttachment: (x) => r<void>("DELETE", `/api/attachments/${id(x)}`),
+    parseReceipt: (file) => r<ReceiptHint>("POST", "/api/receipts/parse", file),
     reportsReport: (q) =>
       r<ReportsReport>("GET", `/api/reports?${new URLSearchParams(Object.entries(q).flatMap(([k, v]) => (v == null ? [] : [[k, String(v)]]))).toString()}`),
     projectionReport: (a) =>

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Download, Pencil, Plus, Receipt, Search, Sparkles, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Download, Paperclip, Pencil, Plus, Receipt, Search, Sparkles, Trash2, X } from "lucide-react";
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { AccountOptions } from "../components/AccountOptions";
 import { PALETTE } from "../components/CategoryForm";
@@ -10,6 +10,7 @@ import { amountToInput, formatDate, formatDateShort, todayISO } from "../lib/for
 import { inRange, presetRange, RANGE_LABEL, totals, type RangePreset } from "../lib/stats";
 import { TYPE_LABEL, type Transaction, type TxType } from "../lib/types";
 import { useCategorySuggestions } from "../state/categorySuggestions";
+import { useAttachmentCounts } from "../state/attachments";
 import { useData } from "../state/data";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
@@ -25,6 +26,7 @@ export function Transactions() {
   const { transactions, categories, categoryById, accounts, accountById, addTransaction, deleteTransaction, latest, restore, tags, tagById, setTransactionTags, currentTagIds } = useData();
   const { formatMoney } = useSettings();
   const { openTransactionForm, confirm, toast, accountFilter, setAccountFilter, tagFilter, setTagFilter } = useUI();
+  const { counts: attachmentCounts } = useAttachmentCounts();
 
   const [query, setQuery] = useState("");
   const [type, setType] = useState<TypeFilter>("all");
@@ -119,6 +121,9 @@ export function Transactions() {
         <>
           <strong>{formatDate(t.date)}</strong> tarihli <strong>{formatMoney(t.amount)}</strong> tutarındaki{" "}
           {TYPE_LABEL[t.type].toLocaleLowerCase("tr")} kaydı kalıcı olarak silinecek.
+          {attachmentCounts[t.id] > 0 && (
+            <> Ekli {attachmentCounts[t.id]} belge de silinir; "Geri al" işlemi geri getirir, belgeleri getirmez.</>
+          )}
         </>
       ),
       confirmLabel: "Sil",
@@ -434,6 +439,12 @@ export function Transactions() {
                   <td className="max-w-0 px-4 py-2" title={t.description}>
                     <div className="flex items-center gap-2">
                       <span className="truncate">{t.description || <span className="text-zinc-400">—</span>}</span>
+                      {attachmentCounts[t.id] > 0 && (
+                        <span className="flex shrink-0 items-center text-zinc-400" title={`${attachmentCounts[t.id]} belge`} aria-label={`${attachmentCounts[t.id]} belge`}>
+                          <Paperclip size={13} />
+                          {attachmentCounts[t.id] > 1 && <span className="text-[10px]">{attachmentCounts[t.id]}</span>}
+                        </span>
+                      )}
                       {t.type === "income" && t.budgetMonth && t.budgetMonth !== t.date.slice(0, 7) && (
                         <span className="shrink-0 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium capitalize text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
                           {monthName(t.budgetMonth)} geliri
