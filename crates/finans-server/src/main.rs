@@ -21,6 +21,7 @@ mod routes_data;
 mod routes_goals;
 mod routes_networth;
 mod routes_projection;
+mod routes_reports;
 mod routes_pnl;
 mod routes_rates;
 mod routes_tags;
@@ -219,6 +220,7 @@ async fn serve(config: Config) {
         .merge(routes_overview::router())
         .merge(routes_networth::router())
         .merge(routes_projection::router())
+        .merge(routes_reports::router())
         .merge(routes_goals::router())
         .merge(routes_tags::router())
         .route("/api/health", get(health))

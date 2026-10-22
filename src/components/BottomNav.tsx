@@ -1,6 +1,7 @@
 import {
   ArrowLeftRight,
   Activity,
+  ChartColumn,
   CalendarRange,
   Coins,
   TrendingUp,
@@ -36,6 +37,7 @@ const MORE: { page: Page; label: string; icon: typeof LayoutDashboard }[] = [
   { page: "rates", label: "Kurlar", icon: Coins },
   { page: "pnl", label: "Kâr/Zarar", icon: TrendingUp },
   { page: "analysis", label: "Analiz", icon: Activity },
+  { page: "reports", label: "Raporlar", icon: ChartColumn },
   { page: "plan", label: "Ödeme Takvimi", icon: CalendarRange },
   { page: "debt", label: "Borç Planı", icon: TrendingDown },
   { page: "projection", label: "Uzun Vade", icon: Telescope },

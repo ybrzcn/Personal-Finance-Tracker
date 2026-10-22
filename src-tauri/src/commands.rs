@@ -207,6 +207,33 @@ pub struct Matured {
     transaction: Option<Transaction>,
 }
 
+/// Dönemsel raporlar (dönem, karşılaştırma, kırılım, gelir akışı)
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn reports_report(
+    state: State<'_, AppState>,
+    preset: String,
+    from: Option<String>,
+    to: Option<String>,
+    compare: String,
+    kind: String,
+    group: String,
+) -> CmdResult<finans_core::reports::ReportsReport> {
+    let today = ymd(istanbul_today(unix_now()));
+    let (txs, cats) = sqlite::run(&mut *lock(&state)?, |s| Ok((store::list_transactions(s)?, store::list_categories(s)?)))?;
+    Ok(finans_core::reports::report(&finans_core::reports::ReportsInput {
+        transactions: &txs,
+        categories: &cats,
+        preset: &preset,
+        from: from.as_deref().filter(|s| !s.is_empty()),
+        to: to.as_deref().filter(|s| !s.is_empty()),
+        compare: &compare,
+        kind: &kind,
+        group: &group,
+        today: &today,
+    })?)
+}
+
 /// Vadesi dolan mevduatın faizini kaydeder; yeniler ya da vadesize çevirir
 #[tauri::command]
 pub fn deposit_mature(state: State<'_, AppState>, id: String, renew: bool) -> CmdResult<Matured> {

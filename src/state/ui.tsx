@@ -12,8 +12,8 @@ import { TransactionForm } from "../components/TransactionForm";
 import type { Account, Category, CategoryType, RecurringItem, Transaction, TransactionInput } from "../lib/types";
 import { UIContext } from "./contexts";
 
-export type Page = "dashboard" | "transactions" | "accounts" | "rates" | "pnl" | "budget" | "goals" | "analysis" | "plan" | "debt" | "projection" | "categories" | "tags" | "settings";
-const PAGES: Page[] = ["dashboard", "transactions", "accounts", "rates", "pnl", "budget", "goals", "analysis", "plan", "debt", "projection", "categories", "tags", "settings"];
+export type Page = "dashboard" | "transactions" | "accounts" | "rates" | "pnl" | "budget" | "goals" | "analysis" | "reports" | "plan" | "debt" | "projection" | "categories" | "tags" | "settings";
+const PAGES: Page[] = ["dashboard", "transactions", "accounts", "rates", "pnl", "budget", "goals", "analysis", "reports", "plan", "debt", "projection", "categories", "tags", "settings"];
 type ToastKind = "success" | "error" | "info";
 
 /** İşlem formunda tek tıkla doldurulabilen hazır tutar (ör. kart ödemesi). */

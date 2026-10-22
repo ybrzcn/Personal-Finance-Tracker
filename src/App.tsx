@@ -13,6 +13,7 @@ import { PnlPage } from "./pages/Pnl";
 import { CashPlanPage } from "./pages/CashPlan";
 import { DebtPlannerPage } from "./pages/DebtPlanner";
 import { ProjectionPage } from "./pages/Projection";
+import { ReportsPage } from "./pages/Reports";
 import { Categories } from "./pages/Categories";
 import { Dashboard } from "./pages/Dashboard";
 import { SettingsPage } from "./pages/Settings";
@@ -106,6 +107,7 @@ export default function App() {
               {page === "budget" && <BudgetPage />}
               {page === "goals" && <GoalsPage />}
               {page === "analysis" && <AnalysisPage />}
+              {page === "reports" && <ReportsPage />}
               {page === "plan" && <CashPlanPage />}
               {page === "debt" && <DebtPlannerPage />}
               {page === "projection" && <ProjectionPage />}

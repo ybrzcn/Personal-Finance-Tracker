@@ -1391,3 +1391,55 @@ export interface CsvMerge {
   skippedTransfers: number;
   skippedFx: number;
 }
+
+/** Rust `reports::ReportsReport` (dönemsel raporlar) */
+export type ReportPreset = "thisMonth" | "lastMonth" | "thisYear" | "lastYear" | "last12" | "custom";
+export type ReportCompare = "previous" | "lastYear" | "none";
+export type ReportGroup = "category" | "account" | "tag";
+
+export interface ReportTotals {
+  incomeCents: number;
+  expenseCents: number;
+  netCents: number;
+  savingsRateBp: number | null;
+}
+
+export interface ReportRow {
+  /** Kategori / hesap / etiket; null kategorisiz ya da etiketsiz */
+  key: string | null;
+  cents: number;
+  count: number;
+  shareBp: number;
+  compareCents: number | null;
+  deltaCents: number | null;
+  deltaBp: number | null;
+}
+
+export interface ReportsReport {
+  range: { from: string; to: string };
+  compareRange: { from: string; to: string } | null;
+  totals: ReportTotals;
+  compareTotals: ReportTotals | null;
+  /** Bu dönem − karşılaştırma (gelir, gider, net) */
+  totalsDelta: ReportTotals | null;
+  rows: ReportRow[];
+  months: { month: string; cents: number; compareCents: number | null }[];
+  flow: {
+    /** key: kategori, null kategorisiz, "other" diğer */
+    incomes: { key: string | null; cents: number }[];
+    expenses: { key: string | null; cents: number }[];
+    savedCents: number;
+    deficitCents: number;
+    /** Dönemde gelir de gider de yok */
+    empty: boolean;
+  };
+}
+
+export interface ReportsQuery {
+  preset: ReportPreset;
+  from: string | null;
+  to: string | null;
+  compare: ReportCompare;
+  kind: "expense" | "income";
+  group: ReportGroup;
+}
