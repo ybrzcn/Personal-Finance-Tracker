@@ -279,6 +279,9 @@ fn yes() -> bool {
 pub struct Budget {
     pub category_id: String,
     pub amount: f64,
+    /// Devreden bütçe: bu aydan (YYYY-MM) itibaren artan ya da aşan tutar sonraki aya geçer; None kapalı
+    #[serde(default)]
+    pub rollover_from: Option<String>,
 }
 
 /// Birikim hedefi. `target` hedef biriminde (TL, döviz ya da altın miktarı); `account_ids` bağlı varlık hesapları.
@@ -510,7 +513,7 @@ ALTER TABLE accounts ADD COLUMN opening_period_cents INTEGER;
 ALTER TABLE accounts ADD COLUMN opening_installments TEXT NOT NULL DEFAULT '[]';
 ";
 
-pub const LATEST_VERSION: i64 = 19;
+pub const LATEST_VERSION: i64 = 20;
 
 const DEFAULT_CATEGORIES: &[(&str, &str, &str)] = &[
     ("Maaş", "income", "#10b981"),
@@ -823,7 +826,13 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         )?;
         tx.commit()?;
     }
-    // Gelecekteki şema değişiklikleri: if version < 20 { ... PRAGMA user_version = 20; }
+    if version < 20 {
+        // v20: devreden bütçe (kategori limitinin artanı/aşanı bu aydan itibaren sonraki aya geçer)
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch("ALTER TABLE budgets ADD COLUMN rollover_from TEXT; PRAGMA user_version = 20;")?;
+        tx.commit()?;
+    }
+    // Gelecekteki şema değişiklikleri: if version < 21 { ... PRAGMA user_version = 21; }
     Ok(())
 }
 

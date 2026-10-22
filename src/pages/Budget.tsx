@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronLeft, ChevronRight, Pencil, Plus, Repeat } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Pencil, Plus, Redo2, Repeat } from "lucide-react";
 import { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { CategoryDot, EmptyState, PageHeader, SummaryTile, type TileTone } from "../components/common";
 import { errorMessage } from "../lib/api";
@@ -9,6 +9,9 @@ import { useBudgetReport } from "../state/budgetReport";
 import { useData } from "../state/data";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
+
+/** "YYYY-MM" → ayın ilk günü (yerel) */
+const monthOf = (ym: string) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1);
 
 function BudgetInput({ value, onSave }: { value: number | null; onSave(v: number | null): Promise<void> }) {
   const [text, setText] = useState(value ? amountToInput(value) : "");
@@ -175,7 +178,7 @@ function RecurringList({
 }
 
 export function BudgetPage() {
-  const { categories, transactions, accountById, budgets, recurring, setBudget, categoryById } = useData();
+  const { categories, transactions, accountById, budgets, recurring, setBudget, setBudgetRollover, categoryById } = useData();
   const { formatMoney } = useSettings();
   const { toast } = useUI();
   const [month, setMonth] = useState(todayISO().slice(0, 7));
@@ -187,6 +190,7 @@ export function BudgetPage() {
   const minus = (cents: number | null | undefined) => (cents == null ? ph : cents > 0 ? `−${formatMoney(cents / 100)}` : "—");
 
   const budgetBy = useMemo(() => new Map(budgets.map((b) => [b.categoryId, b.amount])), [budgets]);
+  const rolloverBy = useMemo(() => new Map(budgets.map((b) => [b.categoryId, b.rolloverFrom ?? null])), [budgets]);
   const lineBy = useMemo(() => new Map((report?.categories ?? []).map((l) => [l.categoryId, l])), [report]);
   // Satır sırası rapordan (Rust: bütçeli önce, harcama azalan, ad); raporda olmayan kategori sonda
   const lineRank = useMemo(() => new Map((report?.categories ?? []).map((l, i) => [l.categoryId, i])), [report]);
@@ -227,6 +231,14 @@ export function BudgetPage() {
       toast(errorMessage(e), "error");
     }
   };
+  // Devir bu aydan başlar (geçmiş bir aya bakarken açılsa da): o aydan itibaren artan/aşan sonraki aya geçer
+  const toggleRollover = async (categoryId: string, on: boolean) => {
+    try {
+      await setBudgetRollover(categoryId, on ? todayISO().slice(0, 7) : null);
+    } catch (e) {
+      toast(errorMessage(e), "error");
+    }
+  };
 
   const monthDate = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1);
   const totals = report?.totals ?? null;
@@ -238,8 +250,15 @@ export function BudgetPage() {
           diffCents < 0 ? "ödeyecek maaşın ayı olan başka bir aya" : "başka aylardan bu aya"
         } yazıldı.`
       : null;
+  const carryHint =
+    totals && totals.carryCents !== 0
+      ? `${formatMoney(totals.budgetCents / 100)} limit ${totals.carryCents > 0 ? "+" : "−"} ${formatMoney(Math.abs(totals.carryCents) / 100)} ${
+          totals.carryCents > 0 ? "devreden" : "geçen aşım"
+        }`
+      : null;
   const tiles = [
-    { label: "Toplam bütçe", cents: totals?.budgetCents, color: "info" as TileTone },
+    // Bu ayın payları (limit + devir); "Kalan" = pay − bütçeli harcama
+    { label: "Toplam bütçe", cents: totals?.envelopeCents, color: "info" as TileTone, hint: carryHint },
     { label: "Bütçeli harcama", cents: totals?.spentBudgetedCents, color: "expense" as TileTone },
     // Bütçe aşılınca kalan kutusu da gider rengine döner
     // Rapor yokken nötr ton (yanlışlıkla "yeşil" görünmesin)
@@ -284,14 +303,21 @@ export function BudgetPage() {
         <section className="card overflow-hidden xl:col-span-3">
           <div className="border-b border-zinc-200 px-5 py-3.5 dark:border-zinc-800">
             <h2 className="text-sm font-semibold">Kategori Bütçeleri</h2>
-            <p className="text-xs text-zinc-500">Limiti değiştirmek için tutara tıklayın; boş bırakırsanız limit kaldırılır.</p>
+            <p className="text-xs text-zinc-500">
+              Limiti değiştirmek için tutara tıklayın; boş bırakırsanız limit kaldırılır. <Redo2 size={11} className="inline" /> devret: artan ya da aşan
+              tutar sonraki aya geçer.
+            </p>
           </div>
           <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {rows.map(({ c, line, budget }) => {
               const spent = line ? line.spentCents : null;
-              const limit = line?.budgetCents ?? null;
-              const pct = spent !== null && limit ? Math.min(100, (spent / limit) * 100) : 0;
-              const over = spent !== null && limit !== null && spent > limit;
+              const carry = line?.carryCents ?? null;
+              // Bu ayın payı (limit + devir) ve kalanı Rust'tan
+              const limit = line?.envelopeCents ?? null;
+              const left = line?.leftCents ?? null;
+              const pct = spent !== null && limit !== null ? (limit > 0 ? Math.min(100, (spent / limit) * 100) : spent > 0 ? 100 : 0) : 0;
+              const over = left !== null && left < 0;
+              const rolloverFrom = rolloverBy.get(c.id) ?? null;
               const tone = over ? "bg-rose-500" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500";
               return (
                 <li key={c.id} className="px-5 py-3">
@@ -303,14 +329,31 @@ export function BudgetPage() {
                     </span>
                     <span className="text-zinc-400">/</span>
                     <BudgetInput key={`${c.id}:${budget}`} value={budget} onSave={(v) => save(c.id, v)} />
+                    {budget !== null && (
+                      <button
+                        className={`icon-btn ${rolloverFrom ? "text-indigo-600 dark:text-indigo-400" : "opacity-40 hover:opacity-100"}`}
+                        title={rolloverFrom ? `Devrediyor (${formatMonthYear(monthOf(rolloverFrom))} ayından beri); kapatmak için tıklayın` : "Artan ya da aşan tutar sonraki aya devretsin"}
+                        aria-label={`${c.name} devret`}
+                        aria-pressed={!!rolloverFrom}
+                        onClick={() => void toggleRollover(c.id, !rolloverFrom)}
+                      >
+                        <Redo2 size={15} />
+                      </button>
+                    )}
                   </div>
-                  {spent !== null && limit !== null && (
+                  {spent !== null && left !== null && (
                     <div className="mt-2 flex items-center gap-3">
                       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
                         <div className={`h-full rounded-full ${tone}`} style={{ width: `${pct}%` }} />
                       </div>
-                      <span className={`w-28 text-right text-xs tabular-nums ${over ? "text-rose-600 dark:text-rose-400" : "text-zinc-500"}`}>
-                        {over ? `${formatMoney((spent - limit) / 100)} aşıldı` : `${formatMoney((limit - spent) / 100)} kaldı`}
+                      <span className={`text-right text-xs tabular-nums ${over ? "text-rose-600 dark:text-rose-400" : "text-zinc-500"}`}>
+                        {carry !== null && carry !== 0 && (
+                          <span className="text-indigo-600 dark:text-indigo-400">
+                            {carry > 0 ? `+${formatMoney(carry / 100)} devreden` : `−${formatMoney(-carry / 100)} geçen aşım`}
+                            {" · "}
+                          </span>
+                        )}
+                        {over ? `${formatMoney(-left / 100)} aşıldı` : `${formatMoney(left / 100)} kaldı`}
                       </span>
                     </div>
                   )}
@@ -431,6 +474,16 @@ export function BudgetPage() {
                   {money(report?.leftCents)}
                 </span>
               </div>
+              {report && (
+                // Sıfır tabanlı bütçe: gelirin her lirası bir işe atanır; kalan da birikime ya da bir limite dağıtılır
+                <p className={`text-xs ${report.leftCents < 0 ? "text-rose-600 dark:text-rose-400" : "text-zinc-500"}`}>
+                  {report.leftCents > 0
+                    ? `${formatMoney(report.leftCents / 100)} henüz bir işe atanmadı: birikim hedefine ya da bir kategori limitine dağıtın.`
+                    : report.leftCents === 0
+                      ? "Her lira bir işe atandı."
+                      : "Plan gelirden fazla: limitleri azaltın ya da gelir ekleyin."}
+                </p>
+              )}
             </div>
             <details className="mt-3 text-xs text-zinc-500">
               <summary className="cursor-pointer font-medium">Nasıl hesaplanır?</summary>
@@ -438,6 +491,11 @@ export function BudgetPage() {
                 <li>Düzensiz gelir/gider: İşlemler'e girilen ve bir düzenli kayıtla eşleşmeyen hareketler.</li>
                 <li>Bütçeli kategorilerde limit düşülür (aşıldıysa harcanan); hiçbir tutar iki kez sayılmaz.</li>
                 <li>Kart harcamaları, ekstresini ödeyecek maaşın ayına yazılır; taksitler kendi ekstrelerinin ayına düşer.</li>
+                <li>
+                  Devreden kategoride önceki ayların artanı bu ayın payına eklenir, aşımı düşülür; hiçbiri iki kez sayılmaz. Devir açıldığı aydan
+                  başlar ve geçmiş aylar bugünkü limitle, bugünkü kayıtlarla hesaplanır (eski bir işlemin kategorisi ya da maaş günü değişirse devir
+                  de değişir). Gelecek aylarda bu ayın kalanı tümüyle artmış sayılır. Limit kaldırılırsa devir de kapanır.
+                </li>
               </ul>
             </details>
           </section>

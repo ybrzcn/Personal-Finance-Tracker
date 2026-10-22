@@ -19,7 +19,16 @@ async fn report(State(s): State<Arc<AppState>>, user: AuthUser) -> Result<Json<A
     let today = ymd(istanbul_today(unix_now()));
     let out = with_user_db(&s, &user, move |c| {
         let (txs, cats, buds, settings) = (store::list_transactions(c)?, store::list_categories(c)?, store::list_budgets(c)?, store::get_settings(c)?);
-        Ok(analysis::analysis(&AnalysisInput { transactions: &txs, categories: &cats, budgets: &buds, settings: &settings, today: &today }))
+        let (accs, rec) = (store::list_accounts(c)?, store::list_recurring(c)?);
+        Ok(analysis::analysis(&AnalysisInput {
+            transactions: &txs,
+            accounts: &accs,
+            recurring: &rec,
+            categories: &cats,
+            budgets: &buds,
+            settings: &settings,
+            today: &today,
+        }))
     })
     .await?;
     Ok(Json(out))

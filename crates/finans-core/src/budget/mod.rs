@@ -3,6 +3,7 @@
 pub mod expenses;
 pub mod income;
 pub mod recurring;
+pub mod rollover;
 
 use std::collections::HashMap;
 
@@ -14,6 +15,7 @@ use crate::db::{Account, Budget, Category, MonthException, RecurringItem, Transa
 use crate::CoreResult;
 use expenses::{budget_expenses, month_expenses};
 use income::{due_unrecorded_incomes, expected_income_this_month, regular_expense_for_month, regular_income_for_month, split_month_income, ExpectedIncome};
+use rollover::carry_by_category;
 use recurring::{amount_at, amount_for_occurrence, cover_date, exception_for, has_started, month_of, occurrence_in, shift_month};
 
 pub struct BudgetInput<'a> {
@@ -45,6 +47,12 @@ pub struct CategoryLine {
     pub category_id: String,
     pub spent_cents: i64,
     pub budget_cents: Option<i64>,
+    /// Devri açıksa önceki aylardan gelen (eksi: aşım); kapalıysa None
+    pub carry_cents: Option<i64>,
+    /// Limiti varsa bu ayın payı: limit + devir (büyük aşım sonrası eksi olabilir)
+    pub envelope_cents: Option<i64>,
+    /// Pay − harcanan; eksiyse aşım
+    pub left_cents: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -52,6 +60,10 @@ pub struct CategoryLine {
 pub struct BudgetTotals {
     /// Gider kategorilerinin limitleri
     pub budget_cents: i64,
+    /// Devri açık kategorilerin önceki aylardan gelen toplamı
+    pub carry_cents: i64,
+    /// Bu ayın payları: limitler + devir
+    pub envelope_cents: i64,
     /// Limiti olan gider kategorilerinin harcananı
     pub spent_budgeted_cents: i64,
     pub remaining_cents: i64,
@@ -152,6 +164,7 @@ pub fn report(input: &BudgetInput) -> CoreResult<BudgetReport> {
     }
     let (txs, rec) = (input.transactions, input.recurring);
     let all = budget_expenses(txs, input.accounts, rec);
+    let carry = carry_by_category(&all, input.budgets, month);
 
     // Bu ayın bütçe giderleri kategoriye göre (Bütçe sayfasındaki spentBy; None = kategorisiz)
     let mut spent_by: HashMap<Option<&str>, i64> = HashMap::new();
@@ -163,21 +176,26 @@ pub fn report(input: &BudgetInput) -> CoreResult<BudgetReport> {
         .categories
         .iter()
         .filter(|c| c.kind == "expense")
-        .map(|c| CategoryLine {
-            category_id: c.id.clone(),
-            spent_cents: spent_by.get(&Some(c.id.as_str())).copied().unwrap_or(0),
-            budget_cents: budget_by.get(c.id.as_str()).map(|v| js_cents(*v)),
+        .map(|c| {
+            let spent_cents = spent_by.get(&Some(c.id.as_str())).copied().unwrap_or(0);
+            let budget_cents = budget_by.get(c.id.as_str()).map(|v| js_cents(*v));
+            let carry_cents = carry.get(&c.id).copied();
+            let envelope_cents = budget_cents.map(|b| b + carry_cents.unwrap_or(0));
+            CategoryLine { category_id: c.id.clone(), spent_cents, budget_cents, carry_cents, envelope_cents, left_cents: envelope_cents.map(|e| e - spent_cents) }
         })
         .collect();
     sort_category_lines(&mut categories, input.categories);
     let budget_cents: i64 = categories.iter().filter_map(|l| l.budget_cents).sum();
     let spent_budgeted_cents: i64 = categories.iter().filter(|l| l.budget_cents.is_some()).map(|l| l.spent_cents).sum();
+    let carry_cents: i64 = categories.iter().filter(|l| l.budget_cents.is_some()).filter_map(|l| l.carry_cents).sum();
     let by_date_cents: i64 =
         txs.iter().filter(|t| t.kind == "expense").flat_map(spread_installments).filter(|p| month_of(&p.date) == month).map(|p| p.cents).sum();
     let totals = BudgetTotals {
         budget_cents,
+        carry_cents,
+        envelope_cents: budget_cents + carry_cents,
         spent_budgeted_cents,
-        remaining_cents: budget_cents - spent_budgeted_cents,
+        remaining_cents: budget_cents + carry_cents - spent_budgeted_cents,
         spent_all_cents: spent_by.values().sum(),
         by_date_cents,
     };
@@ -196,7 +214,7 @@ pub fn report(input: &BudgetInput) -> CoreResult<BudgetReport> {
     let regular_income_cents: i64 = income_lines.iter().map(|l| l.used_cents).sum();
     let mi = split_month_income(txs, rec, month);
     let regular_expense_cents = regular_expense_for_month(rec, month);
-    let me = month_expenses(&all, rec, input.budgets, month);
+    let me = month_expenses(&all, rec, input.budgets, &carry, month);
     // Düzensiz giderler hesaplara göre: ilk görülme sırası, sonra kuruş büyükten küçüğe
     let mut by_account: Vec<AccountCents> = Vec::new();
     for e in &me.irregular {

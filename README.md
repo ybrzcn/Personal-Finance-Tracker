@@ -62,7 +62,7 @@ Put it behind HTTPS (Cloudflare Tunnel, Caddy, nginx). The server serves the web
 - **Ödeme takvimi:** Kart ekstreleri, kredi taksitleri ve düzenli ödemelerin hangi maaştan karşılanacağı, dönemin ödenmiş ekstreleri ve yatmış gelirleri masaüstünde ve sunucuda aynı Rust kodunda hesaplanır.
 - **Kâr/Zarar:** Döviz, altın ve fon hesaplarında ağırlıklı ortalama maliyet, güncel değer ve kâğıt üstü kâr/zarar; her satışın ve dövizle yapılan giderin gerçekleşen kâr/zararı, aylık grafikle. Alım ve satım transfer olarak girilir; açılış bakiyesinin maliyeti hesap formunda girilebilir (boşsa açılış günü kuru). TCMB EVDS anahtarı verilirse getiri TÜFE ile karşılaştırılır (reel kâr/zarar): anahtar evds3.tcmb.gov.tr'de ücretsiz üyelikle Profil → API Anahtarı'ndan alınır; sunucuda `.env`'deki `FINANS_EVDS_KEY`'e, masaüstünde Ayarlar'a girilir (yalnız o cihazda saklanır).
 - **Krediler:** Kalan anapara, aylık faiz, KKDF+BSMV, kalan vade ve sonraki taksit tarihiyle ödeme planı; "Taksit öde" anaparayı krediye transfer, faizi "Faiz ve Masraflar" gideri olarak kaydeder.
-- **Bütçe:** Gider kategorilerine aylık limit (ilerleme çubuğu, aşım uyarısı), düzenli gelirler (maaş günü) ve düzenli giderler (kira, fatura, abonelik).
+- **Bütçe:** Gider kategorilerine aylık limit (ilerleme çubuğu, aşım uyarısı), düzenli gelirler (maaş günü) ve düzenli giderler (kira, fatura, abonelik). İstenen kategoride bütçe devreder: artan para sonraki ayın payına eklenir, aşım düşülür. Plan özeti henüz bir işe atanmamış parayı gösterir (sıfır tabanlı bütçe).
 - **Ödeme Takvimi:** Önümüzdeki 1/3/6 ayın kart ekstreleri (kesilmemişler tahmini), kredi taksitleri ve düzenli giderleri; her ödeme son ödeme tarihinden önce yatan son gelire yazılır (hesap bazında elle seçilebilir), gelir başına "kalan" gösterilir.
 - **Analiz:** Abonelikler kategorisinden otomatik bulunan aboneliklerin aylık / yıllık maliyeti (ad, sıklık, iptal düzeltilebilir) ve seçili değişken gider kategorileri (varsayılan Eğlence, Restoran, Kafe, Market) için aylık / yıllık harcama tahmini ve ay sonu beklentisi. Hesap Rust'ta yapılır.
 - **Borç Planı:** Aylık ayrılabilecek tutara göre Çığ / Kartopu / kendi sıranız / yalnız asgari stratejilerinin simülasyonu; toplam faiz, kapanma tarihi ve aylık ödeme tablosu. Hesap masaüstünde ve sunucuda aynı Rust kodunda yapılır.
@@ -321,6 +321,7 @@ Tüm yanıtlar JSON; hata biçimi `{"error": "<mesaj>"}`. Kimlik: web'de `finans
 | `PUT, DELETE /api/{categories,accounts,transactions,recurring}/{id}` | Güncelle / sil |
 | `PUT /api/recurring/{id}/exception` `{month, amount, note}` | Düzenli kaydın o aya özel tutarı (`amount: 0` "bu ay yatmayacak", `null` istisnayı kaldırır); güncel kaydı döndürür |
 | `GET /api/budgets`, `PUT /api/budgets/{categoryId}` `{amount}` | Bütçeler (`amount: null` kaldırır) |
+| `PUT /api/budgets/{categoryId}/rollover` `{from}` | Devreden bütçe: `from` (YYYY-MM) ayından itibaren artan/aşan sonraki aya geçer; `null` kapatır |
 | `GET /api/settings`, `PUT /api/settings/{key}` | Borç planı / analiz ayarları |
 | `POST /api/restore`, `GET /api/export` | Tüm veriyi değiştir / indir |
 | `POST /api/statements/parse?name=<dosya>` (ham bayt) | Ekstre dosyasını okur (CSV, Excel, PDF) ve çözümler: tablo, başlık satırı, tahmin edilen sütunlar ve ekstre özeti (kesim, son ödeme, dönem borcu, limit, faiz) |
@@ -339,7 +340,7 @@ Tüm yanıtlar JSON; hata biçimi `{"error": "<mesaj>"}`. Kimlik: web'de `finans
 | `GET /api/funds/search?q=<kod ya da ad>` | TEFAS fon arama (en çok 20 sonuç) |
 | `GET /api/pnl?from=&to=&kind=all\|fx\|fund` | Kâr/zarar raporu (tutarlar kuruş, kurlar ×1.000.000, yüzdeler baz puan); `kind` döviz/altın ya da fonlarla sınırlar |
 | `GET /api/accounts/report` | Hesap özetleri: kart ekstreleri ve borcu, ödeme ipuçları, kredi ödeme planı, banka/KMH ve döviz değeri (tutarlar kuruş) |
-| `GET /api/budget/report?month=YYYY-MM` | Bütçe: kategori harcamaları ve limitleri, düzenli/düzensiz gelir ve gider, ayrılan bütçe, kalan, düzenli kayıtların o aydaki tarih ve tutarları (tutarlar kuruş) |
+| `GET /api/budget/report?month=YYYY-MM` | Bütçe: kategori harcamaları ve limitleri, düzenli/düzensiz gelir ve gider, devreden bütçe, ayrılan bütçe, kalan, düzenli kayıtların o aydaki tarih ve tutarları (tutarlar kuruş) |
 | `GET /api/income/status` | Gelir durumu: bu ay beklenen gelir (maaş / diğer) ve yatış günü gelmiş ama girilmemiş düzenli gelirler (tutarlar kuruş) |
 | `GET /api/cashplan?months=N` | Ödeme takvimi (N = 1–24 ay): bugünkü nakit, maaş dönemleri ya da takvim ayları, her dönemin gelirleri, ödemeleri (hangi gelirden karşılandığı), ödenmiş/yatmış kalemleri ve tahmini bakiyesi (tutarlar kuruş) |
 | `GET /api/obligations/upcoming?days=N` | Önümüzdeki N gündeki (1–365) ve gecikmiş kart, kredi ve planlı ödemeler (tutarlar kuruş) |

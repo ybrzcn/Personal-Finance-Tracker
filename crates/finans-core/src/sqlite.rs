@@ -322,8 +322,8 @@ impl DataStore for SqliteStore<'_> {
     }
 
     fn list_budgets(&mut self) -> CoreResult<Vec<Budget>> {
-        self.list("SELECT category_id, amount_cents FROM budgets", |r| {
-            Ok(Budget { category_id: r.get(0)?, amount: r.get::<_, i64>(1)? as f64 / 100.0 })
+        self.list("SELECT category_id, amount_cents, rollover_from FROM budgets", |r| {
+            Ok(Budget { category_id: r.get(0)?, amount: r.get::<_, i64>(1)? as f64 / 100.0, rollover_from: r.get(2)? })
         })
     }
 
@@ -341,6 +341,11 @@ impl DataStore for SqliteStore<'_> {
     fn delete_budget(&mut self, category_id: &str) -> CoreResult<()> {
         self.conn.execute("DELETE FROM budgets WHERE category_id = ?1", [category_id]).map_err(db_err)?;
         Ok(())
+    }
+
+    fn set_budget_rollover(&mut self, category_id: &str, from: Option<&str>) -> CoreResult<u64> {
+        let n = self.conn.execute("UPDATE budgets SET rollover_from = ?2 WHERE category_id = ?1", params![category_id, from]).map_err(db_err)?;
+        Ok(n as u64)
     }
 
     fn list_goals(&mut self) -> CoreResult<Vec<Goal>> {

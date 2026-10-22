@@ -92,8 +92,8 @@ fn days_in_month(ym: &str) -> i64 {
     crate::accounts::cards::days_in_month(y, m) as i64
 }
 
-/// Seçili kategoriler için aylık/yıllık harcama tahmini (harcama tarihine göre)
-pub fn forecast(txs: &[Transaction], ids: Vec<String>, budgets: &[Budget], today: &str) -> ForecastReport {
+/// Seçili kategoriler için aylık/yıllık harcama tahmini (harcama tarihine göre); limit bu ayın payı (limit + devreden)
+pub fn forecast(txs: &[Transaction], ids: Vec<String>, budgets: &[Budget], carry: &HashMap<String, i64>, today: &str) -> ForecastReport {
     let months = complete_months(txs, today);
     let basis_months = &months[months.len().saturating_sub(3)..];
     let history_months = &months[months.len().saturating_sub(6)..];
@@ -126,7 +126,7 @@ pub fn forecast(txs: &[Transaction], ids: Vec<String>, budgets: &[Budget], today
 
         let recent: Vec<&str> = basis_months.iter().map(String::as_str).chain([current]).collect();
         let parts: Vec<Part> = own.iter().filter(|t| recent.contains(&ym(&t.date))).map(|t| Part { date: t.date.clone(), amount: t.amount, tx: t }).collect();
-        let budget = budgets.iter().find(|b| b.category_id == *id).map(|b| b.amount);
+        let budget = budgets.iter().find(|b| b.category_id == *id).map(|b| cents(b.amount) + carry.get(id).copied().unwrap_or(0));
         let monthly = round2(avg);
         items.push((monthly, ForecastItem {
             category_id: id.clone(),
@@ -141,8 +141,8 @@ pub fn forecast(txs: &[Transaction], ids: Vec<String>, budgets: &[Budget], today
             avg_ticket_cents: (basis_count > 0).then(|| cents(round2(basis_total / basis_count as f64))),
             per_month_count: (!basis.is_empty()).then(|| js_round(basis_count as f64 / basis.len() as f64 * 10.0) as f64 / 10.0),
             top_merchants: top_merchants(&parts, 3),
-            budget_cents: budget.map(cents),
-            over_budget: budget.is_some_and(|b| projected > b),
+            budget_cents: budget,
+            over_budget: budget.is_some_and(|b| cents(projected) > b),
         }));
     }
     items.sort_by(|(a, _), (b, _)| b.partial_cmp(a).unwrap_or(std::cmp::Ordering::Equal));

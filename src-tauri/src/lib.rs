@@ -103,6 +103,7 @@ pub fn run() {
             commands::delete_recurring,
             commands::list_budgets,
             commands::set_budget,
+            commands::set_budget_rollover,
             commands::list_transactions,
             commands::create_transaction,
             commands::update_transaction,

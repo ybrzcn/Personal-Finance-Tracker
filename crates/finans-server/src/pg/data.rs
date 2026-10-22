@@ -392,9 +392,10 @@ impl DataStore for PgStore<'_, '_> {
     }
 
     fn list_budgets(&mut self) -> CoreResult<Vec<Budget>> {
-        self.list("SELECT category_id, amount_cents FROM budgets WHERE user_id = $1", |r| Budget {
+        self.list("SELECT category_id, amount_cents, rollover_from FROM budgets WHERE user_id = $1", |r| Budget {
             category_id: r.get(0),
             amount: r.get::<_, i64>(1) as f64 / 100.0,
+            rollover_from: r.get(2),
         })
     }
 
@@ -412,6 +413,11 @@ impl DataStore for PgStore<'_, '_> {
         let u = self.user_id.clone();
         self.exec("DELETE FROM budgets WHERE user_id = $1 AND category_id = $2", &[&u, &category_id])?;
         Ok(())
+    }
+
+    fn set_budget_rollover(&mut self, category_id: &str, from: Option<&str>) -> CoreResult<u64> {
+        let u = self.user_id.clone();
+        self.exec("UPDATE budgets SET rollover_from = $3 WHERE user_id = $1 AND category_id = $2", &[&u, &category_id, &from])
     }
 
     fn list_goals(&mut self) -> CoreResult<Vec<Goal>> {

@@ -40,6 +40,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/reset/seed", get(reset_seed))
         .route("/api/budgets", get(list_budgets))
         .route("/api/budgets/{category_id}", put(set_budget))
+        .route("/api/budgets/{category_id}/rollover", put(set_budget_rollover))
         .route("/api/settings", get(get_settings))
         .route("/api/settings/{key}", put(set_setting))
         .route("/api/restore", post(restore))
@@ -129,6 +130,16 @@ struct BudgetBody {
 
 async fn set_budget(State(s): S, user: AuthUser, Path(category_id): Path<String>, Json(b): Json<BudgetBody>) -> R<StatusCode> {
     with_user_db(&s, &user, move |c| store::set_budget(c, &category_id, b.amount)).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct RolloverBody {
+    from: Option<String>,
+}
+
+async fn set_budget_rollover(State(s): S, user: AuthUser, Path(category_id): Path<String>, Json(b): Json<RolloverBody>) -> R<StatusCode> {
+    with_user_db(&s, &user, move |c| store::set_budget_rollover(c, &category_id, b.from.as_deref())).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

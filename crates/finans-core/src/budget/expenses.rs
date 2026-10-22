@@ -37,15 +37,21 @@ pub fn budget_expenses<'a>(txs: &'a [Transaction], accounts: &[Account], recurri
 }
 
 pub struct MonthExpenses<'a> {
-    /// Bütçeli kategoriler: limit, aşıldıysa harcanan (bütün bütçeler)
+    /// Bütçeli kategoriler: limit, aşıldıysa harcanan (bütün bütçeler); devreden artı tutarla karşılanan harcama bu aydan düşülmez
     pub budget_reserved_cents: i64,
     /// Bütçesiz kategorilerde ve düzenli gidere karşılık gelmeyen harcamalar, kuruş büyükten küçüğe
     pub irregular: Vec<BudgetExpense<'a>>,
     pub irregular_cents: i64,
 }
 
-/// TS `monthExpenses` (`all` = `budget_expenses` çıktısı)
-pub fn month_expenses<'a>(all: &[BudgetExpense<'a>], recurring: &[RecurringItem], budgets: &[Budget], month: &str) -> MonthExpenses<'a> {
+/// TS `monthExpenses` (`all` = `budget_expenses` çıktısı, `carry` = `carry_by_category`)
+pub fn month_expenses<'a>(
+    all: &[BudgetExpense<'a>],
+    recurring: &[RecurringItem],
+    budgets: &[Budget],
+    carry: &HashMap<String, i64>,
+    month: &str,
+) -> MonthExpenses<'a> {
     let budget_by: HashMap<&str, i64> = budgets.iter().map(|b| (b.category_id.as_str(), js_cents(b.amount))).collect();
     let regular: Vec<&RecurringItem> = recurring.iter().filter(|r| r.kind == "expense" && r.active).collect();
     let mut spent_by: HashMap<&str, i64> = HashMap::new();
@@ -62,7 +68,16 @@ pub fn month_expenses<'a>(all: &[BudgetExpense<'a>], recurring: &[RecurringItem]
         out.irregular_cents += e.cents;
         out.irregular.push(e.clone());
     }
-    out.budget_reserved_cents = budget_by.iter().map(|(c, limit)| (*limit).max(spent_by.get(c).copied().unwrap_or(0))).sum();
+    // Artı devir: önceki aylardan artan para o aylarda zaten ayrılmıştı; bu ay yalnız onu aşan harcama yeni para ister.
+    // Eksi devir: geçen ayın aşımı o ayın kalanından düştü; bu ay yalnız küçülen pay ayrılır (aşım iki kez sayılmaz).
+    out.budget_reserved_cents = budget_by
+        .iter()
+        .map(|(c, limit)| {
+            let spent = spent_by.get(c).copied().unwrap_or(0);
+            let carry = carry.get(*c).copied().unwrap_or(0);
+            (limit + carry.min(0)).max(spent - carry.max(0))
+        })
+        .sum();
     out.irregular.sort_by_key(|a| std::cmp::Reverse(a.cents));
     out
 }

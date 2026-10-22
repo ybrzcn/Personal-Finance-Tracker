@@ -13,12 +13,29 @@ const NO_DB: &str = "Veritabanı bağlantısı kullanılamıyor.";
 pub async fn analysis(app: tauri::AppHandle) -> Result<AnalysisReport, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let st = app.state::<AppState>();
-        let (txs, cats, buds, settings) = {
+        let (txs, cats, buds, settings, accs, rec) = {
             let mut conn = st.conn.lock().map_err(|_| NO_DB.to_string())?;
-            sqlite::run(&mut conn, |s| Ok((store::list_transactions(s)?, store::list_categories(s)?, store::list_budgets(s)?, store::get_settings(s)?)))?
+            sqlite::run(&mut conn, |s| {
+                Ok((
+                    store::list_transactions(s)?,
+                    store::list_categories(s)?,
+                    store::list_budgets(s)?,
+                    store::get_settings(s)?,
+                    store::list_accounts(s)?,
+                    store::list_recurring(s)?,
+                ))
+            })?
         };
         let today = ymd(istanbul_today(unix_now()));
-        Ok(analysis::analysis(&AnalysisInput { transactions: &txs, categories: &cats, budgets: &buds, settings: &settings, today: &today }))
+        Ok(analysis::analysis(&AnalysisInput {
+            transactions: &txs,
+            accounts: &accs,
+            recurring: &rec,
+            categories: &cats,
+            budgets: &buds,
+            settings: &settings,
+            today: &today,
+        }))
     })
     .await
     .map_err(|e| e.to_string())?

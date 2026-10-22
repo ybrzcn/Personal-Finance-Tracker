@@ -44,6 +44,8 @@ pub trait DataStore {
     fn list_budgets(&mut self) -> CoreResult<Vec<Budget>>;
     fn upsert_budget(&mut self, category_id: &str, amount_cents: i64) -> CoreResult<()>;
     fn delete_budget(&mut self, category_id: &str) -> CoreResult<()>;
+    /// Devreden bütçenin başlangıç ayı (None kapatır); değişen satır sayısı (bütçe yoksa 0)
+    fn set_budget_rollover(&mut self, category_id: &str, from: Option<&str>) -> CoreResult<u64>;
 
     /// Hedefler (oluşturma sırasıyla) ve hesap listeleri; `target` hedef biriminde
     fn list_goals(&mut self) -> CoreResult<Vec<Goal>>;

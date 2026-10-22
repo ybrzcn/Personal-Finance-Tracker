@@ -85,6 +85,8 @@ export interface Api {
   listBudgets(): Promise<Budget[]>;
   /** `amount` null veya 0 ise bütçe kaldırılır. */
   setBudget(categoryId: string, amount: number | null): Promise<void>;
+  /** Devreden bütçeyi `from` ayından (YYYY-MM) açar; null kapatır */
+  setBudgetRollover(categoryId: string, from: string | null): Promise<void>;
   /** Tüm veriyi atomik olarak verilenle değiştirir. */
   restore(data: DataSet): Promise<void>;
   /** Veritabanında saklanan uygulama ayarları (borç planı, analiz) */
@@ -221,6 +223,7 @@ const tauriApi: Api = {
   resetSeed: () => invoke<ResetSeed>("reset_seed"),
   listBudgets: () => invoke<Budget[]>("list_budgets"),
   setBudget: (categoryId, amount) => invoke<void>("set_budget", { categoryId, amount }),
+  setBudgetRollover: (categoryId, from) => invoke<void>("set_budget_rollover", { categoryId, from }),
   restore: ({ categories, accounts, transactions, recurring, budgets, goals, tags }) =>
     invoke<void>("restore_data", { categories, accounts, transactions, recurring, budgets, goals, tags }),
   getSettings: () => invoke<Partial<AppDataSettings>>("get_settings"),

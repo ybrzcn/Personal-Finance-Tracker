@@ -58,6 +58,7 @@ export interface DataCtx {
   setRecurringException(id: string, month: string, amount: number | null, note: string): Promise<RecurringItem>;
   deleteRecurring(id: string): Promise<void>;
   setBudget(categoryId: string, amount: number | null): Promise<void>;
+  setBudgetRollover(categoryId: string, from: string | null): Promise<void>;
   addGoal(input: GoalInput): Promise<Goal>;
   updateGoal(g: Goal): Promise<Goal>;
   deleteGoal(id: string): Promise<void>;
@@ -242,10 +243,11 @@ export function DataProvider({ children }: { children: ReactNode }) {
       },
       async setBudget(categoryId, amount) {
         await api.setBudget(categoryId, amount);
-        setBudgets((xs) => [
-          ...xs.filter((b) => b.categoryId !== categoryId),
-          ...(amount && amount > 0 ? [{ categoryId, amount: Math.round(amount * 100) / 100 }] : []),
-        ]);
+        setBudgets(await api.listBudgets());
+      },
+      async setBudgetRollover(categoryId, from) {
+        await api.setBudgetRollover(categoryId, from);
+        setBudgets(await api.listBudgets());
       },
       async addGoal(input) {
         return refreshed(await api.createGoal(input), api.listGoals, setGoals);

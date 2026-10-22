@@ -401,7 +401,10 @@ pub fn parse_backup(text: &str, today: &str) -> CoreResult<Value> {
     let budgets: Vec<Value> = list("budgets")
         .iter()
         .filter(|b| is_obj(b) && field(b, "categoryId").is_str() && field(b, "amount").is_num())
-        .map(|b| json!({ "categoryId": field(b, "categoryId"), "amount": field(b, "amount") }))
+        .map(|b| {
+            let from = field(b, "rolloverFrom");
+            json!({ "categoryId": field(b, "categoryId"), "amount": field(b, "amount"), "rolloverFrom": if from.is_str() { from.clone() } else { Value::Null } })
+        })
         .collect();
     let goals: Vec<Value> = list("goals")
         .iter()

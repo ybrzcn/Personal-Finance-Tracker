@@ -768,6 +768,18 @@ pub fn set_budget(s: &mut dyn DataStore, category_id: &str, amount: Option<f64>)
     upsert_budget(s, category_id, amount)
 }
 
+/// Devreden bütçeyi `from` ayından (YYYY-MM) itibaren açar; None kapatır. Limiti olmayan kategoride hata.
+pub fn set_budget_rollover(s: &mut dyn DataStore, category_id: &str, from: Option<&str>) -> CoreResult<()> {
+    let from = from.map(str::trim).filter(|m| !m.is_empty());
+    if from.is_some_and(|m| !crate::budget::valid_month(m)) {
+        return Err("Geçersiz ay".into());
+    }
+    if s.set_budget_rollover(category_id, from)? == 0 {
+        return Err("Devretmek için önce bu kategoriye limit koyun.".into());
+    }
+    Ok(())
+}
+
 // Birikim hedefleri
 
 /// `own_id`: kaydedilen hedef (kendi hesapları "başka hedefe bağlı" sayılmaz). `today` yoksa (geri yükleme)
@@ -1031,6 +1043,9 @@ pub fn restore_data(
         // Bütçe yalnız gider kategorilerinde anlamlı; diğerleri (eski/elle düzenlenmiş yedek) atlanır
         if s.get_category(&b.category_id)?.is_some_and(|c| c.kind == "expense") {
             upsert_budget(s, &b.category_id, Some(b.amount))?;
+            // Bozuk ay yedeği düşürmesin: devir kapalı gelir
+            let from = b.rollover_from.as_deref().filter(|m| crate::budget::valid_month(m));
+            s.set_budget_rollover(&b.category_id, from)?;
         }
     }
     // Hedefler: yedekte olmayan ya da bağlanamayan (kart/kredi) hesaba ve önceki bir hedefe bağlı hesaba bağlantı atlanır

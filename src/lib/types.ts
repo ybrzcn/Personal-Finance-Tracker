@@ -103,6 +103,8 @@ export interface AmountChange {
 export interface Budget {
   categoryId: string;
   amount: number;
+  /** Devreden bütçe bu aydan (YYYY-MM) itibaren; null kapalı */
+  rolloverFrom?: string | null;
 }
 
 export interface Transaction {
@@ -545,10 +547,20 @@ export interface BudgetCategoryLine {
   categoryId: string;
   spentCents: number;
   budgetCents: number | null;
+  /** Devri açıksa önceki aylardan gelen (eksi: aşım) */
+  carryCents: number | null;
+  /** Limiti varsa bu ayın payı: limit + devir (büyük aşım sonrası eksi olabilir) */
+  envelopeCents: number | null;
+  /** Pay − harcanan; eksiyse aşım */
+  leftCents: number | null;
 }
 
 export interface BudgetTotals {
   budgetCents: number;
+  /** Devri açık kategorilerin önceki aylardan gelen toplamı */
+  carryCents: number;
+  /** Bu ayın payları: limitler + devir */
+  envelopeCents: number;
   spentBudgetedCents: number;
   remainingCents: number;
   /** Bu ayın bütün bütçe giderleri (bütçe ayına göre) */

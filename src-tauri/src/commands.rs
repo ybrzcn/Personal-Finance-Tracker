@@ -216,6 +216,11 @@ pub fn set_budget(state: State<'_, AppState>, category_id: String, amount: Optio
     sqlite::run(&mut *lock(&state)?, |s| store::set_budget(s, &category_id, amount))
 }
 
+#[tauri::command]
+pub fn set_budget_rollover(state: State<'_, AppState>, category_id: String, from: Option<String>) -> CmdResult<()> {
+    sqlite::run(&mut *lock(&state)?, |s| store::set_budget_rollover(s, &category_id, from.as_deref()))
+}
+
 // Yedekteki her veri türü ayrı argüman (arayüzün gönderdiği biçim)
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]

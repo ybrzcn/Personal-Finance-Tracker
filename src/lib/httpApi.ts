@@ -70,6 +70,7 @@ export function createHttpApi(opts: HttpOptions = {}): Api {
     resetSeed: () => r<ResetSeed>("GET", "/api/reset/seed"),
     listBudgets: () => r<Budget[]>("GET", "/api/budgets"),
     setBudget: (categoryId, amount) => r<void>("PUT", `/api/budgets/${id(categoryId)}`, { amount }),
+    setBudgetRollover: (categoryId, from) => r<void>("PUT", `/api/budgets/${id(categoryId)}/rollover`, { from }),
     restore: (data) => r<void>("POST", "/api/restore", data),
     getSettings: () => r("GET", "/api/settings"),
     setSetting: (key, value) => r<void>("PUT", `/api/settings/${id(key)}`, value ?? null),

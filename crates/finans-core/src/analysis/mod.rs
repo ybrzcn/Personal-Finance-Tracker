@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::{Map, Value};
 
 use crate::accounts::cards::js_round;
-use crate::db::{Budget, Category, Transaction};
+use crate::db::{Account, Budget, Category, RecurringItem, Transaction};
 use crate::overview::breakdown::js_space;
 
 pub use self::forecast::{ForecastItem, ForecastReport, MonthTotal};
@@ -17,6 +17,9 @@ pub use self::subscriptions::{SubscriptionRow, SubscriptionsReport};
 
 pub struct AnalysisInput<'a> {
     pub transactions: &'a [Transaction],
+    /// Devreden bütçe için (kart harcamalarının bütçe ayı)
+    pub accounts: &'a [Account],
+    pub recurring: &'a [RecurringItem],
     pub categories: &'a [Category],
     pub budgets: &'a [Budget],
     pub settings: &'a Map<String, Value>,
@@ -47,9 +50,15 @@ pub fn analysis(input: &AnalysisInput) -> AnalysisReport {
     let ids = forecast::selected_ids(input.categories, selected.as_deref());
     AnalysisReport {
         subscriptions: subscriptions::detect(input.transactions, input.categories, &overrides, input.today),
-        forecast: forecast::forecast(input.transactions, ids, input.budgets, input.today),
+        forecast: forecast::forecast(input.transactions, ids, input.budgets, &month_carry(input), input.today),
         cafe_suggestion: crate::rules::cafe_suggestion(input.transactions, input.categories),
     }
+}
+
+/// Bu ay devreden bütçe (kategori → kuruş): tahminin limiti Bütçe sayfasındaki payla aynı olsun
+fn month_carry(input: &AnalysisInput) -> HashMap<String, i64> {
+    let all = crate::budget::expenses::budget_expenses(input.transactions, input.accounts, input.recurring);
+    crate::budget::rollover::carry_by_category(&all, input.budgets, input.today.get(..7).unwrap_or(input.today))
 }
 
 fn read_overrides(s: &Map<String, Value>) -> HashMap<String, Override> {
