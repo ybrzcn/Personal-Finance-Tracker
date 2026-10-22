@@ -172,7 +172,74 @@ export interface SubscriptionOverride {
 }
 
 /** Veritabanında saklanan, cihazlar arasında taşınan uygulama ayarları */
-export type AppDataSettings = DebtPlanSettings & AnalysisSettings & CategoryRuleSettings;
+export type AppDataSettings = DebtPlanSettings & AnalysisSettings & CategoryRuleSettings & ProjectionSettings;
+
+/** Uzun Vade varsayımları (oranlar yıllık yüzde); Rust `projection::Assumptions` */
+export interface ProjectionAssumptions {
+  years: number;
+  incomeGrowthPct: number;
+  expenseGrowthPct: number;
+  returnPct: number;
+  /** Her ay eklenen (+) ya da çıkan (−) tutar, TL */
+  monthlyExtra: number;
+}
+
+export interface ProjectionSettings {
+  projection: Partial<ProjectionAssumptions>;
+}
+
+export interface ProjectionBase {
+  incomeCents: number;
+  regularExpenseCents: number;
+  budgetCents: number;
+  irregularExpenseCents: number;
+  irregularMonths: number;
+  loanCents: number;
+  extraCents: number;
+  netCents: number;
+}
+
+export interface ProjectionYear {
+  year: number;
+  endMonth: string;
+  incomeCents: number;
+  expenseCents: number;
+  loanCents: number;
+  extraCents: number;
+  netFlowCents: number;
+  /** Gelir + artı senaryo */
+  inflowCents: number;
+  /** Gider + taksit + eksi senaryo */
+  outflowCents: number;
+  returnCents: number;
+  cashCents: number;
+  debtCents: number;
+  netWorthCents: number;
+  /** Bugünün parasıyla */
+  realNetWorthCents: number;
+}
+
+export interface ProjectionPoint {
+  month: string;
+  netWorthCents: number;
+  realNetWorthCents: number;
+  debtCents: number;
+}
+
+/** Rust `projection::ProjectionReport` */
+export interface ProjectionReport {
+  assumptions: ProjectionAssumptions;
+  startMonth: string;
+  startNetWorthCents: number;
+  startLoanDebtCents: number;
+  base: ProjectionBase;
+  points: ProjectionPoint[];
+  years: ProjectionYear[];
+  debtFreeMonth: string | null;
+  /** Borcu kalan ama taksit planı kalmamış kredi var */
+  loanWithoutSchedule: boolean;
+  firstNegativeMonth: string | null;
+}
 export type AppSettingKey = keyof AppDataSettings;
 export const APP_SETTING_KEYS: AppSettingKey[] = [
   "debtBudget",
@@ -182,6 +249,7 @@ export const APP_SETTING_KEYS: AppSettingKey[] = [
   "subscriptionOverrides",
   "forecastCategoryIds",
   "categoryRules",
+  "projection",
 ];
 
 /** "Açıklamada şu kelimelerden biri geçerse → bu kategori" kuralı. */

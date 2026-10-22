@@ -11,6 +11,7 @@ mod commands;
 mod goals;
 mod maintenance;
 mod networth;
+mod projection;
 mod pnl;
 mod rates;
 mod tags;
@@ -154,6 +155,7 @@ pub fn run() {
             backup::parse_csv,
             backup::merge_csv,
             networth::networth_report,
+            projection::projection_report,
             goals::list_goals,
             goals::create_goal,
             goals::update_goal,

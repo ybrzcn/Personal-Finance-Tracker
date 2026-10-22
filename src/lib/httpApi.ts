@@ -1,5 +1,5 @@
 import type { Api } from "./api";
-import type { Account, AccountPreview, Backup, CsvMerge, CsvParseResult, CategoryRulePreview, CategorySuggestions, ImportRows, StatementCard, StatementTotals, AccountsReport, AnalysisReport, Budget, BudgetReport, CashPlanReport, Category, CategoryUsageReport, DebtPlanReport, FundHit, Goal, GoalsReport, IncomeStatus, NetWorthReport, OverviewReport, PnlReport, RateQuote, RecurringItem, RecurringPreview, ResetSeed, Tag, TagsReport, Transaction, TransactionPreview, UpcomingObligations } from "./types";
+import type { Account, AccountPreview, Backup, CsvMerge, CsvParseResult, CategoryRulePreview, CategorySuggestions, ImportRows, StatementCard, StatementTotals, AccountsReport, AnalysisReport, Budget, BudgetReport, CashPlanReport, Category, CategoryUsageReport, DebtPlanReport, FundHit, Goal, GoalsReport, IncomeStatus, NetWorthReport, OverviewReport, ProjectionReport, PnlReport, RateQuote, RecurringItem, RecurringPreview, ResetSeed, Tag, TagsReport, Transaction, TransactionPreview, UpcomingObligations } from "./types";
 
 /** Oturum düşünce (401) yayınlanır; giriş kapısı giriş ekranına döner. */
 export const UNAUTHORIZED_EVENT = "finans:unauthorized";
@@ -113,6 +113,8 @@ export function createHttpApi(opts: HttpOptions = {}): Api {
     mergeCsv: (rows, defaultAccountId) => r<CsvMerge>("POST", "/api/csv/merge", { rows, defaultAccountId }),
     categoryUsage: () => r<CategoryUsageReport>("GET", "/api/categories/usage"),
     netWorthReport: () => r<NetWorthReport>("GET", "/api/networth"),
+    projectionReport: (a) =>
+      r<ProjectionReport>("GET", `/api/projection?${new URLSearchParams(Object.entries(a).map(([k, v]) => [k, String(v)])).toString()}`),
     listGoals: () => r<Goal[]>("GET", "/api/goals"),
     createGoal: (input) => r<Goal>("POST", "/api/goals", input),
     updateGoal: (g) => r<Goal>("PUT", `/api/goals/${id(g.id)}`, g),

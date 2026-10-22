@@ -25,6 +25,7 @@ const DATA_DEFAULTS: AppDataSettings = {
   subscriptionOverrides: {},
   forecastCategoryIds: null,
   categoryRules: [],
+  projection: {},
 };
 
 const isAppKey = (k: string): k is AppSettingKey => (APP_SETTING_KEYS as string[]).includes(k);

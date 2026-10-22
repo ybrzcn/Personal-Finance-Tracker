@@ -12,6 +12,7 @@ import { RatesPage } from "./pages/Rates";
 import { PnlPage } from "./pages/Pnl";
 import { CashPlanPage } from "./pages/CashPlan";
 import { DebtPlannerPage } from "./pages/DebtPlanner";
+import { ProjectionPage } from "./pages/Projection";
 import { Categories } from "./pages/Categories";
 import { Dashboard } from "./pages/Dashboard";
 import { SettingsPage } from "./pages/Settings";
@@ -105,6 +106,7 @@ export default function App() {
               {page === "analysis" && <AnalysisPage />}
               {page === "plan" && <CashPlanPage />}
               {page === "debt" && <DebtPlannerPage />}
+              {page === "projection" && <ProjectionPage />}
               {page === "categories" && <Categories />}
               {page === "tags" && <TagsPage />}
               {page === "settings" && <SettingsPage />}

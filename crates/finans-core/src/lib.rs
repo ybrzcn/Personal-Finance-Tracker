@@ -17,6 +17,7 @@ pub mod networth;
 pub mod order;
 pub mod overview;
 pub mod pnl;
+pub mod projection;
 pub mod rows;
 pub mod rules;
 pub mod sqlite;

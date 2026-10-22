@@ -16,6 +16,7 @@ import {
   Sun,
   Tag as TagIcon,
   Tags,
+  Telescope,
   TrendingDown,
   X,
 } from "lucide-react";
@@ -37,6 +38,7 @@ const MORE: { page: Page; label: string; icon: typeof LayoutDashboard }[] = [
   { page: "analysis", label: "Analiz", icon: Activity },
   { page: "plan", label: "Ödeme Takvimi", icon: CalendarRange },
   { page: "debt", label: "Borç Planı", icon: TrendingDown },
+  { page: "projection", label: "Uzun Vade", icon: Telescope },
   { page: "categories", label: "Kategoriler", icon: Tags },
   { page: "tags", label: "Etiketler", icon: TagIcon },
   { page: "settings", label: "Ayarlar", icon: Settings },

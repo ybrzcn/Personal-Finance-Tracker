@@ -1083,6 +1083,7 @@ pub const SETTING_KEYS: &[&str] = &[
     "subscriptionOverrides",
     "forecastCategoryIds",
     "categoryRules",
+    "projection",
 ];
 
 pub fn get_settings(s: &mut dyn DataStore) -> CoreResult<serde_json::Map<String, serde_json::Value>> {

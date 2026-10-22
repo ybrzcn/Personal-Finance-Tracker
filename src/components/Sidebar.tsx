@@ -17,6 +17,7 @@ import {
   Sun,
   Tag as TagIcon,
   Tags,
+  Telescope,
   TrendingDown,
   Wallet,
 } from "lucide-react";
@@ -37,6 +38,7 @@ const NAV: { page: Page; label: string; icon: typeof LayoutDashboard; key?: stri
   { page: "analysis", label: "Analiz", icon: Activity, key: "5" },
   { page: "plan", label: "Ödeme Takvimi", icon: CalendarRange, key: "6" },
   { page: "debt", label: "Borç Planı", icon: TrendingDown, key: "7" },
+  { page: "projection", label: "Uzun Vade", icon: Telescope },
   { page: "categories", label: "Kategoriler", icon: Tags, key: "8" },
   { page: "tags", label: "Etiketler", icon: TagIcon },
   { page: "settings", label: "Ayarlar", icon: Settings, key: "9" },

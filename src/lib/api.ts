@@ -22,6 +22,8 @@ import type {
   TagsReport,
   PnlKind,
   NetWorthReport,
+  ProjectionAssumptions,
+  ProjectionReport,
   OverviewPeriod,
   OverviewReport,
   AccountsReport,
@@ -150,6 +152,8 @@ export interface Api {
   parseCsv(text: string): Promise<CsvParseResult>;
   mergeCsv(rows: CsvRow[], defaultAccountId: string): Promise<CsvMerge>;
   netWorthReport(): Promise<NetWorthReport>;
+  /** Uzun vadeli tahmin (bugünkü net servetten) */
+  projectionReport(assumptions: ProjectionAssumptions): Promise<ProjectionReport>;
   listGoals(): Promise<Goal[]>;
   createGoal(input: GoalInput): Promise<Goal>;
   updateGoal(goal: Goal): Promise<Goal>;
@@ -263,6 +267,7 @@ const tauriApi: Api = {
   parseCsv: (text) => invoke<CsvParseResult>("parse_csv", { text }),
   mergeCsv: (rows, defaultAccountId) => invoke<CsvMerge>("merge_csv", { rows, defaultAccountId }),
   netWorthReport: () => invoke<NetWorthReport>("networth_report"),
+  projectionReport: (assumptions) => invoke<ProjectionReport>("projection_report", { assumptions }),
   listGoals: () => invoke<Goal[]>("list_goals"),
   createGoal: (input) => invoke<Goal>("create_goal", { input }),
   updateGoal: (goal) => invoke<Goal>("update_goal", { goal }),
