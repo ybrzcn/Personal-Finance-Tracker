@@ -241,6 +241,12 @@ pub struct RecurringItem {
     /// TL dışı hesaptaki düzenli kayıt: hesabın birimindeki miktar (`amount` TL tahminidir)
     #[serde(default)]
     pub orig_amount: Option<f64>,
+    /// Günü gelince plan tutarıyla işlem olarak kendiliğinden kaydedilir
+    #[serde(default)]
+    pub auto_post: bool,
+    /// Otomatik kaydın işlendiği son ay (YYYY-MM); sonraki aylar bekler. Açıldığında boş: o aydan başlar
+    #[serde(default)]
+    pub auto_posted_until: Option<String>,
 }
 
 fn try_code() -> String {
@@ -513,7 +519,7 @@ ALTER TABLE accounts ADD COLUMN opening_period_cents INTEGER;
 ALTER TABLE accounts ADD COLUMN opening_installments TEXT NOT NULL DEFAULT '[]';
 ";
 
-pub const LATEST_VERSION: i64 = 20;
+pub const LATEST_VERSION: i64 = 21;
 
 const DEFAULT_CATEGORIES: &[(&str, &str, &str)] = &[
     ("Maaş", "income", "#10b981"),
@@ -832,7 +838,17 @@ pub(crate) fn migrate(conn: &Connection) -> rusqlite::Result<()> {
         tx.execute_batch("ALTER TABLE budgets ADD COLUMN rollover_from TEXT; PRAGMA user_version = 20;")?;
         tx.commit()?;
     }
-    // Gelecekteki şema değişiklikleri: if version < 21 { ... PRAGMA user_version = 21; }
+    if version < 21 {
+        // v21: düzenli kaydın günü gelince işlem olarak kendiliğinden kaydedilmesi
+        let tx = conn.unchecked_transaction()?;
+        tx.execute_batch(
+            "ALTER TABLE recurring_items ADD COLUMN auto_post INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE recurring_items ADD COLUMN auto_posted_until TEXT;
+             PRAGMA user_version = 21;",
+        )?;
+        tx.commit()?;
+    }
+    // Gelecekteki şema değişiklikleri: if version < 22 { ... PRAGMA user_version = 22; }
     Ok(())
 }
 
@@ -844,7 +860,7 @@ pub const ACCOUNT_COLUMNS: &str = "id, name, kind, color, opening_balance_cents,
 pub const RECURRING_COLUMNS: &str =
     "id, name, type, amount_cents, day, account_id, category_id, active, sort_order, amount_history, amount_exceptions, \
      covers_previous_month, start_date, weekend_shift, orig_amount, \
-     (SELECT a.currency FROM accounts a WHERE a.id = recurring_items.account_id)";
+     (SELECT a.currency FROM accounts a WHERE a.id = recurring_items.account_id), auto_post, auto_posted_until";
 pub const TRANSACTION_COLUMNS: &str =
     "id, amount_cents, type, account_id, to_account_id, category_id, date, description, installments, created_at, budget_month, \
      orig_amount, fx_rate, to_orig_amount, to_fx_rate, \
@@ -911,6 +927,8 @@ pub fn row_to_recurring(r: &Row) -> rusqlite::Result<RecurringItem> {
         start_date: r.get(12)?,
         weekend_shift: r.get(13)?,
         orig_amount: crate::fx::amount::stored_to_api(r.get(14)?, None, r.get::<_, Option<String>>(15)?.as_deref()).0,
+        auto_post: r.get::<_, i64>(16)? != 0,
+        auto_posted_until: r.get(17)?,
     })
 }
 

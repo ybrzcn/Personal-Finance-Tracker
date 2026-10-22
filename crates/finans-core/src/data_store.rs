@@ -36,6 +36,10 @@ pub trait DataStore {
     fn insert_recurring(&mut self, id: &str, row: &RecurringRow) -> CoreResult<()>;
     fn update_recurring(&mut self, id: &str, row: &RecurringRow) -> CoreResult<u64>;
     fn delete_recurring(&mut self, id: &str) -> CoreResult<()>;
+    /// Otomatik kaydın `month` ayını işlenmiş sayar; yalnız henüz işlenmemişse (yarışta tek yazan kazanır). Değişen satır sayısı
+    fn mark_auto_posted(&mut self, id: &str, month: &str) -> CoreResult<u64>;
+    /// Geri yüklemede işlenen son ay
+    fn set_auto_posted_until(&mut self, id: &str, month: Option<&str>) -> CoreResult<()>;
     /// Bu düzenli kayda bağlı kart/kredi finansman bağlantılarını boşaltır
     fn clear_funding_income(&mut self, recurring_id: &str) -> CoreResult<()>;
     /// Var olmayan ya da gelir olmayan düzenli kayda işaret eden finansman bağlantılarını boşaltır

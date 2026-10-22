@@ -30,6 +30,7 @@ import type {
   BudgetReport,
   CashPlanReport,
   AnalysisReport,
+  AutoPostResult,
   AccountDraft,
   AccountPreview,
   RecurringDraft,
@@ -82,6 +83,8 @@ export interface Api {
   /** Ay istisnası (Ödeme Takvimi "bu ay yatmayacak"); `amount` null istisnayı kaldırır */
   setRecurringException(id: string, month: string, amount: number | null, note: string): Promise<RecurringItem>;
   deleteRecurring(id: string): Promise<void>;
+  /** Otomatik kaydı açık düzenli kayıtların günü gelmiş ödemelerini işlem olarak ekler */
+  autoPostRecurring(): Promise<AutoPostResult>;
   /** "Verileri sıfırla" sonrası başlangıç verisi (varsayılan kategoriler ve "Genel Hesap") */
   resetSeed(): Promise<ResetSeed>;
   listBudgets(): Promise<Budget[]>;
@@ -224,6 +227,7 @@ const tauriApi: Api = {
   updateRecurring: (item) => invoke<RecurringItem>("update_recurring", { item }),
   setRecurringException: (id, month, amount, note) => invoke<RecurringItem>("set_recurring_exception", { id, month, amount, note }),
   deleteRecurring: (id) => invoke<void>("delete_recurring", { id }),
+  autoPostRecurring: () => invoke<AutoPostResult>("auto_post_recurring"),
   resetSeed: () => invoke<ResetSeed>("reset_seed"),
   listBudgets: () => invoke<Budget[]>("list_budgets"),
   setBudget: (categoryId, amount) => invoke<void>("set_budget", { categoryId, amount }),

@@ -42,6 +42,9 @@ pub struct RecurringRow {
     pub start_date: Option<String>,
     pub weekend_shift: String,
     pub orig_amount: Option<i64>,
+    /// Bu ya da etkinlik değişirse, ya da silinmiş hesabın yerine hesap seçilirse işlenen son ay sıfırlanır
+    /// (o aydan başlar; geride kalan aylar toplu eklenmez)
+    pub auto_post: bool,
 }
 
 pub struct TransactionRow {

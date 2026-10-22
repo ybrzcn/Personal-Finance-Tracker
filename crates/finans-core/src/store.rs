@@ -668,7 +668,11 @@ fn clean_recurring(s: &mut dyn DataStore, r: &RecurringItem) -> CoreResult<Recur
     if let Some(d) = &start_date {
         validate_date(d)?;
     }
+    if r.auto_post && r.account_id.as_deref().is_none_or(str::is_empty) {
+        return Err("Otomatik kayıt için hesap seçin.".into());
+    }
     Ok(RecurringRow {
+        auto_post: r.auto_post,
         weekend_shift,
         start_date,
         covers_previous_month: r.kind == "income" && r.covers_previous_month,
@@ -738,6 +742,144 @@ pub fn set_recurring_exception(s: &mut dyn DataStore, id: &str, req: ExceptionRe
     let Some(mut item) = s.get_recurring(id)? else { return Ok(None) };
     item.exceptions = with_exception(&item.exceptions, &req.month, req.amount, &req.note);
     update_recurring(s, item).map(Some)
+}
+
+/// Otomatik kayıt sonucu: eklenen işlemler ve eklenemeyen kayıtlar (ayı işlenmiş sayılmaz, sonra yeniden denenir)
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoPostResult {
+    pub created: Vec<Transaction>,
+    pub failed: Vec<AutoPostFailure>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoPostFailure {
+    pub recurring_id: String,
+    pub name: String,
+    pub error: String,
+}
+
+/// Elle girilmiş işlemin düzenli kaydın ödemesi sayılacağı en büyük gün farkı (bayram öncesi erken yatan maaş vb.)
+const AUTO_MATCH_DAYS: i64 = 10;
+
+/// Otomatik kaydı açık düzenli kayıtların günü gelmiş ödemelerini işlem olarak ekler (`today` YYYY-MM-DD, Türkiye saati).
+/// Ödemeler plan ayına göre sayılır: hafta sonu kaydırması komşu aya taşısa da her ay bir kez. Her plan ayı önce işlenmiş
+/// sayılır (iki cihaz aynı anda çalıştırsa da tek işlem). Ödeme gününe ±10 gün yakın, kayda uyan elle girilmiş işlem varsa
+/// eklenmez; bir işlem en fazla bir ödemeye sayılır (tutarı ve günü en yakın olana). Silinen otomatik işlem geri gelmez.
+/// İstisnayla "yok" (0) olan ay atlanır. Eklenemeyen kayıt (hesap arşivli vb.) bildirilir ve o ay bekler.
+pub fn auto_post_recurring(s: &mut dyn DataStore, today: &str) -> CoreResult<AutoPostResult> {
+    use crate::accounts::cards::js_cents;
+    use crate::budget::income::matches_regular;
+    use crate::budget::recurring::{amount_at, amount_for_occurrence, cover_date, has_started, month_of, occurrence_in, shift_month};
+    use crate::fx::time::days_between;
+
+    let current = month_of(today).to_string();
+    // "Önceki Cuma" kaydırması gelecek ayın ödemesini bu aya getirebilir
+    let last = shift_month(&current, 1);
+    let items: Vec<RecurringItem> = s
+        .list_recurring()?
+        .into_iter()
+        .filter(|r| r.auto_post && r.active && r.account_id.is_some())
+        .filter(|r| r.auto_posted_until.as_deref().is_none_or(|m| m < last.as_str()))
+        .collect();
+    let mut result = AutoPostResult { created: Vec::new(), failed: Vec::new() };
+
+    // Ödemeler: (kayıt, plan ayı, tarih); yalnız eşleşme için önceki ayın ödemesi de (o ayın işlemi bu aya sayılmasın)
+    struct Due {
+        item: usize,
+        month: String,
+        date: String,
+        consume_only: bool,
+    }
+    let mut dues = Vec::new();
+    for (k, r) in items.iter().enumerate() {
+        let first = match r.auto_posted_until.as_deref().filter(|m| crate::budget::valid_month(m)) {
+            Some(m) => shift_month(m, 1),
+            None => {
+                // Açıldıktan sonraki ilk çalışma başlangıç ayını sabitler: bu ayın ödemesi (komşu aya kaysa da) sonra da işlenir
+                s.mark_auto_posted(&r.id, &shift_month(&current, -1))?;
+                current.clone()
+            }
+        };
+        let prev = shift_month(&first, -1);
+        dues.push(Due { item: k, date: occurrence_in(r, &prev), month: prev, consume_only: true });
+        let mut m = first;
+        while m <= last {
+            let date = occurrence_in(r, &m);
+            if date.as_str() > today {
+                break;
+            }
+            dues.push(Due { item: k, month: m.clone(), date, consume_only: false });
+            m = shift_month(&m, 1);
+        }
+    }
+    if dues.iter().all(|d| d.consume_only) {
+        return Ok(result);
+    }
+
+    // Elle girilmiş işlemler ödemelere birebir eşlenir: önce günü, sonra tutarı en yakın çiftler
+    let txs = s.list_transactions()?;
+    let mut pairs: Vec<(i64, i64, usize, usize)> = Vec::new();
+    for (di, d) in dues.iter().enumerate() {
+        let r = &items[d.item];
+        let planned = js_cents(amount_for_occurrence(r, &d.date));
+        for (ti, t) in txs.iter().enumerate() {
+            let gap = days_between(&d.date, &t.date).abs();
+            if t.kind == r.kind && gap <= AUTO_MATCH_DAYS && matches_regular(t, r) {
+                pairs.push((gap, (js_cents(t.amount) - planned).abs(), di, ti));
+            }
+        }
+    }
+    pairs.sort();
+    let mut entered = vec![false; dues.len()];
+    let mut used = vec![false; txs.len()];
+    for (_, _, di, ti) in pairs {
+        if !entered[di] && !used[ti] {
+            entered[di] = true;
+            used[ti] = true;
+        }
+    }
+
+    for (k, r) in items.iter().enumerate() {
+        for (di, d) in dues.iter().enumerate().filter(|(_, d)| d.item == k && !d.consume_only) {
+            let amount = amount_for_occurrence(r, &d.date);
+            if entered[di] || !has_started(r, &d.date) || amount <= 0.0 {
+                s.mark_auto_posted(&r.id, &d.month)?;
+                continue;
+            }
+            // TL dışı hesap: hesabın birimindeki miktar, aya özel / değişen tutarla orantılı; kur plandaki TL tahmininden
+            let base = amount_at(r, &cover_date(r, &d.date));
+            let orig_amount = r.orig_amount.map(|o| if base > 0.0 { (o * amount / base * 100.0).round() / 100.0 } else { o });
+            let input = TransactionInput {
+                amount,
+                kind: r.kind.clone(),
+                account_id: r.account_id.clone().unwrap_or_default(),
+                to_account_id: None,
+                category_id: r.category_id.clone(),
+                date: d.date.clone(),
+                description: r.name.clone(),
+                installments: 1,
+                budget_month: None,
+                orig_amount,
+                fx_rate: orig_amount.filter(|o| *o > 0.0).map(|o| amount / o),
+                to_orig_amount: None,
+                to_fx_rate: None,
+                tag_ids: None,
+            };
+            // Kaydedilemeyecekse (hesap arşivli, birim değişmiş…) ay işlenmiş sayılmaz; sonraki aylar da bekler
+            if let Err(error) = transaction_row(s, db::new_id(), &input, true, None) {
+                result.failed.push(AutoPostFailure { recurring_id: r.id.clone(), name: r.name.clone(), error });
+                break;
+            }
+            if s.mark_auto_posted(&r.id, &d.month)? == 0 {
+                continue;
+            }
+            // Veritabanı hatası yutulmaz: istek bütünüyle geri alınır (Postgres işlemi bozulmuş kalmasın)
+            result.created.push(create_transaction(s, input)?);
+        }
+    }
+    Ok(result)
 }
 
 pub fn delete_recurring(s: &mut dyn DataStore, id: &str) -> CoreResult<()> {
@@ -1029,12 +1171,18 @@ pub fn restore_data(
                 r.account_id = None;
             }
         }
+        // Hesabı kalmayan kayıt otomatik kaydedilemez
+        r.auto_post &= r.account_id.is_some();
         if r.category_id.is_some() && check_category(s, &r.category_id, &r.kind).is_err() {
             r.category_id = None;
         }
         let row = clean_recurring(s, &r).map_err(|e| format!("{}. düzenli kayıt: {e}", i + 1))?;
         let id = if r.id.trim().is_empty() { db::new_id() } else { r.id.clone() };
         s.insert_recurring(&id, &row).map_err(|e| format!("{}. düzenli kayıt eklenemedi: {e}", i + 1))?;
+        // İşlenmiş aylar yeniden kaydedilmesin; bozuk ay yok sayılır (açıldığı aydan başlar)
+        if let Some(m) = r.auto_posted_until.as_deref().filter(|m| row.auto_post && crate::budget::valid_month(m)) {
+            s.set_auto_posted_until(&id, Some(m))?;
+        }
     }
     for b in &budgets {
         if !category_ids.contains(&b.category_id) {

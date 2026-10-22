@@ -18,6 +18,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { SettingsPage } from "./pages/Settings";
 import { Transactions } from "./pages/Transactions";
 import { api } from "./lib/api";
+import { useAutoPost } from "./state/autoPost";
 import { useData } from "./state/data";
 import { useUI, type Page } from "./state/ui";
 
@@ -39,6 +40,7 @@ const macOverlay = isTauri && isMac && !isMobile;
 export default function App() {
   const { loading, loadError, reload } = useData();
   const { page, setPage, openTransactionForm, isModalOpen, toast } = useUI();
+  useAutoPost();
 
   // Seçili veritabanı açılamayıp varsayılana dönüldüyse kullanıcı uyarılır (veriler iki dosyaya bölünmesin)
   useEffect(() => {

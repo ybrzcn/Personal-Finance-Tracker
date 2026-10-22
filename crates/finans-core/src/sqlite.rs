@@ -269,11 +269,11 @@ impl DataStore for SqliteStore<'_> {
             .execute(
                 "INSERT INTO recurring_items (id, name, type, amount_cents, day, account_id, category_id, active, sort_order,
                                               amount_history, amount_exceptions, covers_previous_month, start_date, weekend_shift,
-                                              orig_amount)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+                                              orig_amount, auto_post)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
                 params![
                     id, r.name, r.kind, r.cents, r.day, r.account_id, r.category_id, r.active, r.sort_order, r.history,
-                    r.exceptions, r.covers_previous_month, r.start_date, r.weekend_shift, r.orig_amount
+                    r.exceptions, r.covers_previous_month, r.start_date, r.weekend_shift, r.orig_amount, r.auto_post
                 ],
             )
             .map_err(db_err)?;
@@ -286,15 +286,35 @@ impl DataStore for SqliteStore<'_> {
             .execute(
                 "UPDATE recurring_items SET name = ?2, type = ?3, amount_cents = ?4, day = ?5, account_id = ?6,
                         category_id = ?7, active = ?8, sort_order = ?9, amount_history = ?10, amount_exceptions = ?11,
-                        covers_previous_month = ?12, start_date = ?13, weekend_shift = ?14, orig_amount = ?15
+                        covers_previous_month = ?12, start_date = ?13, weekend_shift = ?14, orig_amount = ?15,
+                        auto_posted_until = CASE WHEN auto_post = ?16 AND active = ?8 AND (account_id IS NOT NULL OR ?6 IS NULL)
+                                                  THEN auto_posted_until END,
+                        auto_post = ?16
                  WHERE id = ?1",
                 params![
                     id, r.name, r.kind, r.cents, r.day, r.account_id, r.category_id, r.active, r.sort_order, r.history,
-                    r.exceptions, r.covers_previous_month, r.start_date, r.weekend_shift, r.orig_amount
+                    r.exceptions, r.covers_previous_month, r.start_date, r.weekend_shift, r.orig_amount, r.auto_post
                 ],
             )
             .map_err(db_err)?;
         Ok(n as u64)
+    }
+
+    fn mark_auto_posted(&mut self, id: &str, month: &str) -> CoreResult<u64> {
+        let n = self
+            .conn
+            .execute(
+                "UPDATE recurring_items SET auto_posted_until = ?2
+                 WHERE id = ?1 AND auto_post = 1 AND (auto_posted_until IS NULL OR auto_posted_until < ?2)",
+                params![id, month],
+            )
+            .map_err(db_err)?;
+        Ok(n as u64)
+    }
+
+    fn set_auto_posted_until(&mut self, id: &str, month: Option<&str>) -> CoreResult<()> {
+        self.conn.execute("UPDATE recurring_items SET auto_posted_until = ?2 WHERE id = ?1", params![id, month]).map_err(db_err)?;
+        Ok(())
     }
 
     fn delete_recurring(&mut self, id: &str) -> CoreResult<()> {

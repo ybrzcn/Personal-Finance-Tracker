@@ -201,6 +201,12 @@ pub fn reset_seed() -> store::ResetSeed {
     store::reset_seed(&ymd(istanbul_today(unix_now())))
 }
 
+/// Otomatik kaydı açık düzenli kayıtların günü gelmiş ödemelerini işlem olarak ekler; eklenenler ve eklenemeyenler
+#[tauri::command]
+pub fn auto_post_recurring(state: State<'_, AppState>) -> CmdResult<store::AutoPostResult> {
+    sqlite::run(&mut *lock(&state)?, |s| store::auto_post_recurring(s, &ymd(istanbul_today(unix_now()))))
+}
+
 #[tauri::command]
 pub fn delete_recurring(state: State<'_, AppState>, id: String) -> CmdResult<()> {
     sqlite::run(&mut *lock(&state)?, |s| store::delete_recurring(s, &id))

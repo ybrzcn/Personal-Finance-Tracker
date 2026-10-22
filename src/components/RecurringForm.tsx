@@ -98,6 +98,7 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
   const [active, setActive] = useState(item?.active ?? true);
   const [coversPrev, setCoversPrev] = useState(item?.coversPreviousMonth ?? false);
   const [weekendShift, setWeekendShift] = useState<WeekendShift>(item?.weekendShift ?? "none");
+  const [autoPost, setAutoPost] = useState(item?.autoPost ?? false);
   // Yeni kayıt bugünden başlar: uygulamanın kullanılmadığı geçmiş aylara plan yazılmaz
   const [startDate, setStartDate] = useState(item ? (item.startDate ?? "") : today);
   const [error, setError] = useState<string | null>(null);
@@ -211,6 +212,7 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
       active,
       sortOrder: item?.sortOrder ?? 0,
       origAmount: foreign ? qtyVal : null,
+      autoPost: autoPost && !!accountId,
     };
     try {
       if (item) {
@@ -595,6 +597,17 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
           Aktif (ödeme takviminde kullan)
+        </label>
+        <label className={`flex items-start gap-2 text-sm ${accountId ? "" : "opacity-50"}`}>
+          <input type="checkbox" className="mt-0.5" checked={autoPost && !!accountId} disabled={!accountId} onChange={(e) => setAutoPost(e.target.checked)} />
+          <span>
+            Günü gelince işlem olarak otomatik kaydet
+            <span className="block text-xs text-zinc-500">
+              {accountId
+                ? "Ödeme günü gelince plan tutarıyla bu hesaba eklenir; ödemeyi o günlerde elle girdiyseniz eklenmez. Açıldığı aydan başlar, sildiğiniz otomatik işlem geri gelmez."
+                : "Otomatik kayıt için hesap seçin."}
+            </span>
+          </span>
         </label>
         {error && (
           <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">

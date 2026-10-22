@@ -92,6 +92,8 @@ fn as_item(b: &RecurringBase) -> RecurringItem {
         start_date: None,
         weekend_shift: b.weekend_shift.clone(),
         orig_amount: None,
+        auto_post: false,
+        auto_posted_until: None,
     }
 }
 

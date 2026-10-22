@@ -38,6 +38,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/api/recurring/{id}", put(update_recurring).delete(delete_recurring))
         .route("/api/recurring/{id}/exception", put(set_recurring_exception))
         .route("/api/reset/seed", get(reset_seed))
+        .route("/api/recurring/auto-post", post(auto_post_recurring))
         .route("/api/budgets", get(list_budgets))
         .route("/api/budgets/{category_id}", put(set_budget))
         .route("/api/budgets/{category_id}/rollover", put(set_budget_rollover))
@@ -117,6 +118,12 @@ async fn set_recurring_exception(State(s): S, user: AuthUser, Path(id): Path<Str
 /// "Verileri sıfırla": varsayılan kategoriler ve boş "Genel Hesap" (arayüz bugünkü gibi geri yükler)
 async fn reset_seed(_user: AuthUser) -> Json<store::ResetSeed> {
     Json(store::reset_seed(&ymd(istanbul_today(unix_now()))))
+}
+
+/// Otomatik kaydı açık düzenli kayıtların günü gelmiş ödemelerini işlem olarak ekler; eklenenler ve eklenemeyenler
+async fn auto_post_recurring(State(s): S, user: AuthUser) -> R<Json<store::AutoPostResult>> {
+    let today = ymd(istanbul_today(unix_now()));
+    Ok(Json(with_user_db(&s, &user, move |c| store::auto_post_recurring(c, &today)).await?))
 }
 
 async fn list_budgets(State(s): S, user: AuthUser) -> R<Json<Vec<Budget>>> {

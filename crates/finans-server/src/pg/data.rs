@@ -20,7 +20,8 @@ const ACCOUNT_COLUMNS: &str = "id, name, kind, color, opening_balance_cents, ope
      first_due_date::text, installment_cents, tax_rate_bp, funding_income_id, opening_period_cents, opening_installments::text, currency, opening_cost_cents";
 const RECURRING_COLUMNS: &str = "id, name, type, amount_cents, day, account_id, category_id, active, sort_order, \
      amount_history::text, amount_exceptions::text, covers_previous_month, start_date::text, weekend_shift, orig_amount, \
-     (SELECT a.currency FROM accounts a WHERE a.user_id = recurring_items.user_id AND a.id = recurring_items.account_id)";
+     (SELECT a.currency FROM accounts a WHERE a.user_id = recurring_items.user_id AND a.id = recurring_items.account_id), \
+     auto_post, auto_posted_until";
 const TRANSACTION_COLUMNS: &str = "id, amount_cents, type, account_id, to_account_id, category_id, date::text, description, \
      installments, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"'), budget_month, \
      orig_amount, fx_rate, to_orig_amount, to_fx_rate, \
@@ -78,6 +79,8 @@ fn recurring(r: &Row) -> RecurringItem {
         start_date: r.get(12),
         weekend_shift: r.get(13),
         orig_amount: stored_to_api(r.get(14), None, r.get::<_, Option<&str>>(15)).0,
+        auto_post: r.get(16),
+        auto_posted_until: r.get(17),
     }
 }
 
@@ -343,11 +346,11 @@ impl DataStore for PgStore<'_, '_> {
         self.exec(
             "INSERT INTO recurring_items (user_id, id, name, type, amount_cents, day, account_id, category_id, active, sort_order,
                                           amount_history, amount_exceptions, covers_previous_month, start_date, weekend_shift,
-                                          orig_amount)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text::jsonb, $12::text::jsonb, $13, $14::text::date, $15, $16)",
+                                          orig_amount, auto_post)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::text::jsonb, $12::text::jsonb, $13, $14::text::date, $15, $16, $17)",
             &[
                 &u, &id, &r.name, &r.kind, &r.cents, &r.day, &r.account_id, &r.category_id, &r.active, &r.sort_order, &r.history,
-                &r.exceptions, &r.covers_previous_month, &r.start_date, &r.weekend_shift, &r.orig_amount,
+                &r.exceptions, &r.covers_previous_month, &r.start_date, &r.weekend_shift, &r.orig_amount, &r.auto_post,
             ],
         )?;
         Ok(())
@@ -359,13 +362,31 @@ impl DataStore for PgStore<'_, '_> {
             "UPDATE recurring_items SET name = $3, type = $4, amount_cents = $5, day = $6, account_id = $7,
                     category_id = $8, active = $9, sort_order = $10, amount_history = $11::text::jsonb,
                     amount_exceptions = $12::text::jsonb, covers_previous_month = $13, start_date = $14::text::date,
-                    weekend_shift = $15, orig_amount = $16
+                    weekend_shift = $15, orig_amount = $16,
+                    auto_posted_until = CASE WHEN auto_post = $17 AND active = $9 AND (account_id IS NOT NULL OR $7::text IS NULL)
+                                              THEN auto_posted_until END,
+                    auto_post = $17
              WHERE user_id = $1 AND id = $2",
             &[
                 &u, &id, &r.name, &r.kind, &r.cents, &r.day, &r.account_id, &r.category_id, &r.active, &r.sort_order, &r.history,
-                &r.exceptions, &r.covers_previous_month, &r.start_date, &r.weekend_shift, &r.orig_amount,
+                &r.exceptions, &r.covers_previous_month, &r.start_date, &r.weekend_shift, &r.orig_amount, &r.auto_post,
             ],
         )
+    }
+
+    fn mark_auto_posted(&mut self, id: &str, month: &str) -> CoreResult<u64> {
+        let u = self.user_id.clone();
+        self.exec(
+            "UPDATE recurring_items SET auto_posted_until = $3
+             WHERE user_id = $1 AND id = $2 AND auto_post AND (auto_posted_until IS NULL OR auto_posted_until < $3)",
+            &[&u, &id, &month],
+        )
+    }
+
+    fn set_auto_posted_until(&mut self, id: &str, month: Option<&str>) -> CoreResult<()> {
+        let u = self.user_id.clone();
+        self.exec("UPDATE recurring_items SET auto_posted_until = $3 WHERE user_id = $1 AND id = $2", &[&u, &id, &month])?;
+        Ok(())
     }
 
     fn delete_recurring(&mut self, id: &str) -> CoreResult<()> {

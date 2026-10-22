@@ -83,9 +83,19 @@ export interface RecurringItem {
   weekendShift: WeekendShift;
   /** TL dışı hesapta: hesabın birimindeki miktar (`amount` planlar için TL tahmini) */
   origAmount?: number | null;
+  /** Günü gelince plan tutarıyla işlem olarak kendiliğinden kaydedilir (hesap gerekir) */
+  autoPost?: boolean;
+  /** Otomatik kaydın işlendiği son ay (YYYY-MM); salt okunur */
+  autoPostedUntil?: string | null;
 }
 
 export type WeekendShift = "none" | "before" | "after";
+
+/** Rust `store::AutoPostResult`: eklenen işlemler ve eklenemeyen düzenli kayıtlar (o ödeme bekler) */
+export interface AutoPostResult {
+  created: Transaction[];
+  failed: { recurringId: string; name: string; error: string }[];
+}
 
 export interface MonthException {
   /** YYYY-MM */

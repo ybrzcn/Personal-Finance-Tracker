@@ -319,6 +319,8 @@ fn parse_recurring(r: &Value, i: usize) -> CoreResult<Value> {
         "startDate": str_or_null(f("startDate")),
         "weekendShift": match f("weekendShift").js_str() { Some(w @ ("before" | "after")) => json!(w), _ => json!("none") },
         "origAmount": num(f("origAmount")),
+        "autoPost": f("autoPost") == &Value::Bool(true),
+        "autoPostedUntil": if f("autoPostedUntil").is_str() { f("autoPostedUntil").clone() } else { Value::Null },
     }))
 }
 

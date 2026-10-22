@@ -1,5 +1,5 @@
 import type { Api } from "./api";
-import type { Account, AccountPreview, Backup, CsvMerge, CsvParseResult, CategoryRulePreview, CategorySuggestions, ImportRows, StatementCard, StatementTotals, AccountsReport, AnalysisReport, Budget, BudgetReport, CashPlanReport, Category, CategoryUsageReport, DebtPlanReport, FundHit, Goal, GoalsReport, IncomeStatus, NetWorthReport, OverviewReport, ProjectionReport, PnlReport, RateQuote, RecurringItem, RecurringPreview, ResetSeed, Tag, TagsReport, Transaction, TransactionPreview, UpcomingObligations } from "./types";
+import type { Account, AccountPreview, AutoPostResult, Backup, CsvMerge, CsvParseResult, CategoryRulePreview, CategorySuggestions, ImportRows, StatementCard, StatementTotals, AccountsReport, AnalysisReport, Budget, BudgetReport, CashPlanReport, Category, CategoryUsageReport, DebtPlanReport, FundHit, Goal, GoalsReport, IncomeStatus, NetWorthReport, OverviewReport, ProjectionReport, PnlReport, RateQuote, RecurringItem, RecurringPreview, ResetSeed, Tag, TagsReport, Transaction, TransactionPreview, UpcomingObligations } from "./types";
 
 /** Oturum düşünce (401) yayınlanır; giriş kapısı giriş ekranına döner. */
 export const UNAUTHORIZED_EVENT = "finans:unauthorized";
@@ -67,6 +67,7 @@ export function createHttpApi(opts: HttpOptions = {}): Api {
     updateRecurring: (item) => r<RecurringItem>("PUT", `/api/recurring/${id(item.id)}`, item),
     setRecurringException: (x, month, amount, note) => r<RecurringItem>("PUT", `/api/recurring/${id(x)}/exception`, { month, amount, note }),
     deleteRecurring: (x) => r<void>("DELETE", `/api/recurring/${id(x)}`),
+    autoPostRecurring: () => r<AutoPostResult>("POST", "/api/recurring/auto-post"),
     resetSeed: () => r<ResetSeed>("GET", "/api/reset/seed"),
     listBudgets: () => r<Budget[]>("GET", "/api/budgets"),
     setBudget: (categoryId, amount) => r<void>("PUT", `/api/budgets/${id(categoryId)}`, { amount }),
