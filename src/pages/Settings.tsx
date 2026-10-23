@@ -31,6 +31,11 @@ import { SAVED_HINT, openTextFile, pickDatabaseFile, pickDatabaseSavePath, revea
 import { todayISO } from "../lib/format";
 import { backend, isMac, isMobile, isTauri, modKey } from "../lib/platform";
 import { ChangePasswordDialog, DeleteAccountDialog } from "../components/AccountDialogs";
+import { SecuritySettings } from "../components/SecuritySettings";
+import { SyncSettings } from "../components/SyncSettings";
+import { lang, locale, setLang, t, type Lang } from "../lib/i18n";
+import { rich } from "../lib/rich";
+import { useSync } from "../state/sync";
 import { downloadServerToLocal, moveLocalToServer, serverDataCount } from "../lib/transfer";
 import { useAuth } from "../state/auth";
 import { useData } from "../state/data";
@@ -38,6 +43,14 @@ import { useSettings, type ThemePref } from "../state/settings";
 import { useUI } from "../state/ui";
 import { updatesEnabled, useUpdates } from "../state/updates";
 import { openReleases } from "../lib/updater";
+
+/** Dil adları kendi dillerinde (çevrilmez) */
+const LANGS: [Lang, string][] = [
+  ["tr", "Türkçe"],
+  ["en", "English"],
+];
+
+const SYNC_WARNING = t("Şifreli eşitleme açık: bu değişiklik eşitlenen öbür cihazlara da gider (oradaki veriler de değişir).");
 
 function Section({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
@@ -62,37 +75,39 @@ function UpdatesSection() {
   const working = phase === "downloading" || phase === "installing";
   const status = working
     ? phase === "installing"
-      ? "Kuruluyor; uygulama yeniden başlayacak…"
-      : `İndiriliyor${percent === null ? "…" : ` %${percent}`}`
+      ? t("Kuruluyor; uygulama yeniden başlayacak…")
+      : percent === null
+        ? t("İndiriliyor…")
+        : t("İndiriliyor %{v}", { v: percent })
     : phase === "checking"
-      ? "Denetleniyor…"
+      ? t("Denetleniyor…")
       : update
-        ? `Finans ${update.version} hazır.`
+        ? t("Finans {v} hazır.", { v: update.version })
         : lastChecked
-          ? `Güncel (son denetim ${lastChecked.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}).`
-          : "Yeni sürümler uygulama açıkken kendiliğinden denetlenir.";
+          ? t("Güncel (son denetim {time}).", { time: lastChecked.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" }) })
+          : t("Yeni sürümler uygulama açıkken kendiliğinden denetlenir.");
   return (
-    <Section title="Güncellemeler" description={version ? `Kurulu sürüm: ${version}` : undefined}>
+    <Section title={t("Güncellemeler")} description={version ? t("Kurulu sürüm: {v}", { v: version }) : undefined}>
       <div className="flex flex-wrap items-center gap-3">
         {update && !working ? (
           update.canInstall ? (
             <button className="btn-primary" onClick={() => void install()}>
-              <Download size={16} /> Güncelle ve yeniden başlat
+              <Download size={16} /> {t("Güncelle ve yeniden başlat")}
             </button>
           ) : (
             <button className="btn-primary" onClick={() => void openReleases()}>
-              <Download size={16} /> İndirme sayfasını aç
+              <Download size={16} /> {t("İndirme sayfasını aç")}
             </button>
           )
         ) : (
           <button className="btn-secondary" onClick={() => void check()} disabled={phase !== "idle"}>
-            <RefreshCw size={16} className={phase === "checking" ? "animate-spin" : ""} /> Güncellemeleri denetle
+            <RefreshCw size={16} className={phase === "checking" ? "animate-spin" : ""} /> {t("Güncellemeleri denetle")}
           </button>
         )}
         <span className="text-xs text-zinc-500">{status}</span>
       </div>
       {update && !update.canInstall && !working && (
-        <p className="mt-2 text-xs text-zinc-500">Bu kurulum (taşınabilir, MSI ya da paket yöneticisi) kendini güncelleyemiyor.</p>
+        <p className="mt-2 text-xs text-zinc-500">{t("Bu kurulum (taşınabilir, MSI ya da paket yöneticisi) kendini güncelleyemiyor.")}</p>
       )}
       {error && <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{error}</p>}
     </Section>
@@ -140,9 +155,9 @@ function ActionTile({
 }
 
 const THEME_OPTIONS: { value: ThemePref; label: string; icon: LucideIcon }[] = [
-  { value: "light", label: "Açık", icon: Sun },
-  { value: "system", label: "Sistem", icon: Monitor },
-  { value: "dark", label: "Koyu", icon: Moon },
+  { value: "light", label: t("Açık"), icon: Sun },
+  { value: "system", label: t("Sistem"), icon: Monitor },
+  { value: "dark", label: t("Koyu"), icon: Moon },
 ];
 
 export function SettingsPage() {
@@ -154,6 +169,8 @@ export function SettingsPage() {
   const [accountDialog, setAccountDialog] = useState<"password" | "delete" | null>(null);
   const web = backend === "http";
   const desktop = backend === "tauri";
+  const sync = useSync();
+  const synced = sync.available && !!sync.info?.linked;
   // Masaüstü sunucu modunda yerel veritabanı dosyası kullanılmaz
   const localDb = !web && mode !== "server";
   // Veritabanı dosyası seçme/kopyalama ve uygulamayı kaldırma yalnız masaüstünde
@@ -165,7 +182,7 @@ export function SettingsPage() {
   const [pendingCsv, setPendingCsv] = useState<(CsvParseResult & { name: string }) | null>(null);
 
   useEffect(() => {
-    api.databaseInfo().then(setDb).catch(() => setDb({ path: "Bilinmiyor", isDefault: true }));
+    api.databaseInfo().then(setDb).catch(() => setDb({ path: t("Bilinmiyor"), isDefault: true }));
   }, []);
 
   const run = async (fn: () => Promise<void>) => {
@@ -182,43 +199,46 @@ export function SettingsPage() {
   const exportJson = () =>
     run(async () => {
       const json = await api.exportBackup();
-      if (await saveTextFile(`finans-yedek-${todayISO()}.json`, json, { name: "JSON Yedek", extensions: ["json"] }))
-        toast(`Yedek başarıyla kaydedildi.${SAVED_HINT}`);
+      if (await saveTextFile(`finans-yedek-${todayISO()}.json`, json, { name: t("JSON Yedek"), extensions: ["json"] }))
+        toast(`${t("Yedek başarıyla kaydedildi.")}${SAVED_HINT}`);
     });
 
   const exportCsv = () =>
     run(async () => {
       const csv = await api.exportCsv(null);
       if (await saveTextFile(`finans-islemler-${todayISO()}.csv`, csv, { name: "CSV", extensions: ["csv"] }))
-        toast(`${transactions.length} işlem CSV olarak dışa aktarıldı.${SAVED_HINT}`);
+        toast(`${t("{n} işlem CSV olarak dışa aktarıldı.", { n: transactions.length })}${SAVED_HINT}`);
     });
 
   const importJson = () =>
     run(async () => {
-      const file = await openTextFile({ name: "JSON Yedek", extensions: ["json"] });
+      const file = await openTextFile({ name: t("JSON Yedek"), extensions: ["json"] });
       if (!file) return;
       const backup = await api.parseBackup(file.contents);
       const ok = await confirm({
-        title: "Yedekten geri yükle",
+        title: t("Yedekten geri yükle"),
         message: (
           <>
             <p>
-              Mevcut verileriniz (<strong>{transactions.length} işlem</strong>, <strong>{accounts.length} hesap</strong>,{" "}
-              <strong>{categories.length} kategori</strong>) silinecek ve <strong>{file.name}</strong> dosyasındaki verilerle değiştirilecek:
+              {t("Mevcut verileriniz")} (<strong>{t("{n} işlem", { n: transactions.length })}</strong>,{" "}
+              <strong>{t("{n} hesap", { n: accounts.length })}</strong>, <strong>{t("{n} kategori", { n: categories.length })}</strong>){" "}
+              {rich(t("silinecek ve {file} dosyasındaki verilerle değiştirilecek:"), { file: <strong>{file.name}</strong> })}
             </p>
             <p className="mt-2">
-              <strong>{backup.transactions.length} işlem</strong>, <strong>{backup.accounts.length} hesap</strong>,{" "}
-              <strong>{backup.categories.length} kategori</strong>
-              {backup.goals?.length ? <>, <strong>{backup.goals.length} hedef</strong></> : null}
-              {backup.tags?.length ? <>, <strong>{backup.tags.length} etiket</strong></> : null}
+              <strong>{t("{n} işlem", { n: backup.transactions.length })}</strong>, <strong>{t("{n} hesap", { n: backup.accounts.length })}</strong>,{" "}
+              <strong>{t("{n} kategori", { n: backup.categories.length })}</strong>
+              {backup.goals?.length ? <>, <strong>{t("{n} hedef", { n: backup.goals.length })}</strong></> : null}
+              {backup.tags?.length ? <>, <strong>{t("{n} etiket", { n: backup.tags.length })}</strong></> : null}
             </p>
+            {synced && <p className="mt-2 font-medium text-amber-700 dark:text-amber-300">{SYNC_WARNING}</p>}
             <p className="mt-2 text-xs text-zinc-500">
-              İpucu: Devam etmeden önce mevcut verinin yedeğini almak isteyebilirsiniz. JSON yedek işlem belgelerini (fiş, fatura) içermez;
-              yedekte de bulunan işlemlerin belgeleri korunur.
+              {t(
+                "İpucu: Devam etmeden önce mevcut verinin yedeğini almak isteyebilirsiniz. JSON yedek işlem belgelerini (fiş, fatura) içermez; yedekte de bulunan işlemlerin belgeleri korunur.",
+              )}
             </p>
           </>
         ),
-        confirmLabel: "Geri yükle",
+        confirmLabel: t("Geri yükle"),
         danger: true,
       });
       if (!ok) return;
@@ -230,8 +250,8 @@ export function SettingsPage() {
       if (backup.categoryRules) await update({ categoryRules: backup.categoryRules });
       toast(
         backup.debtPlan || backup.analysis || backup.categoryRules
-          ? "Yedek, ayarlarıyla (borç planı, analiz, kategori kuralları) birlikte geri yüklendi."
-          : "Yedek başarıyla geri yüklendi.",
+          ? t("Yedek, ayarlarıyla (borç planı, analiz, kategori kuralları) birlikte geri yüklendi.")
+          : t("Yedek başarıyla geri yüklendi."),
       );
     });
 
@@ -240,7 +260,7 @@ export function SettingsPage() {
       const file = await openTextFile({ name: "CSV", extensions: ["csv"] });
       if (!file) return;
       const parsed = await api.parseCsv(file.contents);
-      if (!parsed.rows.length) throw "İçe aktarılacak geçerli satır bulunamadı.";
+      if (!parsed.rows.length) throw t("İçe aktarılacak geçerli satır bulunamadı.");
       setPendingCsv({ ...parsed, name: file.name });
     });
 
@@ -258,11 +278,11 @@ export function SettingsPage() {
       });
       const added = merged.newTransactions.length;
       const notes = [
-        merged.createdCategories > 0 ? `${merged.createdCategories} yeni kategori` : "",
-        merged.skippedTransfers > 0 ? `${merged.skippedTransfers} transfer atlandı (hedef hesap bulunamadı)` : "",
-        merged.skippedFx > 0 ? `${merged.skippedFx} döviz/altın işlemi atlandı (miktar ya da kur yok)` : "",
+        merged.createdCategories > 0 ? t("{n} yeni kategori", { n: merged.createdCategories }) : "",
+        merged.skippedTransfers > 0 ? t("{n} transfer atlandı (hedef hesap bulunamadı)", { n: merged.skippedTransfers }) : "",
+        merged.skippedFx > 0 ? t("{n} döviz/altın işlemi atlandı (miktar ya da kur yok)", { n: merged.skippedFx }) : "",
       ].filter(Boolean);
-      toast(`${added} işlem içe aktarıldı.${notes.length ? ` ${notes.join(", ")}.` : ""}`);
+      toast(`${t("{n} işlem içe aktarıldı.", { n: added })}${notes.length ? ` ${notes.join(", ")}.` : ""}`);
     });
   };
 
@@ -280,26 +300,26 @@ export function SettingsPage() {
       const path = await pickDatabaseSavePath(`finans-yedek-${todayISO()}.db`);
       if (!path) return;
       await api.saveDatabaseCopy(path);
-      toast(`Veritabanı yedeği kaydedildi: ${fileName(path)}`);
+      toast(t("Veritabanı yedeği kaydedildi: {name}", { name: fileName(path) }));
     });
 
   const openDb = () =>
     run(async () => {
       const path = await pickDatabaseFile();
       if (!path) return;
-      await afterSwitch(await api.openDatabase(path, false), `${fileName(path)} açıldı.`);
+      await afterSwitch(await api.openDatabase(path, false), t("{name} açıldı.", { name: fileName(path) }));
     });
 
   const newDb = () =>
     run(async () => {
       const path = await pickDatabaseSavePath("finans-yeni.db");
       if (!path) return;
-      await afterSwitch(await api.openDatabase(path, true), `Yeni veritabanı oluşturuldu: ${fileName(path)}`);
+      await afterSwitch(await api.openDatabase(path, true), t("Yeni veritabanı oluşturuldu: {name}", { name: fileName(path) }));
     });
 
   const defaultDb = () =>
     run(async () => {
-      await afterSwitch(await api.useDefaultDatabase(), "Varsayılan veritabanına dönüldü.");
+      await afterSwitch(await api.useDefaultDatabase(), t("Varsayılan veritabanına dönüldü."));
     });
 
   const moveToServer = () =>
@@ -307,19 +327,24 @@ export function SettingsPage() {
       if (!server) return;
       const remote = await serverDataCount(server);
       const ok = await confirm({
-        title: "Verileri sunucuya taşı",
+        title: t("Verileri sunucuya taşı"),
         message: (
           <>
             <p>
-              Bu cihazdaki <strong>{transactions.length} işlem</strong> ve <strong>{accounts.length} hesap</strong> sunucuya yüklenecek; uygulama
-              bundan sonra sunucudaki veriyle çalışacak. Bu cihazdaki veritabanı dosyası yedek olarak kalır.
+              {t("Bu cihazdaki")} <strong>{t("{n} işlem", { n: transactions.length })}</strong> {t("ve")}{" "}
+              <strong>{t("{n} hesap", { n: accounts.length })}</strong>{" "}
+              {t(
+                "sunucuya yüklenecek; uygulama bundan sonra sunucudaki veriyle çalışacak. Bu cihazdaki veritabanı dosyası yedek olarak kalır.",
+              )}
             </p>
             {remote > 0 && (
-              <p className="mt-2 font-medium text-rose-600 dark:text-rose-400">Sunucuda zaten {remote} işlem var; silinip bu cihazdaki veriyle değiştirilecek.</p>
+              <p className="mt-2 font-medium text-rose-600 dark:text-rose-400">
+                {t("Sunucuda zaten {n} işlem var; silinip bu cihazdaki veriyle değiştirilecek.", { n: remote })}
+              </p>
             )}
           </>
         ),
-        confirmLabel: "Taşı",
+        confirmLabel: t("Taşı"),
         danger: remote > 0,
       });
       if (!ok) return;
@@ -331,14 +356,15 @@ export function SettingsPage() {
     run(async () => {
       if (!server) return;
       const ok = await confirm({
-        title: "Bu cihaza indir",
+        title: t("Bu cihaza indir"),
         message: (
           <p>
-            Sunucudaki veri bu cihaza indirilecek ve uygulama bundan sonra yerel veriyle (internetsiz) çalışacak. Bu cihazdaki eski yerel veri önce
-            yedeklenip sunucudaki veriyle değiştirilir. Sunucudaki veri silinmez.
+            {t(
+              "Sunucudaki veri bu cihaza indirilecek ve uygulama bundan sonra yerel veriyle (internetsiz) çalışacak. Bu cihazdaki eski yerel veri önce yedeklenip sunucudaki veriyle değiştirilir. Sunucudaki veri silinmez.",
+            )}
           </p>
         ),
-        confirmLabel: "İndir",
+        confirmLabel: t("İndir"),
       });
       if (!ok) return;
       await downloadServerToLocal(server);
@@ -348,22 +374,24 @@ export function SettingsPage() {
   const resetData = () =>
     run(async () => {
       const ok = await confirm({
-        title: "Tüm verileri sıfırla",
+        title: t("Tüm verileri sıfırla"),
         message: (
           <>
             <p>
-              <strong>{transactions.length} işlem</strong>, <strong>{accounts.length} hesap</strong>, düzenli gelir/giderler, bütçeler ve
-              özel kategoriler ile borç planı ve analiz ayarları <strong>kalıcı olarak silinecek</strong>. Uygulama varsayılan kategoriler ve boş bir "Genel Hesap" ile baştan
-              başlayacak.
+              <strong>{t("{n} işlem", { n: transactions.length })}</strong>, <strong>{t("{n} hesap", { n: accounts.length })}</strong>,{" "}
+              {t("düzenli gelir/giderler, bütçeler ve özel kategoriler ile borç planı ve analiz ayarları")}{" "}
+              <strong>{t("kalıcı olarak silinecek")}</strong>.{" "}
+              {t('Uygulama varsayılan kategoriler ve boş bir "Genel Hesap" ile baştan başlayacak.')}
             </p>
+            {synced && <p className="mt-2 font-medium text-amber-700 dark:text-amber-300">{SYNC_WARNING}</p>}
             <p className="mt-2 text-xs text-zinc-500">
               {localDb && isTauri
-                ? "Silmeden önce veri klasörüne otomatik bir yedek dosyası (finans.db.sifirlama-oncesi-…bak) kaydedilir. Tema ve para birimi ayarları korunur."
-                : "Silmeden önce JSON yedeği almanız önerilir. Tema ayarı korunur."}
+                ? t("Silmeden önce veri klasörüne otomatik bir yedek dosyası (finans.db.sifirlama-oncesi-…bak) kaydedilir. Tema ve para birimi ayarları korunur.")
+                : t("Silmeden önce JSON yedeği almanız önerilir. Tema ayarı korunur.")}
             </p>
           </>
         ),
-        confirmLabel: "Evet, sıfırla",
+        confirmLabel: t("Evet, sıfırla"),
         danger: true,
       });
       if (!ok) return;
@@ -395,7 +423,7 @@ export function SettingsPage() {
       } catch {
         /* yoksay */
       }
-      toast(backupPath ? `Veriler sıfırlandı. Yedek: ${backupPath.split(/[\\/]/).pop()}` : "Veriler sıfırlandı.");
+      toast(backupPath ? t("Veriler sıfırlandı. Yedek: {name}", { name: backupPath.split(/[\\/]/).pop() ?? "" }) : t("Veriler sıfırlandı."));
     });
 
   return (
@@ -411,64 +439,75 @@ export function SettingsPage() {
           onClose={() => setPendingCsv(null)}
         />
       )}
-      <PageHeader title="Ayarlar" subtitle="Görünüm, yedekleme ve veri yönetimi" />
+      <PageHeader title={t("Ayarlar")} subtitle={t("Görünüm, yedekleme ve veri yönetimi")} />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         {web && user && (
-          <Section title="Hesap" description="Verileriniz sunucuda bu hesaba bağlı olarak saklanır.">
+          <Section title={t("Hesap")} description={t("Verileriniz sunucuda bu hesaba bağlı olarak saklanır.")}>
             <AccountRow email={user.email} />
             <div className="mt-3 flex flex-wrap gap-2">
               <button className="btn-secondary" onClick={() => setAccountDialog("password")}>
-                Şifreyi değiştir
+                {t("Şifreyi değiştir")}
               </button>
               <button className="btn-secondary" onClick={() => void logout()}>
-                Çıkış yap
+                {t("Çıkış yap")}
               </button>
               <button className="btn-ghost ml-auto text-rose-600 dark:text-rose-400" onClick={() => setAccountDialog("delete")}>
-                Hesabı sil…
+                {t("Hesabı sil…")}
               </button>
             </div>
           </Section>
         )}
         {desktop && !user && (
-          <Section title="Hesap" description="Hesapsız kullanıyorsun; veriler yalnız bu cihazda.">
+          <Section title={t("Hesap")} description={t("Hesapsız kullanıyorsun; veriler yalnız bu cihazda.")}>
             <p className="text-sm text-zinc-600 dark:text-zinc-400">
-              Bir hesap bağlarsan verilerini istediğin zaman sunucuya taşıyıp web'den ve diğer cihazlardan kullanabilirsin. Bağlanınca bu cihazdaki
-              veri olduğu gibi kalır.
+              {t(
+                "Bir hesap bağlarsan verilerini istediğin zaman sunucuya taşıyıp web'den ve diğer cihazlardan kullanabilirsin. Bağlanınca bu cihazdaki veri olduğu gibi kalır.",
+              )}
             </p>
             <button className="btn-primary mt-3" onClick={() => void connectAccount()} disabled={busy}>
-              Hesap oluştur / giriş yap
+              {t("Hesap oluştur / giriş yap")}
             </button>
           </Section>
         )}
         {desktop && user && (
-          <Section title="Hesap" description={serverUrl ? `Sunucu: ${serverUrl}` : undefined}>
+          <Section title={t("Hesap")} description={serverUrl ? t("Sunucu: {url}", { url: serverUrl }) : undefined}>
             <AccountRow email={user.email} />
             <div className="mt-3 flex items-center gap-2 text-sm">
-              <span className="text-zinc-500">Veri yeri:</span>
+              <span className="text-zinc-500">{t("Veri yeri:")}</span>
               <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 font-medium text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300">
-                {mode === "server" ? "Sunucuda" : "Bu cihazda"}
+                {mode === "server" ? t("Sunucuda") : t("Bu cihazda")}
               </span>
             </div>
             <div className="mt-3 flex flex-wrap gap-2">
               {mode === "server" ? (
                 <button className="btn-secondary" onClick={downloadToDevice} disabled={busy}>
-                  Bu cihaza indir…
+                  {t("Bu cihaza indir…")}
                 </button>
               ) : (
                 <button className="btn-secondary" onClick={moveToServer} disabled={busy}>
-                  Verilerimi sunucuya taşı…
+                  {t("Verilerimi sunucuya taşı…")}
                 </button>
               )}
               <button className="btn-secondary" onClick={() => setAccountDialog("password")}>
-                Şifreyi değiştir
+                {t("Şifreyi değiştir")}
               </button>
-              <button className="btn-secondary" onClick={() => void logout()} title="Bu cihazdaki veri silinmez">
-                Çıkış yap
+              <button className="btn-secondary" onClick={() => void logout()} title={t("Bu cihazdaki veri silinmez")}>
+                {t("Çıkış yap")}
               </button>
               <button className="btn-ghost ml-auto text-rose-600 dark:text-rose-400" onClick={() => setAccountDialog("delete")}>
-                Hesabı sil…
+                {t("Hesabı sil…")}
               </button>
             </div>
+          </Section>
+        )}
+        {desktop && user && mode === "local" && (
+          <Section title={t("Şifreli eşitleme")} description={t("Cihazların arasında uçtan uca şifreli; sunucu verini okuyamaz.")}>
+            <SyncSettings />
+          </Section>
+        )}
+        {user && auth && (
+          <Section title={t("Giriş güvenliği")} description={t("İki aşamalı doğrulama ve şifresiz giriş.")}>
+            <SecuritySettings auth={auth} />
           </Section>
         )}
         {desktop && mode !== "server" && <EvdsKeySection />}
@@ -483,10 +522,10 @@ export function SettingsPage() {
             onDeleted={logout}
           />
         )}
-        <Section title="Görünüm">
+        <Section title={t("Görünüm")}>
           <div className="space-y-4">
             <div>
-              <span className="label">Tema</span>
+              <span className="label">{t("Tema")}</span>
               <div className="grid grid-cols-3 gap-2">
                 {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
                   <button
@@ -504,11 +543,31 @@ export function SettingsPage() {
                 ))}
               </div>
             </div>
+            <div>
+              <span className="label">{t("Dil")}</span>
+              <div className="grid grid-cols-2 gap-2">
+                {LANGS.map(([value, label]) => (
+                  <button
+                    key={value}
+                    lang={value}
+                    onClick={() => value !== lang && setLang(value)}
+                    aria-pressed={lang === value}
+                    className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition ${
+                      lang === value
+                        ? "border-indigo-500 bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-300"
+                        : "border-zinc-200 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800/60"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </Section>
 
         {localDb && desktopOnly && (
-        <Section title="Veritabanı" description="Tüm veriler yalnızca bu bilgisayarda, yerel bir SQLite veritabanı dosyasında saklanır.">
+        <Section title={t("Veritabanı")} description={t("Tüm veriler yalnızca bu bilgisayarda, yerel bir SQLite veritabanı dosyasında saklanır.")}>
           <div className="flex items-center gap-2 rounded-lg bg-zinc-100 px-3 py-2.5 dark:bg-zinc-800/60">
             <Database size={16} className="shrink-0 text-zinc-500" />
             <code className="min-w-0 flex-1 select-text truncate text-xs" title={location}>
@@ -516,66 +575,67 @@ export function SettingsPage() {
             </code>
             {isTauri && (
               <button className="btn-ghost shrink-0 px-2 py-1 text-xs" onClick={() => run(() => revealInFolder(location))}>
-                <FolderOpen size={14} /> {isMac ? "Finder'da göster" : "Klasörü aç"}
+                <FolderOpen size={14} /> {isMac ? t("Finder'da göster") : t("Klasörü aç")}
               </button>
             )}
           </div>
           {db?.fallbackFrom && (
             <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
-              Seçili veritabanı ({db.fallbackFrom}) açılışta bulunamadı veya açılamadı; şu an varsayılan veritabanı kullanılıyor.
-              Dosyaya yeniden erişilebiliyorsa "Veritabanı aç" ile seçin, aksi halde girdiğiniz kayıtlar varsayılan veritabanına
-              yazılır.
+              {t(
+                'Seçili veritabanı ({path}) açılışta bulunamadı veya açılamadı; şu an varsayılan veritabanı kullanılıyor. Dosyaya yeniden erişilebiliyorsa "Veritabanı aç" ile seçin, aksi halde girdiğiniz kayıtlar varsayılan veritabanına yazılır.',
+                { path: db.fallbackFrom },
+              )}
             </p>
           )}
           <p className="mt-2 text-xs text-zinc-500">
-            {db && !db.isDefault && <span className="font-medium text-indigo-600 dark:text-indigo-400">Seçili veritabanı kullanılıyor · </span>}
-            {transactions.length} işlem · {accounts.length} hesap · {categories.length} kategori
+            {db && !db.isDefault && <span className="font-medium text-indigo-600 dark:text-indigo-400">{t("Seçili veritabanı kullanılıyor")} · </span>}
+            {t("{n} işlem", { n: transactions.length })} · {t("{n} hesap", { n: accounts.length })} · {t("{n} kategori", { n: categories.length })}
           </p>
           {isTauri && (
             <div className="mt-4 flex flex-wrap gap-2">
-              <button className="btn-secondary" onClick={saveDbCopy} disabled={busy} title="Veritabanının tam kopyasını istediğiniz yere kaydedin">
-                <DatabaseBackup size={16} /> Yedek al
+              <button className="btn-secondary" onClick={saveDbCopy} disabled={busy} title={t("Veritabanının tam kopyasını istediğiniz yere kaydedin")}>
+                <DatabaseBackup size={16} /> {t("Yedek al")}
               </button>
-              <button className="btn-secondary" onClick={openDb} disabled={busy} title="Başka bir Finans veritabanı dosyasıyla çalışın">
-                <FolderInput size={16} /> Veritabanı aç
+              <button className="btn-secondary" onClick={openDb} disabled={busy} title={t("Başka bir Finans veritabanı dosyasıyla çalışın")}>
+                <FolderInput size={16} /> {t("Veritabanı aç")}
               </button>
-              <button className="btn-secondary" onClick={newDb} disabled={busy} title="Seçtiğiniz konumda boş bir veritabanı oluşturun">
-                <FilePlus2 size={16} /> Yeni veritabanı
+              <button className="btn-secondary" onClick={newDb} disabled={busy} title={t("Seçtiğiniz konumda boş bir veritabanı oluşturun")}>
+                <FilePlus2 size={16} /> {t("Yeni veritabanı")}
               </button>
               {db && !db.isDefault && (
                 <button className="btn-ghost" onClick={defaultDb} disabled={busy}>
-                  <RotateCcw size={16} /> Varsayılana dön
+                  <RotateCcw size={16} /> {t("Varsayılana dön")}
                 </button>
               )}
             </div>
           )}
           {isTauri && (
             <p className="mt-2 text-xs text-zinc-500">
-              Yedek dosyasını "Veritabanı aç" ile açarak geri dönebilirsiniz. Seçtiğiniz veritabanı sonraki açılışlarda da kullanılır.
+              {t('Yedek dosyasını "Veritabanı aç" ile açarak geri dönebilirsiniz. Seçtiğiniz veritabanı sonraki açılışlarda da kullanılır.')}
             </p>
           )}
         </Section>
         )}
 
         <Section
-          title="Yedekleme ve Aktarım"
-          description="Verilerinizi kaybetmemek için düzenli olarak JSON yedeği almanız önerilir."
+          title={t("Yedekleme ve Aktarım")}
+          description={t("Verilerinizi kaybetmemek için düzenli olarak JSON yedeği almanız önerilir.")}
         >
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <ActionTile icon={FileJson} title="JSON Yedeği Al" description="Tüm işlemleri, hesapları, kategorileri ve borç planı ayarlarını tek dosyaya kaydet." onClick={exportJson} busy={busy} />
-            <ActionTile icon={FileUp} title="JSON Yedekten Geri Yükle" description="Mevcut verinin yerine yedeği yükle." onClick={importJson} busy={busy} />
-            <ActionTile icon={FileSpreadsheet} title="CSV Dışa Aktar" description="İşlemleri Excel / Numbers için dışa aktar." onClick={exportCsv} busy={busy} />
+            <ActionTile icon={FileJson} title={t("JSON Yedeği Al")} description={t("Tüm işlemleri, hesapları, kategorileri ve borç planı ayarlarını tek dosyaya kaydet.")} onClick={exportJson} busy={busy} />
+            <ActionTile icon={FileUp} title={t("JSON Yedekten Geri Yükle")} description={t("Mevcut verinin yerine yedeği yükle.")} onClick={importJson} busy={busy} />
+            <ActionTile icon={FileSpreadsheet} title={t("CSV Dışa Aktar")} description={t("İşlemleri Excel / Numbers için dışa aktar.")} onClick={exportCsv} busy={busy} />
             <ActionTile
               icon={FileUp}
-              title="Banka / Kart Ekstresi İçe Aktar"
-              description="Excel, PDF veya CSV ekstreyi hesaba aktar, kategorileri otomatik öner."
+              title={t("Banka / Kart Ekstresi İçe Aktar")}
+              description={t("Excel, PDF veya CSV ekstreyi hesaba aktar, kategorileri otomatik öner.")}
               onClick={() => openStatementImport()}
               busy={busy}
             />
             <ActionTile
               icon={FileDown}
-              title="Finans CSV'sini İçe Aktar"
-              description="Bu uygulamadan dışa aktarılan CSV'yi geri ekler. Banka ekstresi için üstteki ekstre aktarımını kullanın."
+              title={t("Finans CSV'sini İçe Aktar")}
+              description={t("Bu uygulamadan dışa aktarılan CSV'yi geri ekler. Banka ekstresi için üstteki ekstre aktarımını kullanın.")}
               onClick={importCsv}
               busy={busy}
             />
@@ -584,15 +644,15 @@ export function SettingsPage() {
 
         {/* Web'de tarayıcı ⌘N/⌘1–9 gibi kısayolları kendisi kullanır; mobilde klavye yok */}
         {!isMobile && !web && (
-        <Section title="Klavye Kısayolları">
+        <Section title={t("Klavye Kısayolları")}>
           <ul className="space-y-2 text-sm">
             {[
-              [`${modKey} N`, "Yeni işlem"],
-              [`${modKey} 1 – 8`, "Sayfalar arasında geçiş"],
-              [`${modKey} B`, "Menüyü daralt / genişlet"],
-              ["Esc", "Pencereyi / formu kapat"],
-              ["Enter", "Formu kaydet"],
-              [isMac ? "⌘ Q" : "Alt F4", "Uygulamadan çık"],
+              [`${modKey} N`, t("Yeni işlem")],
+              [`${modKey} 1 – 8`, t("Sayfalar arasında geçiş")],
+              [`${modKey} B`, t("Menüyü daralt / genişlet")],
+              ["Esc", t("Pencereyi / formu kapat")],
+              ["Enter", t("Formu kaydet")],
+              [isMac ? "⌘ Q" : "Alt F4", t("Uygulamadan çık")],
             ].map(([k, label]) => (
               <li key={k} className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-zinc-600 dark:text-zinc-300">
@@ -609,13 +669,13 @@ export function SettingsPage() {
 
         {updatesEnabled && <UpdatesSection />}
 
-        <Section title="Destek" description="Bir sorunla karşılaştığında hatayı rapor olarak kopyalayıp geliştiriciye iletebilirsin.">
+        <Section title={t("Destek")} description={t("Bir sorunla karşılaştığında hatayı rapor olarak kopyalayıp geliştiriciye iletebilirsin.")}>
           <div className="flex flex-wrap items-center gap-3">
             <button className="btn-secondary" onClick={openErrorReport}>
-              <Bug size={16} /> Hata bildir
+              <Bug size={16} /> {t("Hata bildir")}
             </button>
             <span className="text-xs text-zinc-500">
-              {errorCount > 0 ? `Kayıtlı ${errorCount} hata var.` : "Kayıtlı hata yok."} Rapora finansal verilerin eklenmez.
+              {errorCount > 0 ? t("Kayıtlı {n} hata var.", { n: errorCount }) : t("Kayıtlı hata yok.")} {t("Rapora finansal verilerin eklenmez.")}
             </span>
             {errorCount > 0 && (
               <button
@@ -625,7 +685,7 @@ export function SettingsPage() {
                   setErrorCount(0);
                 }}
               >
-                Hata kaydını temizle
+                {t("Hata kaydını temizle")}
               </button>
             )}
           </div>
@@ -637,14 +697,14 @@ export function SettingsPage() {
               <AlertTriangle size={18} />
             </span>
             <div className="min-w-0 flex-1">
-              <h2 className="text-sm font-semibold">Verileri Sıfırla</h2>
+              <h2 className="text-sm font-semibold">{t("Verileri Sıfırla")}</h2>
               <p className="mt-0.5 text-sm text-zinc-500">
-                Tüm işlemleri, hesapları, bütçeleri ve düzenli kayıtları siler; uygulamayı ilk kurulum haline döndürür.{" "}
-                {localDb && isTauri ? "Silmeden önce otomatik yedek alınır." : "Silmeden önce JSON yedeği almanız önerilir."}
+                {t("Tüm işlemleri, hesapları, bütçeleri ve düzenli kayıtları siler; uygulamayı ilk kurulum haline döndürür.")}{" "}
+                {localDb && isTauri ? t("Silmeden önce otomatik yedek alınır.") : t("Silmeden önce JSON yedeği almanız önerilir.")}
               </p>
             </div>
             <button className="btn-danger" onClick={resetData} disabled={busy}>
-              Verileri sıfırla
+              {t("Verileri sıfırla")}
             </button>
           </div>
         </section>
@@ -656,13 +716,13 @@ export function SettingsPage() {
               <Trash2 size={18} />
             </span>
             <div className="min-w-0 flex-1">
-              <h2 className="text-sm font-semibold">Uygulamayı Kaldır</h2>
+              <h2 className="text-sm font-semibold">{t("Uygulamayı Kaldır")}</h2>
               <p className="mt-0.5 text-sm text-zinc-500">
-                Finans'ı ve bu bilgisayardaki tüm verisini (veritabanı, otomatik yedekler, ayarlar, önbellekler) iz bırakmadan siler.
+                {t("Finans'ı ve bu bilgisayardaki tüm verisini (veritabanı, otomatik yedekler, ayarlar, önbellekler) iz bırakmadan siler.")}
               </p>
             </div>
             <button className="btn-danger" onClick={() => setUninstalling(true)} disabled={busy}>
-              Kaldır…
+              {t("Kaldır…")}
             </button>
           </div>
         </section>
@@ -687,30 +747,34 @@ function EvdsKeySection() {
       await api.setEvdsKey(value);
       setSet(value !== null);
       setKey("");
-      setMsg(value ? "Anahtar kaydedildi." : "Anahtar silindi.");
+      setMsg(value ? t("Anahtar kaydedildi.") : t("Anahtar silindi."));
     } catch (e) {
       setMsg(errorMessage(e));
     }
   };
+  // Adres cümlenin ortasında; dile göre yeri değişir
+  const evdsHint = t("Anahtar ücretsizdir: {site} adresinde üye olun, Profil → API Anahtarı.").split("{site}");
   return (
     <Section
-      title="Enflasyon verisi (TÜFE)"
-      description="Kâr/Zarar sayfasında enflasyon karşılaştırması için TCMB EVDS API anahtarı. Anahtar yalnız bu cihazda saklanır."
+      title={t("Enflasyon verisi (TÜFE)")}
+      description={t("Kâr/Zarar sayfasında enflasyon karşılaştırması için TCMB EVDS API anahtarı. Anahtar yalnız bu cihazda saklanır.")}
     >
       <p className="text-sm text-zinc-600 dark:text-zinc-300">
-        Durum: {set === null ? "…" : set ? "anahtar girildi" : "anahtar yok"}
+        {t("Durum:")} {set === null ? "…" : set ? t("anahtar girildi") : t("anahtar yok")}
       </p>
       <p className="mt-1 text-xs text-zinc-500">
-        Anahtar ücretsizdir: <span className="select-all font-medium">evds3.tcmb.gov.tr</span> adresinde üye olun, Profil → API Anahtarı.
+        {evdsHint[0]}
+        <span className="select-all font-medium">evds3.tcmb.gov.tr</span>
+        {evdsHint[1]}
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <input className="input max-w-xs" placeholder="API anahtarı" value={key} onChange={(e) => setKey(e.target.value)} />
+        <input className="input max-w-xs" placeholder={t("API anahtarı")} value={key} onChange={(e) => setKey(e.target.value)} />
         <button className="btn-primary" disabled={!key.trim()} onClick={() => void save(key.trim())}>
-          Kaydet
+          {t("Kaydet")}
         </button>
         {set && (
           <button className="btn-secondary" onClick={() => void save(null)}>
-            Sil
+            {t("Sil")}
           </button>
         )}
       </div>

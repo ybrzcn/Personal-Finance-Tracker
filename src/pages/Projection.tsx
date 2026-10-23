@@ -3,16 +3,16 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react"
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipProps } from "recharts";
 import { EmptyState, PageHeader, Segmented, SummaryTile, type TileTone } from "../components/common";
 import { api, errorMessage } from "../lib/api";
-import { amountToInput, formatMonthYear, parseAmount, parseDecimal } from "../lib/format";
+import { locale, t } from "../lib/i18n";
+import { amountToInput, decimalToInput, formatMonthYear, formatMonthYearShort, parseAmount, parseDecimal } from "../lib/format";
 import type { ProjectionAssumptions, ProjectionReport } from "../lib/types";
 import { useData } from "../state/data";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
 
 const DEFAULTS: ProjectionAssumptions = { years: 10, incomeGrowthPct: 0, expenseGrowthPct: 0, returnPct: 0, monthlyExtra: 0 };
-const YEARS = [5, 10, 20, 30].map((y) => ({ value: String(y), label: `${y} yıl` }));
-const MONTHS = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
-const shortMonth = (ym: string) => `${MONTHS[Number(ym.slice(5, 7)) - 1]} ${ym.slice(2, 4)}`;
+const YEARS = [5, 10, 20, 30].map((y) => ({ value: String(y), label: t("{n} yıl", { n: y }) }));
+const shortMonth = formatMonthYearShort;
 const monthDate = (ym: string) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1);
 
 /** Eksi işaretli tutar/oran: "-1.500" → −1500 */
@@ -22,7 +22,7 @@ function parseSigned(text: string, pct: boolean): number | null {
   const v = pct ? parseDecimal(t, 2) : parseAmount(t);
   return v === null ? null : neg ? -v : v;
 }
-const toText = (v: number, pct: boolean) => (v === 0 ? "" : `${v < 0 ? "-" : ""}${pct ? String(Math.abs(v)).replace(".", ",") : amountToInput(Math.abs(v))}`);
+const toText = (v: number, pct: boolean) => (v === 0 ? "" : `${v < 0 ? "-" : ""}${pct ? decimalToInput(Math.abs(v)) : amountToInput(Math.abs(v))}`);
 
 function NumberField({
   label,
@@ -146,61 +146,63 @@ export function ProjectionPage() {
   const last = report?.years.at(-1);
   const inflation = used.expenseGrowthPct !== 0;
   const tiles: { label: string; value: string; tone: TileTone; hint?: string | null }[] = [
-    { label: "Bugün", value: money(report?.startNetWorthCents), tone: "plain", hint: "Net servet" },
+    { label: t("Bugün"), value: money(report?.startNetWorthCents), tone: "plain", hint: t("Net servet") },
     {
-      label: `${used.years}. yılın sonunda`,
+      label: t("{n}. yılın sonunda", { n: used.years }),
       value: money(last?.netWorthCents),
       tone: !last ? "plain" : last.netWorthCents < 0 ? "expense" : "income",
       hint: last ? formatMonthYear(monthDate(last.endMonth)) : null,
     },
     {
-      label: "Bugünün parasıyla",
+      label: t("Bugünün parasıyla"),
       value: money(last?.realNetWorthCents),
       tone: "info",
-      hint: inflation ? `Yıllık %${String(used.expenseGrowthPct).replace(".", ",")} enflasyonla indirgenmiş` : "Enflasyon girilmedi; tutarlar aynı",
+      hint: inflation
+        ? t("Yıllık %{v} enflasyonla indirgenmiş", { v: used.expenseGrowthPct.toLocaleString(locale) })
+        : t("Enflasyon girilmedi; tutarlar aynı"),
     },
     {
-      label: "Kredi borcu bitişi",
+      label: t("Kredi borcu bitişi"),
       value: report
         ? report.debtFreeMonth
           ? formatMonthYear(monthDate(report.debtFreeMonth))
           : report.loanWithoutSchedule
-            ? "Taksit planı yok"
-            : "Kredi yok"
+            ? t("Taksit planı yok")
+            : t("Kredi yok")
         : money(undefined),
       tone: "plain",
-      hint: report && report.startLoanDebtCents > 0 ? `Kalan anapara ${formatMoney(report.startLoanDebtCents / 100)}` : null,
+      hint: report && report.startLoanDebtCents > 0 ? t("Kalan anapara {amount}", { amount: formatMoney(report.startLoanDebtCents / 100) }) : null,
     },
   ];
 
   const base = report?.base;
   const flow: { label: string; cents: number | undefined; sign: 1 | -1; note?: string }[] = [
-    { label: "Düzenli gelir", cents: base?.incomeCents, sign: 1 },
-    { label: "Düzenli gider", cents: base?.regularExpenseCents, sign: -1 },
-    { label: "Kategori limitleri", cents: base?.budgetCents, sign: -1 },
+    { label: t("Düzenli gelir"), cents: base?.incomeCents, sign: 1 },
+    { label: t("Düzenli gider"), cents: base?.regularExpenseCents, sign: -1 },
+    { label: t("Kategori limitleri"), cents: base?.budgetCents, sign: -1 },
     {
-      label: "Düzensiz gider",
+      label: t("Düzensiz gider"),
       cents: base?.irregularExpenseCents,
       sign: -1,
-      note: base ? (base.irregularMonths > 0 ? `son ${base.irregularMonths} ayın ortalaması` : "geçmiş yok") : undefined,
+      note: base ? (base.irregularMonths > 0 ? t("son {n} ayın ortalaması", { n: base.irregularMonths }) : t("geçmiş yok")) : undefined,
     },
-    { label: "Kredi taksitleri", cents: base?.loanCents, sign: -1, note: "önümüzdeki ay" },
+    { label: t("Kredi taksitleri"), cents: base?.loanCents, sign: -1, note: t("önümüzdeki ay") },
   ];
-  if (base && base.extraCents !== 0) flow.push({ label: "Senaryo", cents: Math.abs(base.extraCents), sign: base.extraCents > 0 ? 1 : -1 });
+  if (base && base.extraCents !== 0) flow.push({ label: t("Senaryo"), cents: Math.abs(base.extraCents), sign: base.extraCents > 0 ? 1 : -1 });
 
   return (
     <>
       <PageHeader
-        title="Uzun Vade"
-        subtitle="Bugünkü net servetten yıllar sonrasına tahmin"
+        title={t("Uzun Vade")}
+        subtitle={t("Bugünkü net servetten yıllar sonrasına tahmin")}
         actions={<Segmented value={String(used.years)} options={YEARS} onChange={(v) => set({ years: Number(v) })} />}
       />
 
       {error && (
         <div role="alert" className="card mb-4 flex items-center justify-between gap-3 px-5 py-4 text-sm">
-          <span className="text-rose-600 dark:text-rose-400">Tahmin alınamadı: {error}</span>
+          <span className="text-rose-600 dark:text-rose-400">{t("Tahmin alınamadı: {error}", { error })}</span>
           <button className="btn-secondary px-3 py-1.5 text-xs" onClick={load}>
-            Tekrar dene
+            {t("Tekrar dene")}
           </button>
         </div>
       )}
@@ -215,16 +217,24 @@ export function ProjectionPage() {
         <div role="status" className="card mb-3 flex items-start gap-3 px-5 py-3 text-sm">
           <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-500" />
           <span>
-            Bu varsayımlarla nakit <span className="font-semibold">{formatMonthYear(monthDate(report.firstNegativeMonth))}</span> ayında eksiye düşüyor:
-            gider ve taksitler geliri aşıyor.
+            {(() => {
+              const [pre, post] = t("Bu varsayımlarla nakit {month} ayında eksiye düşüyor: gider ve taksitler geliri aşıyor.").split("{month}");
+              return (
+                <>
+                  {pre}
+                  <span className="font-semibold">{formatMonthYear(monthDate(report.firstNegativeMonth))}</span>
+                  {post}
+                </>
+              );
+            })()}
           </span>
         </div>
       )}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <section className="card p-5 xl:col-span-2">
-          <h2 className="text-sm font-semibold">Net servet</h2>
-          <p className="text-xs text-zinc-500">Aylık tahmin; kesikli çizgi bugünün parasıyla, kırmızı alan kalan kredi borcu</p>
+          <h2 className="text-sm font-semibold">{t("Net servet")}</h2>
+          <p className="text-xs text-zinc-500">{t("Aylık tahmin; kesikli çizgi bugünün parasıyla, kırmızı alan kalan kredi borcu")}</p>
           {report && report.points.length > 1 ? (
             <div className="mt-3 h-72">
               <ResponsiveContainer>
@@ -234,38 +244,38 @@ export function ProjectionPage() {
                   <YAxis tickFormatter={(v) => formatCompact(Number(v))} tick={{ fill: "var(--chart-axis)", fontSize: 11 }} axisLine={false} tickLine={false} width={64} />
                   <Tooltip content={<Tip />} />
                   {report.startLoanDebtCents > 0 && (
-                    <Area dataKey="debt" name="Kredi borcu" stroke="var(--expense)" fill="var(--expense)" fillOpacity={0.15} isAnimationActive={false} />
+                    <Area dataKey="debt" name={t("Kredi borcu")} stroke="var(--expense)" fill="var(--expense)" fillOpacity={0.15} isAnimationActive={false} />
                   )}
                   {inflation && (
-                    <Line dataKey="real" name="Bugünün parasıyla" stroke="var(--chart-axis)" strokeDasharray="5 4" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                    <Line dataKey="real" name={t("Bugünün parasıyla")} stroke="var(--chart-axis)" strokeDasharray="5 4" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                   )}
-                  <Line dataKey="net" name="Net servet" stroke="var(--chart-net)" strokeWidth={2.5} dot={false} isAnimationActive={false} />
+                  <Line dataKey="net" name={t("Net servet")} stroke="var(--chart-net)" strokeWidth={2.5} dot={false} isAnimationActive={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
           ) : !report ? (
-            <div className="mt-3 h-72 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" aria-label="Tahmin yükleniyor" />
+            <div className="mt-3 h-72 animate-pulse rounded-xl bg-zinc-100 dark:bg-zinc-800" aria-label={t("Tahmin yükleniyor")} />
           ) : (
-            <EmptyState icon={Telescope} title="Tahmin için veri yok" />
+            <EmptyState icon={Telescope} title={t("Tahmin için veri yok")} />
           )}
         </section>
 
         <div className="space-y-4">
           <section className="card space-y-3 p-5">
-            <h2 className="text-sm font-semibold">Varsayımlar</h2>
+            <h2 className="text-sm font-semibold">{t("Varsayımlar")}</h2>
             <div className="grid grid-cols-2 gap-3">
-              <NumberField label="Yıllık zam" hint="Gelirler her Ocak artar" value={used.incomeGrowthPct} pct onCommit={(v) => set({ incomeGrowthPct: v })} />
+              <NumberField label={t("Yıllık zam")} hint={t("Gelirler her Ocak artar")} value={used.incomeGrowthPct} pct onCommit={(v) => set({ incomeGrowthPct: v })} />
               <NumberField
-                label="Yıllık enflasyon"
-                hint="Giderler her Ocak artar"
+                label={t("Yıllık enflasyon")}
+                hint={t("Giderler her Ocak artar")}
                 value={used.expenseGrowthPct}
                 pct
                 onCommit={(v) => set({ expenseGrowthPct: v })}
               />
-              <NumberField label="Yıllık getiri" hint="Birikmiş nakde" value={used.returnPct} pct onCommit={(v) => set({ returnPct: v })} />
+              <NumberField label={t("Yıllık getiri")} hint={t("Birikmiş nakde")} value={used.returnPct} pct onCommit={(v) => set({ returnPct: v })} />
               <NumberField
-                label="Aylık ek"
-                hint="Eksi: ek gider"
+                label={t("Aylık ek")}
+                hint={t("Eksi: ek gider")}
                 value={used.monthlyExtra}
                 pct={false}
                 onCommit={(v) => set({ monthlyExtra: v })}
@@ -274,7 +284,7 @@ export function ProjectionPage() {
           </section>
 
           <section className="card p-5">
-            <h2 className="text-sm font-semibold">Bugünkü aylık akış</h2>
+            <h2 className="text-sm font-semibold">{t("Bugünkü aylık akış")}</h2>
             <div className="mt-3 space-y-2 text-sm">
               {flow.map((f) => (
                 <div key={f.label} className="flex justify-between gap-3">
@@ -288,19 +298,19 @@ export function ProjectionPage() {
                 </div>
               ))}
               <div className="flex justify-between border-t border-zinc-200 pt-2 dark:border-zinc-800">
-                <span className="font-medium">Aylık birikim</span>
+                <span className="font-medium">{t("Aylık birikim")}</span>
                 <span className={`font-semibold tabular-nums ${(base?.netCents ?? 0) < 0 ? "text-rose-600 dark:text-rose-400" : ""}`}>{money(base?.netCents)}</span>
               </div>
             </div>
             <details className="mt-3 text-xs text-zinc-500">
-              <summary className="cursor-pointer font-medium">Nasıl hesaplanır?</summary>
+              <summary className="cursor-pointer font-medium">{t("Nasıl hesaplanır?")}</summary>
               <ul className="mt-1.5 list-disc space-y-1 pl-4">
-                <li>Başlangıç bugünkü net servet. Kart ve KMH borcu ilk ay nakitten ödenmiş sayılır; kredi borcu taksit tablosuyla azalır.</li>
-                <li>Düzenli gelir ve giderler bugünkü tutarlarıyla, başlangıç tarihleri gelince girer; aya özel istisnalar sayılmaz.</li>
-                <li>Kategori limitleri ve son ayların düzensiz gider ortalaması her ay harcanmış sayılır; düzensiz gelir sayılmaz.</li>
-                <li>Zam ve enflasyon her Ocak uygulanır; getiri yalnız artıdaki nakde aylık işler. Kredi taksitleri artmaz.</li>
-                <li>Ev, araba gibi varlıklar bugünkü değeriyle sabit kalır; getiri ve nakit hesabına girmez.</li>
-                <li>Bir krediyi ayrıca düzenli gider olarak da girdiyseniz iki kez düşülür.</li>
+                <li>{t("Başlangıç bugünkü net servet. Kart ve KMH borcu ilk ay nakitten ödenmiş sayılır; kredi borcu taksit tablosuyla azalır.")}</li>
+                <li>{t("Düzenli gelir ve giderler bugünkü tutarlarıyla, başlangıç tarihleri gelince girer; aya özel istisnalar sayılmaz.")}</li>
+                <li>{t("Kategori limitleri ve son ayların düzensiz gider ortalaması her ay harcanmış sayılır; düzensiz gelir sayılmaz.")}</li>
+                <li>{t("Zam ve enflasyon her Ocak uygulanır; getiri yalnız artıdaki nakde aylık işler. Kredi taksitleri artmaz.")}</li>
+                <li>{t("Ev, araba gibi varlıklar bugünkü değeriyle sabit kalır; getiri ve nakit hesabına girmez.")}</li>
+                <li>{t("Bir krediyi ayrıca düzenli gider olarak da girdiyseniz iki kez düşülür.")}</li>
               </ul>
             </details>
           </section>
@@ -312,20 +322,20 @@ export function ProjectionPage() {
           <table className="w-full min-w-[640px] text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500 dark:border-zinc-800">
-                <th className="px-5 py-2.5 font-medium">Yıl</th>
-                <th className="px-3 py-2.5 text-right font-medium">Gelir</th>
-                <th className="px-3 py-2.5 text-right font-medium">Gider ve taksit</th>
-                <th className="px-3 py-2.5 text-right font-medium">Getiri</th>
-                <th className="px-3 py-2.5 text-right font-medium">Kredi borcu</th>
-                <th className="px-3 py-2.5 text-right font-medium">Net servet</th>
-                {inflation && <th className="px-5 py-2.5 text-right font-medium">Bugünün parasıyla</th>}
+                <th className="px-5 py-2.5 font-medium">{t("Yıl")}</th>
+                <th className="px-3 py-2.5 text-right font-medium">{t("Gelir")}</th>
+                <th className="px-3 py-2.5 text-right font-medium">{t("Gider ve taksit")}</th>
+                <th className="px-3 py-2.5 text-right font-medium">{t("Getiri")}</th>
+                <th className="px-3 py-2.5 text-right font-medium">{t("Kredi borcu")}</th>
+                <th className="px-3 py-2.5 text-right font-medium">{t("Net servet")}</th>
+                {inflation && <th className="px-5 py-2.5 text-right font-medium">{t("Bugünün parasıyla")}</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {report.years.map((y) => (
                 <tr key={y.year}>
                   <td className="px-5 py-2.5">
-                    <span className="font-medium">{y.year}. yıl</span>
+                    <span className="font-medium">{t("{n}. yıl", { n: y.year })}</span>
                     <span className="ml-1.5 text-xs text-zinc-500">{shortMonth(y.endMonth)}</span>
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-emerald-600 dark:text-emerald-400">{formatMoney(y.inflowCents / 100)}</td>

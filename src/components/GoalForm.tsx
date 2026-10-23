@@ -4,6 +4,7 @@ import { errorMessage } from "../lib/api";
 import { amountToInput, parseAmount, parseQuantity } from "../lib/format";
 import { GROUP_LABEL, INSTRUMENTS, qtyDecimals, qtyRule, TRY, unitLabel, type FxGroup } from "../lib/fx";
 import { GOAL_ACCOUNT_KINDS } from "../lib/goals";
+import { locale, t } from "../lib/i18n";
 import type { Goal } from "../lib/types";
 import { useData } from "../state/data";
 import { PALETTE } from "./CategoryForm";
@@ -19,7 +20,7 @@ const GROUPS: FxGroup[] = ["doviz", "altin", "maden"];
 
 /** Düzenlenen hedefin tutarı birimin ondalığıyla (gram 3, adet 0); TL uygulamanın tutar biçimiyle */
 const targetToInput = (v: number, code: string) =>
-  code === TRY ? amountToInput(v) : v.toLocaleString("tr-TR", { useGrouping: false, maximumFractionDigits: qtyDecimals(code) });
+  code === TRY ? amountToInput(v) : v.toLocaleString(locale, { useGrouping: false, maximumFractionDigits: qtyDecimals(code) });
 
 export function GoalForm({ goal, onClose, onSaved }: Props) {
   const { accounts, goals, addGoal, updateGoal } = useData();
@@ -45,19 +46,19 @@ export function GoalForm({ goal, onClose, onSaved }: Props) {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const value = currency === TRY ? parseAmount(target) : parseQuantity(target, qtyDecimals(currency));
-    if (!name.trim()) return setError("Hedef adı boş olamaz.");
+    if (!name.trim()) return setError(t("Hedef adı boş olamaz."));
     if (value === null || value <= 0)
-      return setError(`Geçerli bir hedef tutarı girin${currency === TRY ? "" : ` (${qtyRule(currency)})`}.`);
+      return setError(currency === TRY ? t("Geçerli bir hedef tutarı girin.") : t("Geçerli bir hedef tutarı girin ({rule}).", { rule: qtyRule(currency) }));
     setSaving(true);
     setError(null);
     const input = { name, currency, target: value, targetDate: targetDate || null, color, archived: goal?.archived ?? false, accountIds };
     try {
       if (goal) {
         await updateGoal({ ...goal, ...input });
-        onSaved("Hedef güncellendi.");
+        onSaved(t("Hedef güncellendi."));
       } else {
         await addGoal(input);
-        onSaved("Hedef eklendi.");
+        onSaved(t("Hedef eklendi."));
       }
       onClose();
     } catch (err) {
@@ -69,15 +70,15 @@ export function GoalForm({ goal, onClose, onSaved }: Props) {
 
   return (
     <Modal
-      title={goal ? "Hedefi Düzenle" : "Yeni Hedef"}
+      title={goal ? t("Hedefi Düzenle") : t("Yeni Hedef")}
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose}>
-            Vazgeç
+            {t("Vazgeç")}
           </button>
           <button type="submit" form="goal-form" className="btn-primary" disabled={saving}>
-            {goal ? "Kaydet" : "Ekle"}
+            {goal ? t("Kaydet") : t("Ekle")}
           </button>
         </>
       }
@@ -85,23 +86,23 @@ export function GoalForm({ goal, onClose, onSaved }: Props) {
       <form id="goal-form" onSubmit={submit} className="space-y-4">
         <div>
           <label className="label" htmlFor="goal-name">
-            Ad
+            {t("Ad")}
           </label>
-          <input id="goal-name" data-autofocus className="input" maxLength={60} placeholder="Örn. Ev peşinatı" value={name} onChange={(e) => setName(e.target.value)} />
+          <input id="goal-name" data-autofocus className="input" maxLength={60} placeholder={t("Örn. Ev peşinatı")} value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div>
             <label className="label" htmlFor="goal-currency">
-              Birim
+              {t("Birim")}
             </label>
             <select id="goal-currency" className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
-              <option value={TRY}>Türk lirası (TL)</option>
+              <option value={TRY}>{t("Türk lirası (TL)")}</option>
               {GROUPS.map((g) => (
                 <optgroup key={g} label={GROUP_LABEL[g]}>
                   {INSTRUMENTS.filter((i) => i.group === g).map((i) => (
                     <option key={i.code} value={i.code}>
                       {i.name}
-                      {i.unit === "currency" ? ` (${i.code})` : i.unit === "gram" ? " (gram)" : " (adet)"}
+                      {i.unit === "currency" ? ` (${i.code})` : i.unit === "gram" ? ` (${t("gram")})` : ` (${t("adet")})`}
                     </option>
                   ))}
                 </optgroup>
@@ -110,21 +111,22 @@ export function GoalForm({ goal, onClose, onSaved }: Props) {
           </div>
           <div>
             <label className="label" htmlFor="goal-target">
-              Hedef tutarı{currency === TRY ? "" : ` (${unitLabel(currency)})`}
+              {t("Hedef tutarı")}
+              {currency === TRY ? "" : ` (${unitLabel(currency)})`}
             </label>
             <input id="goal-target" className="input" inputMode="decimal" value={target} onChange={(e) => setTarget(e.target.value)} />
           </div>
         </div>
         <div>
           <label className="label" htmlFor="goal-date">
-            Hedef tarihi <span className="font-normal text-zinc-500">(isteğe bağlı)</span>
+            {t("Hedef tarihi")} <span className="font-normal text-zinc-500">{t("(isteğe bağlı)")}</span>
           </label>
           <input id="goal-date" type="date" className="input" value={targetDate} onChange={(e) => setTargetDate(e.target.value)} />
         </div>
         <div>
-          <span className="label">Hesaplar</span>
+          <span className="label">{t("Hesaplar")}</span>
           {eligible.length === 0 ? (
-            <p className="text-sm text-zinc-500">Önce bir vadesiz, nakit, döviz/altın ya da fon hesabı ekle.</p>
+            <p className="text-sm text-zinc-500">{t("Önce bir vadesiz, nakit, döviz/altın ya da fon hesabı ekle.")}</p>
           ) : (
             <ul className="max-h-56 space-y-1 overflow-y-auto rounded-xl border border-zinc-200 p-2 dark:border-zinc-700">
               {eligible.map((a) => {
@@ -134,8 +136,8 @@ export function GoalForm({ goal, onClose, onSaved }: Props) {
                     <label className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm ${owner ? "opacity-50" : "hover:bg-zinc-50 dark:hover:bg-zinc-800"}`}>
                       <input type="checkbox" checked={accountIds.includes(a.id)} disabled={!!owner} onChange={() => toggle(a.id)} aria-label={a.name} />
                       <span className="min-w-0 flex-1 truncate">{a.name}</span>
-                      {a.archived && <span className="text-xs text-zinc-500">arşivli</span>}
-                      {owner && <span className="shrink-0 text-xs text-zinc-500">'{owner}' hedefine bağlı</span>}
+                      {a.archived && <span className="text-xs text-zinc-500">{t("arşivli")}</span>}
+                      {owner && <span className="shrink-0 text-xs text-zinc-500">{t("'{goal}' hedefine bağlı", { goal: owner })}</span>}
                     </label>
                   </li>
                 );
@@ -144,7 +146,7 @@ export function GoalForm({ goal, onClose, onSaved }: Props) {
           )}
         </div>
         <div>
-          <span className="label">Renk</span>
+          <span className="label">{t("Renk")}</span>
           <div className="flex flex-wrap items-center gap-2">
             {PALETTE.map((c) => (
               <button

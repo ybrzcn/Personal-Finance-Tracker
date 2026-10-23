@@ -1,5 +1,6 @@
 import { addDays, todayISO, toISODate } from "./format";
 import type { Transaction } from "./types";
+import { t } from "./i18n";
 
 export interface DateRange {
   from?: string;
@@ -9,11 +10,11 @@ export interface DateRange {
 export type RangePreset = "thisMonth" | "lastMonth" | "last30" | "thisYear" | "all";
 
 export const RANGE_LABEL: Record<RangePreset, string> = {
-  thisMonth: "Bu Ay",
-  lastMonth: "Geçen Ay",
-  last30: "Son 30 Gün",
-  thisYear: "Bu Yıl",
-  all: "Tümü",
+  thisMonth: t("Bu Ay"),
+  lastMonth: t("Geçen Ay"),
+  last30: t("Son 30 Gün"),
+  thisYear: t("Bu Yıl"),
+  all: t("Tümü"),
 };
 
 export function presetRange(preset: RangePreset, now = new Date()): DateRange {
@@ -48,10 +49,10 @@ export interface Totals {
 export function totals(txs: Transaction[]): Totals {
   let inc = 0;
   let exp = 0;
-  for (const t of txs) {
-    const c = Math.round(t.amount * 100);
-    if (t.type === "income") inc += c;
-    else if (t.type === "expense") exp += c;
+  for (const tx of txs) {
+    const c = Math.round(tx.amount * 100);
+    if (tx.type === "income") inc += c;
+    else if (tx.type === "expense") exp += c;
   }
   return { income: inc / 100, expense: exp / 100, net: (inc - exp) / 100, count: txs.length };
 }
@@ -63,7 +64,7 @@ export interface CategorySlice {
   value: number;
 }
 
-export const UNCATEGORIZED = { name: "Kategorisiz", color: "#94a3b8" };
+export const UNCATEGORIZED = { name: t("Kategorisiz"), color: "#94a3b8" };
 
 export interface MonthPoint {
   key: string;

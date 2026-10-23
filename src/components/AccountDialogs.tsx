@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from "react";
+import { errorMessage } from "../lib/api";
 import type { AuthApi } from "../lib/authApi";
+import { t } from "../lib/i18n";
 import { useUI } from "../state/ui";
 import { Modal } from "./Modal";
 
@@ -24,17 +26,17 @@ export function ChangePasswordDialog({ auth, onClose }: { auth: AuthApi; onClose
   const submit = async (e?: FormEvent) => {
     e?.preventDefault();
     if (next !== next2) {
-      setError("Yeni şifreler aynı değil.");
+      setError(t("Yeni şifreler aynı değil."));
       return;
     }
     setBusy(true);
     setError(null);
     try {
       await auth.changePassword(current, next);
-      toast("Şifre değiştirildi. Diğer cihazlardaki oturumlar kapatıldı.");
+      toast(t("Şifre değiştirildi. Diğer cihazlardaki oturumlar kapatıldı."));
       onClose();
     } catch (err) {
-      setError(String(err));
+      setError(errorMessage(err));
     } finally {
       setBusy(false);
     }
@@ -42,7 +44,7 @@ export function ChangePasswordDialog({ auth, onClose }: { auth: AuthApi; onClose
 
   return (
     <Modal
-      title="Şifreyi değiştir"
+      title={t("Şifreyi değiştir")}
       onClose={onClose}
       footer={
         <>
@@ -50,7 +52,7 @@ export function ChangePasswordDialog({ auth, onClose }: { auth: AuthApi; onClose
             Vazgeç
           </button>
           <button className="btn-primary" disabled={busy || !current || !next} onClick={() => void submit()}>
-            {busy ? "…" : "Değiştir"}
+            {busy ? "…" : t("Değiştir")}
           </button>
         </>
       }
@@ -59,20 +61,20 @@ export function ChangePasswordDialog({ auth, onClose }: { auth: AuthApi; onClose
         <ErrorText error={error} />
         <div>
           <label className="label" htmlFor="cp-current">
-            Mevcut şifre
+            {t("Mevcut şifre")}
           </label>
           <input id="cp-current" className="input" type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />
         </div>
         <div>
           <label className="label" htmlFor="cp-next">
-            Yeni şifre
+            {t("Yeni şifre")}
           </label>
           <input id="cp-next" className="input" type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />
-          <p className="mt-1 text-xs text-zinc-500">En az 8 karakter.</p>
+          <p className="mt-1 text-xs text-zinc-500">{t("En az 8 karakter.")}</p>
         </div>
         <div>
           <label className="label" htmlFor="cp-next2">
-            Yeni şifre (tekrar)
+            {t("Yeni şifre (tekrar)")}
           </label>
           <input id="cp-next2" className="input" type="password" autoComplete="new-password" value={next2} onChange={(e) => setNext2(e.target.value)} />
         </div>
@@ -111,14 +113,14 @@ export function DeleteAccountDialog({
       await auth.deleteAccount(password);
       await onDeleted();
     } catch (err) {
-      setError(String(err));
+      setError(errorMessage(err));
       setBusy(false);
     }
   };
 
   return (
     <Modal
-      title="Hesabı sil"
+      title={t("Hesabı sil")}
       onClose={onClose}
       footer={
         <>
@@ -126,28 +128,37 @@ export function DeleteAccountDialog({
             Vazgeç
           </button>
           <button className="btn-danger" disabled={busy || !password} onClick={() => void submit()}>
-            {busy ? "…" : "Hesabı kalıcı olarak sil"}
+            {busy ? "…" : t("Hesabı kalıcı olarak sil")}
           </button>
         </>
       }
     >
       <form className="space-y-3" onSubmit={submit}>
         <p className="text-sm">
-          <strong>{email}</strong> hesabı ve sunucudaki tüm verisi (işlemler, hesaplar, kategoriler, bütçeler, ayarlar){" "}
-          <strong>kalıcı olarak silinir</strong>. Bu işlem geri alınamaz.
-          {localNote && " Bu cihazdaki yerel veri silinmez."}
+          {t("{email} hesabı ve sunucudaki tüm verisi (işlemler, hesaplar, kategoriler, bütçeler, ayarlar) {deleted}. Bu işlem geri alınamaz.")
+            .split(/(\{email\}|\{deleted\})/)
+            .map((part, i) =>
+              part === "{email}" ? (
+                <strong key={i}>{email}</strong>
+              ) : part === "{deleted}" ? (
+                <strong key={i}>{t("kalıcı olarak silinir")}</strong>
+              ) : (
+                part
+              ),
+            )}
+          {localNote && ` ${t("Bu cihazdaki yerel veri silinmez.")}`}
         </p>
         <p className="text-sm">
-          Silmeden önce{" "}
+          {t("Silmeden önce")}{" "}
           <button type="button" className="text-indigo-600 hover:underline dark:text-indigo-400" onClick={onBackup}>
-            JSON yedeği indir
+            {t("JSON yedeği indir")}
           </button>
           .
         </p>
         <ErrorText error={error} />
         <div>
           <label className="label" htmlFor="del-password">
-            Onaylamak için şifren
+            {t("Onaylamak için şifren")}
           </label>
           <input id="del-password" className="input" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
         </div>

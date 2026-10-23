@@ -9,10 +9,12 @@ import { useAnalysis } from "../state/analysis";
 import { useData } from "../state/data";
 import { useSettings, type Settings } from "../state/settings";
 import { useUI } from "../state/ui";
+import { locale, merchantName, t, tc, tm } from "../lib/i18n";
+import { rich } from "../lib/rich";
 
 const PERIODS: { value: SubscriptionPeriod; label: string }[] = [
-  { value: "monthly", label: "Aylık" },
-  { value: "yearly", label: "Yıllık" },
+  { value: "monthly", label: t("Aylık") },
+  { value: "yearly", label: t("Yıllık") },
 ];
 
 const monthLabel = (ym: string) => formatMonthShort(parseISODate(`${ym}-01`));
@@ -20,7 +22,7 @@ const monthLabel = (ym: string) => formatMonthShort(parseISODate(`${ym}-01`));
 /** Tahmin seçicide gösterilen varsayılan kategori adları (seçim Rust'ta: `finans-core::analysis::forecast`) */
 const DEFAULT_FORECAST_CATEGORIES = ["Eğlence", "Restoran", "Kafe", "Market"];
 
-const MISSING_CATEGORY = { name: "Kategori", color: "#94a3b8" };
+const MISSING_CATEGORY = { name: t("Kategori"), color: "#94a3b8" };
 
 export function AnalysisPage() {
   const { report, error, refreshing, retry, save } = useAnalysis();
@@ -28,13 +30,13 @@ export function AnalysisPage() {
 
   return (
     <>
-      <PageHeader title="Analiz" subtitle="Aboneliklerin ve değişken giderlerin aylık / yıllık maliyeti ve tahmini" />
+      <PageHeader title={t("Analiz")} subtitle={t("Aboneliklerin ve değişken giderlerin aylık / yıllık maliyeti ve tahmini")} />
       {report?.cafeSuggestion && <CafeSuggestion suggestion={report.cafeSuggestion} />}
       {error ? (
         <div role="alert" className="card flex items-center justify-between gap-3 px-5 py-4 text-sm">
-          <span className="text-rose-600 dark:text-rose-400">Analiz alınamadı: {error}</span>
+          <span className="text-rose-600 dark:text-rose-400">{t("Analiz alınamadı: {error}", { error: tm(error) })}</span>
           <button className="btn-secondary px-3 py-1.5 text-xs" onClick={retry}>
-            Tekrar dene
+            {t("Tekrar dene")}
           </button>
         </div>
       ) : (
@@ -66,7 +68,7 @@ function CafeSuggestion({ suggestion }: { suggestion: CafeSuggestionReport }) {
     setBusy(true);
     try {
       for (const t of candidates) await api.updateTransaction({ ...t, categoryId: cafe.id });
-      toast(`${candidates.length} işlem Kafe kategorisine taşındı.`);
+      toast(t("{n} işlem Kafe kategorisine taşındı.", { n: candidates.length }));
     } catch (e) {
       toast(errorMessage(e), "error");
     } finally {
@@ -80,11 +82,14 @@ function CafeSuggestion({ suggestion }: { suggestion: CafeSuggestionReport }) {
     <div className="card mb-4 flex flex-wrap items-center gap-3 p-4">
       <Coffee size={18} className="shrink-0 text-amber-700 dark:text-amber-500" />
       <p className="min-w-0 flex-1 text-sm">
-        <strong>{candidates.length} işlem</strong> kafe harcamasına benziyor ({names}). Kafe kategorisine taşınsın mı? Sonraki ekstrelerde bu yerler
-        otomatik Kafe olarak gelir.
+        <strong>{t("{n} işlem", { n: candidates.length })}</strong>{" "}
+        {t("kafe harcamasına benziyor ({names}). Kafe kategorisine taşınsın mı? Sonraki ekstrelerde bu yerler otomatik Kafe olarak gelir.", {
+          n: candidates.length,
+          names,
+        })}
       </p>
       <button className="btn-primary shrink-0" disabled={busy} onClick={() => void move()}>
-        Kafe'ye taşı
+        {t("Kafe'ye taşı")}
       </button>
     </div>
   );
@@ -113,20 +118,21 @@ function SubscriptionsCard({ report, busy, save }: { report: AnalysisReport | nu
       <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
         <div className="w-full min-w-0 sm:w-auto sm:flex-1">
           <h2 id="subs-title" className="text-sm font-semibold">
-            Abonelikler {subs && subs.activeCount > 0 && <span className="font-normal text-zinc-500">· {subs.activeCount} aktif</span>}
+            {t("Abonelikler")}{" "}
+            {subs && subs.activeCount > 0 && <span className="font-normal text-zinc-500">· {t("{n} aktif", { n: subs.activeCount })}</span>}
           </h2>
-          <p className="text-xs text-zinc-500">Abonelikler kategorisindeki ödemelerden bulunur; kaçanları işlemde kategorisini değiştirerek ekleyebilirsin.</p>
+          <p className="text-xs text-zinc-500">{t("Abonelikler kategorisindeki ödemelerden bulunur; kaçanları işlemde kategorisini değiştirerek ekleyebilirsin.")}</p>
         </div>
         {!subs ? (
           <div className="flex gap-2">
-            <Stat label="Aylık" value="…" />
-            <Stat label="Yıllık" value="…" strong tone="info" />
+            <Stat label={t("Aylık")} value="…" />
+            <Stat label={t("Yıllık")} value="…" strong tone="info" />
           </div>
         ) : (
           subs.activeCount > 0 && (
             <div className="flex gap-2">
-              <Stat label="Aylık" value={formatMoney(subs.monthlyCents)} />
-              <Stat label="Yıllık" value={formatMoney(subs.yearlyCents)} strong tone="info" />
+              <Stat label={t("Aylık")} value={formatMoney(subs.monthlyCents)} />
+              <Stat label={t("Yıllık")} value={formatMoney(subs.yearlyCents)} strong tone="info" />
             </div>
           )
         )}
@@ -135,8 +141,8 @@ function SubscriptionsCard({ report, busy, save }: { report: AnalysisReport | nu
       {!subs ? null : items.length === 0 ? (
         <EmptyState
           icon={Repeat}
-          title="Henüz abonelik yok"
-          hint="Netflix, Spotify, iCloud gibi ödemeleri Abonelikler kategorisine aldığında burada yıllık maliyetleriyle listelenir."
+          title={t("Henüz abonelik yok")}
+          hint={t("Netflix, Spotify, iCloud gibi ödemeleri Abonelikler kategorisine aldığında burada yıllık maliyetleriyle listelenir.")}
         />
       ) : (
         <>
@@ -144,11 +150,11 @@ function SubscriptionsCard({ report, busy, save }: { report: AnalysisReport | nu
             <table className="w-full text-sm md:min-w-[640px]">
               <thead>
                 <tr className="border-b border-zinc-200 text-left text-xs text-zinc-500 dark:border-zinc-800">
-                  <th className="py-2 pr-3 font-medium">Abonelik</th>
-                  <th className="hidden py-2 pr-3 font-medium md:table-cell">Son ödeme</th>
-                  <th className="hidden py-2 pr-3 font-medium md:table-cell">Sonraki</th>
-                  <th className="hidden py-2 pr-3 text-right font-medium sm:table-cell">Aylık</th>
-                  <th className="py-2 pr-3 text-right font-medium">Yıllık</th>
+                  <th className="py-2 pr-3 font-medium">{t("Abonelik")}</th>
+                  <th className="hidden py-2 pr-3 font-medium md:table-cell">{tc("abonelik", "Son ödeme")}</th>
+                  <th className="hidden py-2 pr-3 font-medium md:table-cell">{t("Sonraki")}</th>
+                  <th className="hidden py-2 pr-3 text-right font-medium sm:table-cell">{t("Aylık")}</th>
+                  <th className="py-2 pr-3 text-right font-medium">{t("Yıllık")}</th>
                   <th className="w-10 py-2" />
                 </tr>
               </thead>
@@ -162,26 +168,26 @@ function SubscriptionsCard({ report, busy, save }: { report: AnalysisReport | nu
                         <div className="flex items-center gap-2">
                           <span className="min-w-0 truncate font-medium">{s.name}</span>
                           <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-[11px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
-                            {s.period === "yearly" ? "Yıllık" : "Aylık"}
+                            {s.period === "yearly" ? t("Yıllık") : t("Aylık")}
                           </span>
                           {s.status === "late" && (
                             <span
                               className="inline-flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[11px] text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
-                              title="Beklenen ödeme uzun süredir görülmedi. İptal ettiysen düzenleyip işaretle."
+                              title={t("Beklenen ödeme uzun süredir görülmedi. İptal ettiysen düzenleyip işaretle.")}
                             >
-                              <AlertTriangle size={11} /> Ödeme görülmedi
+                              <AlertTriangle size={11} /> {t("Ödeme görülmedi")}
                             </span>
                           )}
-                          {dim && <span className="text-[11px] text-zinc-500">İptal edildi</span>}
+                          {dim && <span className="text-[11px] text-zinc-500">{t("İptal edildi")}</span>}
                         </div>
                         <div className="text-xs text-zinc-500">
-                          {account?.name ?? "Silinmiş hesap"} · {s.count} ödeme, toplam {formatMoney(s.totalPaidCents)}
+                          {account?.name ?? t("Silinmiş hesap")} · {t("{n} ödeme, toplam {total}", { n: s.count, total: formatMoney(s.totalPaidCents) })}
                         </div>
                         {/* Telefonda gizlenen sütunlar */}
                         <div className="text-xs text-zinc-500 md:hidden">
-                          Son {formatMoney(s.lastAmountCents)} {formatDateShort(s.lastDate)}
-                          {!dim && ` · sonraki ${formatDateShort(s.nextDate)}`}
-                          <span className="sm:hidden"> · ayda {formatMoney(s.monthlyCents)}</span>
+                          {t("Son {amount} {date}", { amount: formatMoney(s.lastAmountCents), date: formatDateShort(s.lastDate) })}
+                          {!dim && ` · ${t("sonraki {date}", { date: formatDateShort(s.nextDate) })}`}
+                          <span className="sm:hidden"> · {t("ayda {amount}", { amount: formatMoney(s.monthlyCents) })}</span>
                         </div>
                       </td>
                       <td className="hidden py-2.5 pr-3 tabular-nums md:table-cell">
@@ -191,7 +197,7 @@ function SubscriptionsCard({ report, busy, save }: { report: AnalysisReport | nu
                       <td className="hidden py-2.5 pr-3 text-right tabular-nums sm:table-cell">{formatMoney(s.monthlyCents)}</td>
                       <td className="py-2.5 pr-3 text-right font-semibold tabular-nums">{formatMoney(s.yearlyCents)}</td>
                       <td className="py-2.5 text-right">
-                        <button className="icon-btn" aria-label={`${s.name} aboneliğini düzenle`} title="Düzenle" disabled={busy} onClick={() => setEditing(s)}>
+                        <button className="icon-btn" aria-label={t("{name} aboneliğini düzenle", { name: s.name })} title={t("Düzenle")} disabled={busy} onClick={() => setEditing(s)}>
                           <Pencil size={14} />
                         </button>
                       </td>
@@ -202,10 +208,10 @@ function SubscriptionsCard({ report, busy, save }: { report: AnalysisReport | nu
             </table>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-500">
-            <span>Tutarlar son ödemeden hesaplanır; dövizli aboneliklerde kura göre değişir.</span>
+            <span>{t("Tutarlar son ödemeden hesaplanır; dövizli aboneliklerde kura göre değişir.")}</span>
             {cancelled.length > 0 && (
               <button className="btn-ghost -my-1 px-2 py-1 text-xs" onClick={() => setShowCancelled((v) => !v)}>
-                {showCancelled ? "İptal edilenleri gizle" : `İptal edilenleri göster (${cancelled.length})`}
+                {showCancelled ? t("İptal edilenleri gizle") : t("İptal edilenleri göster ({n})", { n: cancelled.length })}
               </button>
             )}
           </div>
@@ -230,21 +236,21 @@ function SubscriptionEditor({ sub, save: saveSettings, onClose }: { sub: Subscri
     else delete next[sub.key];
     onClose();
     saveSettings({ subscriptionOverrides: next })
-      .then(() => toast(o ? "Abonelik güncellendi." : "Abonelik otomatik bulunan haline döndü."))
-      .catch((e) => toast(`Abonelik kaydedilemedi: ${errorMessage(e)}`, "error"));
+      .then(() => toast(o ? t("Abonelik güncellendi.") : t("Abonelik otomatik bulunan haline döndü.")))
+      .catch((e) => toast(t("Abonelik kaydedilemedi: {error}", { error: errorMessage(e) }), "error"));
   };
 
   return (
     <Modal
-      title="Aboneliği düzenle"
+      title={t("Aboneliği düzenle")}
       onClose={onClose}
       footer={
         <>
           <button className="btn-ghost mr-auto" onClick={() => save(null)}>
-            Varsayılana dön
+            {t("Varsayılana dön")}
           </button>
           <button className="btn-secondary" onClick={onClose}>
-            Vazgeç
+            {t("Vazgeç")}
           </button>
           <button
             className="btn-primary"
@@ -256,7 +262,7 @@ function SubscriptionEditor({ sub, save: saveSettings, onClose }: { sub: Subscri
               })
             }
           >
-            Kaydet
+            {t("Kaydet")}
           </button>
         </>
       }
@@ -264,23 +270,23 @@ function SubscriptionEditor({ sub, save: saveSettings, onClose }: { sub: Subscri
       <div className="space-y-4">
         <div>
           <label className="label" htmlFor="sub-name">
-            Ad
+            {t("Ad")}
           </label>
           <input id="sub-name" className="input" placeholder={sub.merchant} value={name} onChange={(e) => setName(e.target.value)} />
-          <p className="mt-1 text-xs text-zinc-500">Ekstredeki açıklama: {sub.merchant}</p>
+          <p className="mt-1 text-xs text-zinc-500">{t("Ekstredeki açıklama: {merchant}", { merchant: sub.merchant })}</p>
         </div>
         <div>
-          <span className="label">Ödeme sıklığı</span>
+          <span className="label">{t("Ödeme sıklığı")}</span>
           <Segmented<SubscriptionPeriod> value={period} options={PERIODS} onChange={setPeriod} />
           <p className="mt-1 text-xs text-zinc-500">
-            Yıllık abonelikte son ödeme tutarı bir yılın maliyeti sayılır ve aylık maliyeti 12'ye bölünür.
+            {t("Yıllık abonelikte son ödeme tutarı bir yılın maliyeti sayılır ve aylık maliyeti 12'ye bölünür.")}
           </p>
         </div>
         <label className="flex items-start gap-2 text-sm">
           <input type="checkbox" className="mt-1" checked={cancelled} onChange={(e) => setCancelled(e.target.checked)} />
           <span>
-            İptal ettim
-            <span className="block text-xs text-zinc-500">Toplamlara katılmaz; listede soluk görünür.</span>
+            {t("İptal ettim")}
+            <span className="block text-xs text-zinc-500">{t("Toplamlara katılmaz; listede soluk görünür.")}</span>
           </span>
         </label>
       </div>
@@ -301,38 +307,40 @@ function ForecastCard({ report, busy, save }: { report: AnalysisReport | null; b
   const basisLabel = !result
     ? "…"
     : result.monthsOfData === 0
-      ? "Henüz tamamlanmış ay yok; tahmin bu ayın gidişatından hesaplanır ve ay ilerledikçe netleşir."
-      : `Son ${result.monthsOfData} tamamlanmış ayın ortalamasına dayanır${result.monthsOfData < 3 ? "; veri arttıkça tahmin iyileşir" : ""}.`;
+      ? t("Henüz tamamlanmış ay yok; tahmin bu ayın gidişatından hesaplanır ve ay ilerledikçe netleşir.")
+      : result.monthsOfData < 3
+        ? t("Son {n} tamamlanmış ayın ortalamasına dayanır; veri arttıkça tahmin iyileşir.", { n: result.monthsOfData })
+        : t("Son {n} tamamlanmış ayın ortalamasına dayanır.", { n: result.monthsOfData });
 
   return (
     <section className="card p-5" aria-labelledby="fc-title">
       <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
         <div className="w-full min-w-0 sm:w-auto sm:flex-1">
           <h2 id="fc-title" className="text-sm font-semibold">
-            Değişken giderler · tahmin
+            {t("Değişken giderler · tahmin")}
           </h2>
-          <p className="text-xs text-zinc-500">{basisLabel} Harcama tarihine göre hesaplanır.</p>
+          <p className="text-xs text-zinc-500">{basisLabel} {t("Harcama tarihine göre hesaplanır.")}</p>
         </div>
         {!result ? (
           <div className="flex gap-2">
-            <Stat label="Aylık tahmin" value="…" />
-            <Stat label="Yıllık tahmin" value="…" strong tone="expense" />
+            <Stat label={t("Aylık tahmin")} value="…" />
+            <Stat label={t("Yıllık tahmin")} value="…" strong tone="expense" />
           </div>
         ) : (
           result.items.length > 0 && (
             <div className="flex gap-2">
-              <Stat label="Aylık tahmin" value={formatMoney(result.monthlyCents)} />
-              <Stat label="Yıllık tahmin" value={formatMoney(result.yearlyCents)} strong tone="expense" />
+              <Stat label={t("Aylık tahmin")} value={formatMoney(result.monthlyCents)} />
+              <Stat label={t("Yıllık tahmin")} value={formatMoney(result.yearlyCents)} strong tone="expense" />
             </div>
           )
         )}
         <button className="btn-secondary" disabled={!result || busy} onClick={() => setChoosing(true)}>
-          <SlidersHorizontal size={15} /> Kategoriler
+          <SlidersHorizontal size={15} /> {t("Kategoriler")}
         </button>
       </div>
 
       {!result ? null : result.items.length === 0 ? (
-        <EmptyState icon={SlidersHorizontal} title="Tahmin edilecek kategori seçilmedi" hint="Kategoriler düğmesinden seç." />
+        <EmptyState icon={SlidersHorizontal} title={t("Tahmin edilecek kategori seçilmedi")} hint={t("Kategoriler düğmesinden seç.")} />
       ) : (
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {items.map(({ f, category }) => (
@@ -356,19 +364,19 @@ function ForecastItem({ f, category }: { f: ForecastRow; category: Pick<Category
       <div className="flex items-baseline gap-2">
         <CategoryDot color={category.color} size={10} />
         <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">{category.name}</h3>
-        <span className="text-xs text-zinc-500">yılda</span>
+        <span className="text-xs text-zinc-500">{t("yılda")}</span>
         <span className="text-base font-semibold tabular-nums">{formatMoney(f.yearlyCents)}</span>
       </div>
       <div className="mt-1 flex flex-wrap items-baseline gap-x-2 text-sm">
         <span className="tabular-nums">
-          ayda ~<strong>{formatMoney(f.monthlyCents)}</strong>
+          {rich(t("ayda ~{amount}"), { amount: <strong>{formatMoney(f.monthlyCents)}</strong> })}
         </span>
         {f.avgTicketCents !== null && f.perMonthCount !== null && (
           <span className="text-xs text-zinc-500">
-            · ayda ~{f.perMonthCount.toLocaleString("tr-TR")} işlem, ortalama {formatMoney(f.avgTicketCents)}
+            · {t("ayda ~{count} işlem, ortalama {avg}", { count: f.perMonthCount.toLocaleString(locale), avg: formatMoney(f.avgTicketCents) })}
           </span>
         )}
-        {f.fromRunRate && <span className="text-xs text-zinc-500">· bu ayın gidişatından</span>}
+        {f.fromRunRate && <span className="text-xs text-zinc-500">· {t("bu ayın gidişatından")}</span>}
       </div>
 
       {/* Aylık harcama çubukları: tamamlanmış aylar + bu ay (dolu: harcanan, açık: beklenen ay sonu) */}
@@ -379,7 +387,7 @@ function ForecastItem({ f, category }: { f: ForecastRow; category: Pick<Category
             <span className="text-[10px] text-zinc-500">{monthLabel(h.month)}</span>
           </div>
         ))}
-        <div className="flex flex-1 flex-col items-center gap-1" title={`Bu ay: ${formatMoney(f.spentThisMonthCents)}, beklenen ${formatMoney(f.projectedMonthEndCents)}`}>
+        <div className="flex flex-1 flex-col items-center gap-1" title={t("Bu ay: {spent}, beklenen {projected}", { spent: formatMoney(f.spentThisMonthCents), projected: formatMoney(f.projectedMonthEndCents) })}>
           <div className="relative w-full" style={{ height: `${(f.projectedMonthEndCents / max) * 48}px` }}>
             <div className="absolute inset-0 rounded-t border border-dashed opacity-60" style={{ borderColor: category.color }} />
             <div
@@ -387,24 +395,27 @@ function ForecastItem({ f, category }: { f: ForecastRow; category: Pick<Category
               style={{ height: `${f.projectedMonthEndCents > 0 ? (f.spentThisMonthCents / f.projectedMonthEndCents) * 100 : 0}%`, backgroundColor: category.color }}
             />
           </div>
-          <span className="text-[10px] font-medium text-zinc-600 dark:text-zinc-300">Bu ay</span>
+          <span className="text-[10px] font-medium text-zinc-600 dark:text-zinc-300">{t("Bu ay")}</span>
         </div>
       </div>
 
       <p className="mt-3 text-xs text-zinc-600 dark:text-zinc-400">
-        Bu ay şimdiye kadar <strong className="tabular-nums">{formatMoney(f.spentThisMonthCents)}</strong> ({f.countThisMonth} işlem); ay sonu beklentisi{" "}
-        <strong className="tabular-nums">{formatMoney(f.projectedMonthEndCents)}</strong>
+        {rich(t("Bu ay şimdiye kadar {spent} ({count}); ay sonu beklentisi {projected}"), {
+          spent: <strong className="tabular-nums">{formatMoney(f.spentThisMonthCents)}</strong>,
+          count: t("{n} işlem", { n: f.countThisMonth }),
+          projected: <strong className="tabular-nums">{formatMoney(f.projectedMonthEndCents)}</strong>,
+        })}
         {f.budgetCents !== null && (
           <>
             {" "}
-            · limit {formatMoney(f.budgetCents)}
-            {f.overBudget && <span className="font-medium text-rose-600 dark:text-rose-400"> (aşabilir)</span>}
+            · {t("limit {amount}", { amount: formatMoney(f.budgetCents) })}
+            {f.overBudget && <span className="font-medium text-rose-600 dark:text-rose-400"> ({t("aşabilir")})</span>}
           </>
         )}
       </p>
       {f.topMerchants.length > 0 && (
-        <p className="mt-1 truncate text-xs text-zinc-500" title={f.topMerchants.map((m) => m.name).join(", ")}>
-          En çok: {f.topMerchants.map((m) => `${m.name} ${formatMoney(m.totalCents)}`).join(" · ")}
+        <p className="mt-1 truncate text-xs text-zinc-500" title={f.topMerchants.map((m) => merchantName(m.name)).join(", ")}>
+          {t("En çok:")} {f.topMerchants.map((m) => `${merchantName(m.name)} ${formatMoney(m.totalCents)}`).join(" · ")}
         </p>
       )}
     </div>
@@ -415,7 +426,7 @@ function ForecastCategoryPicker({ selected, save: saveSettings, onClose }: { sel
   const { categories } = useData();
   const { toast } = useUI();
   const update = (patch: Partial<Settings>) =>
-    void saveSettings(patch).catch((e) => toast(`Kategoriler kaydedilemedi: ${errorMessage(e)}`, "error"));
+    void saveSettings(patch).catch((e) => toast(t("Kategoriler kaydedilemedi: {error}", { error: errorMessage(e) }), "error"));
   const expense = categories.filter((c) => c.type === "expense");
   const [picked, setPicked] = useState(() => new Set(selected));
   const toggle = (id: string) =>
@@ -428,7 +439,7 @@ function ForecastCategoryPicker({ selected, save: saveSettings, onClose }: { sel
 
   return (
     <Modal
-      title="Tahmin edilecek kategoriler"
+      title={t("Tahmin edilecek kategoriler")}
       onClose={onClose}
       footer={
         <>
@@ -439,10 +450,10 @@ function ForecastCategoryPicker({ selected, save: saveSettings, onClose }: { sel
               onClose();
             }}
           >
-            Varsayılana dön
+            {t("Varsayılana dön")}
           </button>
           <button className="btn-secondary" onClick={onClose}>
-            Vazgeç
+            {t("Vazgeç")}
           </button>
           <button
             className="btn-primary"
@@ -451,12 +462,12 @@ function ForecastCategoryPicker({ selected, save: saveSettings, onClose }: { sel
               onClose();
             }}
           >
-            Kaydet
+            {t("Kaydet")}
           </button>
         </>
       }
     >
-      <p className="mb-3 text-xs text-zinc-500">Varsayılan: {DEFAULT_FORECAST_CATEGORIES.join(", ")}. Abonelikler ayrı bölümde izlenir.</p>
+      <p className="mb-3 text-xs text-zinc-500">{t("Varsayılan: {names}. Abonelikler ayrı bölümde izlenir.", { names: DEFAULT_FORECAST_CATEGORIES.join(", ") })}</p>
       <ul className="grid grid-cols-2 gap-1">
         {expense.map((c) => (
           <li key={c.id}>

@@ -9,6 +9,7 @@ import { useBudgetReport } from "../state/budgetReport";
 import { useData } from "../state/data";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
+import { t, tm } from "../lib/i18n";
 
 /** "YYYY-MM" → ayın ilk günü (yerel) */
 const monthOf = (ym: string) => new Date(Number(ym.slice(0, 4)), Number(ym.slice(5, 7)) - 1, 1);
@@ -40,8 +41,8 @@ function BudgetInput({ value, onSave }: { value: number | null; onSave(v: number
       // Düzenlenebilir olduğu her zaman belli olsun: kalıcı hafif kenarlık
       className={`input w-24 py-1 text-right tabular-nums md:w-32 ${editing ? "" : "border-zinc-200 bg-transparent shadow-none hover:border-zinc-400 dark:border-zinc-800 dark:hover:border-zinc-600"}`}
       inputMode="decimal"
-      placeholder="+ Limit koy"
-      aria-label="Aylık limit"
+      placeholder={t("+ Limit koy")}
+      aria-label={t("Aylık limit")}
       value={text}
       onFocus={() => setEditing(true)}
       onChange={(e) => setText(e.target.value)}
@@ -78,25 +79,25 @@ function RecurringList({
     <section className="card overflow-hidden">
       <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 dark:border-zinc-800">
         <div>
-          <h2 className="text-sm font-semibold">{type === "income" ? "Düzenli Gelirler" : "Düzenli Giderler"}</h2>
+          <h2 className="text-sm font-semibold">{type === "income" ? t("Düzenli Gelirler") : t("Düzenli Giderler")}</h2>
           <p className="text-xs text-zinc-500">
-            <span className="capitalize">{monthName(month)}</span> toplamı {totalCents === null ? placeholder : formatMoney(totalCents / 100)}
+            {t("{month} toplamı {amount}", { month: monthName(month), amount: totalCents === null ? placeholder : formatMoney(totalCents / 100) })}
           </p>
         </div>
         <button className="btn-ghost px-2 py-1 text-xs" onClick={() => openRecurringForm(undefined, type)}>
-          <Plus size={14} /> Ekle
+          <Plus size={14} /> {t("Ekle")}
         </button>
       </div>
       {items.length === 0 ? (
         <EmptyState
           icon={Repeat}
-          title={type === "income" ? "Maaş gibi düzenli gelir ekleyin" : "Kira, fatura, abonelik ekleyin"}
-          hint={type === "income" ? "Ödeme takvimi, kart ve kredi ödemelerini bu gelirlere göre dağıtır." : undefined}
+          title={type === "income" ? t("Maaş gibi düzenli gelir ekleyin") : t("Kira, fatura, abonelik ekleyin")}
+          hint={type === "income" ? t("Ödeme takvimi, kart ve kredi ödemelerini bu gelirlere göre dağıtır.") : undefined}
         />
       ) : (
         <>
           {current.length === 0 ? (
-            <p className="px-5 py-3 text-sm text-zinc-500">Bu ayda geçerli kayıt yok.</p>
+            <p className="px-5 py-3 text-sm text-zinc-500">{t("Bu ayda geçerli kayıt yok.")}</p>
           ) : (
             <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
               {current.map(({ r, row }) => {
@@ -111,7 +112,7 @@ function RecurringList({
                       <div className="truncate text-sm font-medium">{r.name}</div>
                       <div className="truncate text-xs text-zinc-500">
                         {row ? formatDateShort(row.date) : placeholder}
-                        {r.type === "income" && r.coversPreviousMonth && ` · ${monthName(month)} karşılığı`}
+                        {r.type === "income" && r.coversPreviousMonth && ` · ${t("{month} karşılığı", { month: monthName(month) })}`}
                         {r.accountId && accountById.get(r.accountId) && ` · ${accountById.get(r.accountId)!.name}`}
                         {r.categoryId && ` · ${categoryById.get(r.categoryId)?.name ?? ""}`}
                       </div>
@@ -119,14 +120,14 @@ function RecurringList({
                     {r.active && r.autoPost && (
                       <span
                         className="shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300"
-                        title="Günü gelince işlem olarak kendiliğinden kaydedilir"
+                        title={t("Günü gelince işlem olarak kendiliğinden kaydedilir")}
                       >
-                        otomatik
+                        {t("otomatik")}
                       </span>
                     )}
                     {!r.active && (
                       <span className="shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-[11px] font-medium text-zinc-700 dark:bg-zinc-700 dark:text-zinc-200">
-                        pasif · toplama girmez
+                        {t("pasif · toplama girmez")}
                       </span>
                     )}
                     <span className="text-right">
@@ -139,14 +140,14 @@ function RecurringList({
                       </span>
                       {exception && (
                         <span className="block text-xs text-indigo-600 dark:text-indigo-400">
-                          {none ? "bu ay yok" : "bu aya özel"}
+                          {none ? t("bu ay yok") : t("bu aya özel")}
                           {exception.note && exception.note !== "Yatmayacak" ? (
                             ` · ${exception.note}`
                           ) : (
                             <>
                               {" · "}
                               <button className="underline underline-offset-2" onClick={() => openRecurringForm(r)}>
-                                sebep ekle
+                                {t("sebep ekle")}
                               </button>
                             </>
                           )}
@@ -155,8 +156,8 @@ function RecurringList({
                     </span>
                     <button
                       className="icon-btn opacity-40 transition focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-                      title="Düzenle"
-                      aria-label={`${r.name} düzenle`}
+                      title={t("Düzenle")}
+                      aria-label={t("{name} düzenle", { name: r.name })}
                       onClick={() => openRecurringForm(r)}
                     >
                       <Pencil size={15} />
@@ -168,7 +169,7 @@ function RecurringList({
           )}
           {upcoming.length > 0 && (
             <p className="border-t border-zinc-100 px-5 py-2 text-xs text-zinc-500 dark:border-zinc-800">
-              Sonraki aylarda başlayan:{" "}
+              {t("Sonraki aylarda başlayan:")}{" "}
               {upcoming.map(({ r }, i) => (
                 <span key={r.id}>
                   {i > 0 && ", "}
@@ -254,38 +255,42 @@ export function BudgetPage() {
   const diffCents = totals ? totals.spentAllCents - totals.byDateCents : 0;
   const dateDiffHint =
     totals && Math.abs(diffCents) >= 1
-      ? `Harcama tarihine göre ${formatMoney(totals.byDateCents / 100)}; ${formatMoney(Math.abs(diffCents) / 100)} kart harcaması ${
-          diffCents < 0 ? "ödeyecek maaşın ayı olan başka bir aya" : "başka aylardan bu aya"
-        } yazıldı.`
+      ? (() => {
+          const v = { byDate: formatMoney(totals.byDateCents / 100), diff: formatMoney(Math.abs(diffCents) / 100) };
+          return diffCents < 0
+            ? t("Harcama tarihine göre {byDate}; {diff} kart harcaması ödeyecek maaşın ayı olan başka bir aya yazıldı.", v)
+            : t("Harcama tarihine göre {byDate}; {diff} kart harcaması başka aylardan bu aya yazıldı.", v);
+        })()
       : null;
   const carryHint =
     totals && totals.carryCents !== 0
-      ? `${formatMoney(totals.budgetCents / 100)} limit ${totals.carryCents > 0 ? "+" : "−"} ${formatMoney(Math.abs(totals.carryCents) / 100)} ${
-          totals.carryCents > 0 ? "devreden" : "geçen aşım"
-        }`
+      ? (() => {
+          const v = { limit: formatMoney(totals.budgetCents / 100), carry: formatMoney(Math.abs(totals.carryCents) / 100) };
+          return totals.carryCents > 0 ? t("{limit} limit + {carry} devreden", v) : t("{limit} limit − {carry} geçen aşım", v);
+        })()
       : null;
   const tiles = [
     // Bu ayın payları (limit + devir); "Kalan" = pay − bütçeli harcama
-    { label: "Toplam bütçe", cents: totals?.envelopeCents, color: "info" as TileTone, hint: carryHint },
-    { label: "Bütçeli harcama", cents: totals?.spentBudgetedCents, color: "expense" as TileTone },
+    { label: t("Toplam bütçe"), cents: totals?.envelopeCents, color: "info" as TileTone, hint: carryHint },
+    { label: t("Bütçeli harcama"), cents: totals?.spentBudgetedCents, color: "expense" as TileTone },
     // Bütçe aşılınca kalan kutusu da gider rengine döner
     // Rapor yokken nötr ton (yanlışlıkla "yeşil" görünmesin)
-    { label: "Kalan", cents: totals?.remainingCents, color: (!totals ? "plain" : totals.remainingCents < 0 ? "expense" : "income") as TileTone },
-    { label: "Ayın gideri (bütçe ayına göre)", cents: totals?.spentAllCents, color: "plain" as TileTone, hint: dateDiffHint },
+    { label: t("Kalan"), cents: totals?.remainingCents, color: (!totals ? "plain" : totals.remainingCents < 0 ? "expense" : "income") as TileTone },
+    { label: t("Ayın gideri (bütçe ayına göre)"), cents: totals?.spentAllCents, color: "plain" as TileTone, hint: dateDiffHint },
   ];
 
   return (
     <>
       <PageHeader
-        title="Bütçe"
-        subtitle="Kategori limitleri, düzenli gelir ve giderler"
+        title={t("Bütçe")}
+        subtitle={t("Kategori limitleri, düzenli gelir ve giderler")}
         actions={
           <div className="flex items-center gap-1">
-            <button className="icon-btn" title="Önceki ay" disabled={!report} onClick={() => report && setMonth(report.prevMonth)}>
+            <button className="icon-btn" title={t("Önceki ay")} disabled={!report} onClick={() => report && setMonth(report.prevMonth)}>
               <ChevronLeft size={18} />
             </button>
             <span className="w-36 text-center text-sm font-medium capitalize">{formatMonthYear(monthDate)}</span>
-            <button className="icon-btn" title="Sonraki ay" disabled={!report} onClick={() => report && setMonth(report.nextMonth)}>
+            <button className="icon-btn" title={t("Sonraki ay")} disabled={!report} onClick={() => report && setMonth(report.nextMonth)}>
               <ChevronRight size={18} />
             </button>
           </div>
@@ -294,9 +299,9 @@ export function BudgetPage() {
 
       {error && (
         <div role="alert" className="card mb-4 flex items-center justify-between gap-3 px-5 py-4 text-sm">
-          <span className="text-rose-600 dark:text-rose-400">Bütçe alınamadı: {error}</span>
+          <span className="text-rose-600 dark:text-rose-400">{t("Bütçe alınamadı: {error}", { error: tm(error) })}</span>
           <button className="btn-secondary px-3 py-1.5 text-xs" onClick={retry}>
-            Tekrar dene
+            {t("Tekrar dene")}
           </button>
         </div>
       )}
@@ -310,10 +315,10 @@ export function BudgetPage() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
         <section className="card overflow-hidden xl:col-span-3">
           <div className="border-b border-zinc-200 px-5 py-3.5 dark:border-zinc-800">
-            <h2 className="text-sm font-semibold">Kategori Bütçeleri</h2>
+            <h2 className="text-sm font-semibold">{t("Kategori Bütçeleri")}</h2>
             <p className="text-xs text-zinc-500">
-              Limiti değiştirmek için tutara tıklayın; boş bırakırsanız limit kaldırılır. <Redo2 size={11} className="inline" /> devret: artan ya da aşan
-              tutar sonraki aya geçer.
+              {t("Limiti değiştirmek için tutara tıklayın; boş bırakırsanız limit kaldırılır.")} <Redo2 size={11} className="inline" />{" "}
+              {t("devret: artan ya da aşan tutar sonraki aya geçer.")}
             </p>
           </div>
           <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -340,8 +345,12 @@ export function BudgetPage() {
                     {budget !== null && (
                       <button
                         className={`icon-btn ${rolloverFrom ? "text-indigo-600 dark:text-indigo-400" : "opacity-40 hover:opacity-100"}`}
-                        title={rolloverFrom ? `Devrediyor (${formatMonthYear(monthOf(rolloverFrom))} ayından beri); kapatmak için tıklayın` : "Artan ya da aşan tutar sonraki aya devretsin"}
-                        aria-label={`${c.name} devret`}
+                        title={
+                          rolloverFrom
+                            ? t("Devrediyor ({month} ayından beri); kapatmak için tıklayın", { month: formatMonthYear(monthOf(rolloverFrom)) })
+                            : t("Artan ya da aşan tutar sonraki aya devretsin")
+                        }
+                        aria-label={t("{name} devret", { name: c.name })}
                         aria-pressed={!!rolloverFrom}
                         onClick={() => void toggleRollover(c.id, !rolloverFrom)}
                       >
@@ -357,11 +366,13 @@ export function BudgetPage() {
                       <span className={`text-right text-xs tabular-nums ${over ? "text-rose-600 dark:text-rose-400" : "text-zinc-500"}`}>
                         {carry !== null && carry !== 0 && (
                           <span className="text-indigo-600 dark:text-indigo-400">
-                            {carry > 0 ? `+${formatMoney(carry / 100)} devreden` : `−${formatMoney(-carry / 100)} geçen aşım`}
+                            {carry > 0
+                              ? t("+{amount} devreden", { amount: formatMoney(carry / 100) })
+                              : t("−{amount} geçen aşım", { amount: formatMoney(-carry / 100) })}
                             {" · "}
                           </span>
                         )}
-                        {over ? `${formatMoney(-left / 100)} aşıldı` : `${formatMoney(left / 100)} kaldı`}
+                        {over ? t("{amount} aşıldı", { amount: formatMoney(-left / 100) }) : t("{amount} kaldı", { amount: formatMoney(left / 100) })}
                       </span>
                     </div>
                   )}
@@ -370,7 +381,7 @@ export function BudgetPage() {
             })}
             {report && report.uncategorizedCents !== null && (
               <li className="flex items-center gap-3 px-5 py-3 text-sm text-zinc-500">
-                <span className="flex-1 italic">Kategorisiz</span>
+                <span className="flex-1 italic">{t("Kategorisiz")}</span>
                 <span className="tabular-nums">{formatMoney(report.uncategorizedCents / 100)}</span>
               </li>
             )}
@@ -379,10 +390,10 @@ export function BudgetPage() {
 
         <div className="space-y-4 xl:col-span-2">
           <section className="card p-5">
-            <h2 className="text-sm font-semibold">Aylık Plan Özeti</h2>
+            <h2 className="text-sm font-semibold">{t("Aylık Plan Özeti")}</h2>
             <div className="mt-3 space-y-2 text-sm">
               <div className="flex justify-between">
-                <span className="text-zinc-500">Düzenli gelir</span>
+                <span className="text-zinc-500">{t("Düzenli gelir")}</span>
                 <span className="font-medium tabular-nums text-emerald-600 dark:text-emerald-400">{money(report?.regularIncomeCents)}</span>
               </div>
               {incomeLines.length > 0 && (
@@ -391,23 +402,23 @@ export function BudgetPage() {
                     <li key={l.item.id} className="flex justify-between gap-3">
                       <span className="min-w-0 truncate text-zinc-500">
                         {formatDateShort(l.date)} · {l.item.name}
-                        {l.item.coversPreviousMonth && ` (${monthName(month)} karşılığı)`}
+                        {l.item.coversPreviousMonth && ` (${t("{month} karşılığı", { month: monthName(month) })})`}
                         {l.receivedCents > 0 ? (
-                          <span className="text-emerald-600 dark:text-emerald-400"> · yattı</span>
+                          <span className="text-emerald-600 dark:text-emerald-400"> · {t("yattı")}</span>
                         ) : l.exception ? (
                           <span className={l.exception.amountCents === 0 ? "text-rose-600 dark:text-rose-400" : "text-indigo-600 dark:text-indigo-400"}>
                             {" · "}
-                            {l.exception.amountCents === 0 ? "yok" : "bu aya özel"}
+                            {l.exception.amountCents === 0 ? t("yok") : t("bu aya özel")}
                             {l.exception.note && l.exception.note !== "Yatmayacak" ? ` (${l.exception.note})` : ""}
                           </span>
                         ) : (
-                          <span> · plan</span>
+                          <span> · {t("plan")}</span>
                         )}
                       </span>
                       <span className="shrink-0 tabular-nums">
                         {formatMoney(l.usedCents / 100)}
                         {l.receivedCents > 0 && l.receivedCents !== l.plannedCents && (
-                          <span className="ml-1 text-zinc-400">(plan {formatMoney(l.plannedCents / 100)})</span>
+                          <span className="ml-1 text-zinc-400">({t("plan {amount}", { amount: formatMoney(l.plannedCents / 100) })})</span>
                         )}
                       </span>
                     </li>
@@ -415,29 +426,30 @@ export function BudgetPage() {
                 </ul>
               )}
               <div className="flex justify-between">
-                <span className="text-zinc-500">Düzensiz gelir (bu ay)</span>
+                <span className="text-zinc-500">{t("Düzensiz gelir (bu ay)")}</span>
                 <span className="font-medium tabular-nums text-emerald-600 dark:text-emerald-400">{money(report?.irregularIncomeCents)}</span>
               </div>
               {irregularIncomes.length > 0 && (
                 <ul className="space-y-1 rounded-lg bg-zinc-50 px-3 py-2 text-xs dark:bg-zinc-800/50">
-                  {irregularIncomes.slice(0, 6).map(({ t, cents }) => (
-                    <li key={t.id} className="flex justify-between gap-3">
+                  {irregularIncomes.slice(0, 6).map(({ t: tx, cents }) => (
+                    <li key={tx.id} className="flex justify-between gap-3">
                       <span className="min-w-0 truncate text-zinc-500">
-                        {formatDateShort(t.date)} · {t.description || (t.categoryId && categoryById.get(t.categoryId)?.name) || "Gelir"}
+                        {formatDateShort(tx.date)} · {tx.description || (tx.categoryId && categoryById.get(tx.categoryId)?.name) || t("Gelir")}
                       </span>
                       <span className="shrink-0 tabular-nums">{formatMoney(cents / 100)}</span>
                     </li>
                   ))}
-                  {irregularIncomes.length > 6 && <li className="text-zinc-400">+{irregularIncomes.length - 6} kayıt daha</li>}
+                  {irregularIncomes.length > 6 && <li className="text-zinc-400">{t("+{n} kayıt daha", { n: irregularIncomes.length - 6 })}</li>}
                 </ul>
               )}
               <div className="flex justify-between">
-                <span className="text-zinc-500">Düzenli gider</span>
+                <span className="text-zinc-500">{t("Düzenli gider")}</span>
                 <span className="font-medium tabular-nums">{minus(report?.regularExpenseCents)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-zinc-500">
-                  Kategori bütçeleri{report && totals && report.budgetReservedCents > totals.budgetCents ? " (aşım dahil)" : ""}
+                  {t("Kategori bütçeleri")}
+                  {report && totals && report.budgetReservedCents > totals.budgetCents ? ` (${t("aşım dahil")})` : ""}
                 </span>
                 <span className="font-medium tabular-nums">{minus(report?.budgetReservedCents)}</span>
               </div>
@@ -447,10 +459,10 @@ export function BudgetPage() {
                   className="flex w-full justify-between text-left"
                   onClick={() => setShowIrregular((v) => !v)}
                   disabled={irregularByAccount.length === 0}
-                  title="Hesaplara göre göster"
+                  title={t("Hesaplara göre göster")}
                 >
                   <span className="flex items-center gap-1 text-zinc-500">
-                    Düzensiz gider (bütçesiz kategoriler)
+                    {t("Düzensiz gider (bütçesiz kategoriler)")}
                     {irregularByAccount.length > 0 && <ChevronDown size={14} className={`transition ${showIrregular ? "rotate-180" : ""}`} />}
                   </span>
                   <span
@@ -466,8 +478,8 @@ export function BudgetPage() {
                       return (
                         <div key={accountId} className="flex justify-between gap-3">
                           <span className="truncate text-zinc-500">
-                            {a?.name ?? "Silinmiş hesap"}
-                            {a?.kind === "credit_card" ? " · kart ekstresi" : ""}
+                            {a?.name ?? t("Silinmiş hesap")}
+                            {a?.kind === "credit_card" ? ` · ${t("kart ekstresi")}` : ""}
                           </span>
                           <span className="tabular-nums text-zinc-600 dark:text-zinc-300">−{formatMoney(cents / 100)}</span>
                         </div>
@@ -477,7 +489,7 @@ export function BudgetPage() {
                 )}
               </div>
               <div className="flex justify-between border-t border-zinc-200 pt-2 dark:border-zinc-800">
-                <span className="font-medium">Kalan (kredi taksitleri ve birikim için)</span>
+                <span className="font-medium">{t("Kalan (kredi taksitleri ve birikim için)")}</span>
                 <span className={`font-semibold tabular-nums ${(report?.leftCents ?? 0) < 0 ? "text-rose-600 dark:text-rose-400" : ""}`}>
                   {money(report?.leftCents)}
                 </span>
@@ -486,23 +498,21 @@ export function BudgetPage() {
                 // Sıfır tabanlı bütçe: gelirin her lirası bir işe atanır; kalan da birikime ya da bir limite dağıtılır
                 <p className={`text-xs ${report.leftCents < 0 ? "text-rose-600 dark:text-rose-400" : "text-zinc-500"}`}>
                   {report.leftCents > 0
-                    ? `${formatMoney(report.leftCents / 100)} henüz bir işe atanmadı: birikim hedefine ya da bir kategori limitine dağıtın.`
+                    ? t("{amount} henüz bir işe atanmadı: birikim hedefine ya da bir kategori limitine dağıtın.", { amount: formatMoney(report.leftCents / 100) })
                     : report.leftCents === 0
-                      ? "Her lira bir işe atandı."
-                      : "Plan gelirden fazla: limitleri azaltın ya da gelir ekleyin."}
+                      ? t("Her lira bir işe atandı.")
+                      : t("Plan gelirden fazla: limitleri azaltın ya da gelir ekleyin.")}
                 </p>
               )}
             </div>
             <details className="mt-3 text-xs text-zinc-500">
-              <summary className="cursor-pointer font-medium">Nasıl hesaplanır?</summary>
+              <summary className="cursor-pointer font-medium">{t("Nasıl hesaplanır?")}</summary>
               <ul className="mt-1.5 list-disc space-y-1 pl-4">
-                <li>Düzensiz gelir/gider: İşlemler'e girilen ve bir düzenli kayıtla eşleşmeyen hareketler.</li>
-                <li>Bütçeli kategorilerde limit düşülür (aşıldıysa harcanan); hiçbir tutar iki kez sayılmaz.</li>
-                <li>Kart harcamaları, ekstresini ödeyecek maaşın ayına yazılır; taksitler kendi ekstrelerinin ayına düşer.</li>
+                <li>{t("Düzensiz gelir/gider: İşlemler'e girilen ve bir düzenli kayıtla eşleşmeyen hareketler.")}</li>
+                <li>{t("Bütçeli kategorilerde limit düşülür (aşıldıysa harcanan); hiçbir tutar iki kez sayılmaz.")}</li>
+                <li>{t("Kart harcamaları, ekstresini ödeyecek maaşın ayına yazılır; taksitler kendi ekstrelerinin ayına düşer.")}</li>
                 <li>
-                  Devreden kategoride önceki ayların artanı bu ayın payına eklenir, aşımı düşülür; hiçbiri iki kez sayılmaz. Devir açıldığı aydan
-                  başlar ve geçmiş aylar bugünkü limitle, bugünkü kayıtlarla hesaplanır (eski bir işlemin kategorisi ya da maaş günü değişirse devir
-                  de değişir). Gelecek aylarda bu ayın kalanı tümüyle artmış sayılır. Limit kaldırılırsa devir de kapanır.
+                  {t("Devreden kategoride önceki ayların artanı bu ayın payına eklenir, aşımı düşülür; hiçbiri iki kez sayılmaz. Devir açıldığı aydan başlar ve geçmiş aylar bugünkü limitle, bugünkü kayıtlarla hesaplanır (eski bir işlemin kategorisi ya da maaş günü değişirse devir de değişir). Gelecek aylarda bu ayın kalanı tümüyle artmış sayılır. Limit kaldırılırsa devir de kapanır.")}
                 </li>
               </ul>
             </details>

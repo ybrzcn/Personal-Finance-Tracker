@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useState } from "react";
 import type { CategorySlice, MerchantRow } from "../lib/stats";
+import { locale, t } from "../lib/i18n";
 import { useSettings } from "../state/settings";
 
 type Tab = "category" | "account" | "merchant";
@@ -9,9 +10,9 @@ type Tab = "category" | "account" | "merchant";
 const LIMIT = 9;
 
 const TABS: { value: Tab; label: string }[] = [
-  { value: "category", label: "Kategori" },
-  { value: "account", label: "Hesap" },
-  { value: "merchant", label: "Harcama yeri" },
+  { value: "category", label: t("Kategori") },
+  { value: "account", label: t("Hesap") },
+  { value: "merchant", label: t("Harcama yeri") },
 ];
 
 interface Row {
@@ -39,10 +40,10 @@ function Delta({ now, before }: { now: number; before: number }) {
       className={`${base} ${
         up ? "bg-rose-50 text-rose-700 dark:bg-rose-900 dark:text-rose-300" : "bg-emerald-50 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300"
       }`}
-      title={`Önceki dönem: ${before.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺`}
+      title={t("Önceki dönem: {amount}", { amount: `${before.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺` })}
     >
       {up ? <ArrowUp size={12} /> : <ArrowDown size={12} />}
-      {pct === null ? "yeni" : `%${pct}`}
+      {pct === null ? t("yeni") : t("%{v}", { v: pct })}
     </span>
   );
 }
@@ -80,7 +81,7 @@ export function SpendingBreakdown({
         categories.map((c) => ({ ...c, before: hasPrevious ? (prevBy.get(c.id) ?? 0) : undefined }))
       : tab === "account"
         ? accounts
-        : merchants.map((m) => ({ id: m.key, name: m.name, color: "", value: m.total, meta: `${m.count} işlem` }));
+        : merchants.map((m) => ({ id: m.key, name: m.name, color: "", value: m.total, meta: t("{n} işlem", { n: m.count }) }));
   // Önceki dönem ve fark sütunları yalnız kategori sekmesinde (karşılaştırma varsa)
   const showPrev = tab === "category" && hasPrevious;
   const visible = expanded ? rows : rows.slice(0, LIMIT);
@@ -89,9 +90,9 @@ export function SpendingBreakdown({
     <section className="card flex w-full flex-col px-5 py-4" aria-labelledby="spend-title">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
         <h2 id="spend-title" className="min-w-0 flex-1 text-[15px] font-semibold">
-          Harcama dağılımı · {periodLabel}
+          {t("Harcama dağılımı")} · {periodLabel}
         </h2>
-        <div className="segmented" role="group" aria-label="Gruplama">
+        <div className="segmented" role="group" aria-label={t("Gruplama")}>
           {TABS.map((t) => (
             <button
               key={t.value}
@@ -111,23 +112,23 @@ export function SpendingBreakdown({
         <span className="text-xl font-bold tabular-nums text-zinc-900 dark:text-zinc-50">{formatMoney(total)}</span>
         {prevTotal !== null && prevTotal > 0 && (
           <>
-            · önceki dönem {formatMoney(prevTotal)} <Delta now={total} before={prevTotal} />
+            · {t("önceki dönem {amount}", { amount: formatMoney(prevTotal) })} <Delta now={total} before={prevTotal} />
           </>
         )}
       </div>
 
       {rows.length === 0 ? (
-        <p className="mt-6 text-sm text-zinc-500">Bu dönemde gider yok.</p>
+        <p className="mt-6 text-sm text-zinc-500">{t("Bu dönemde gider yok.")}</p>
       ) : (
         <div className="-mx-1 overflow-x-auto px-1">
           <table className="w-full border-collapse text-[13px] tabular-nums">
             <thead>
               <tr className="border-b border-zinc-200 text-right text-[11px] text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
                 <th className="py-1.5 text-left font-medium">{TABS.find((t) => t.value === tab)!.label}</th>
-                <th className="hidden w-32 font-medium sm:table-cell">{tab === "merchant" ? "İşlem" : "Pay"}</th>
-                <th className="font-medium">Bu dönem</th>
-                {showPrev && <th className="hidden font-medium sm:table-cell">Önceki</th>}
-                {showPrev && <th className="w-16 font-medium">Fark</th>}
+                <th className="hidden w-32 font-medium sm:table-cell">{tab === "merchant" ? t("İşlem") : t("Pay")}</th>
+                <th className="font-medium">{t("Bu dönem")}</th>
+                {showPrev && <th className="hidden font-medium sm:table-cell">{t("Önceki")}</th>}
+                {showPrev && <th className="w-16 font-medium">{t("Fark")}</th>}
               </tr>
             </thead>
             <tbody>
@@ -152,7 +153,7 @@ export function SpendingBreakdown({
                           <span className="inline-block h-[5px] w-16 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
                             <span className="block h-full rounded-full" style={{ width: `${Math.max(share, 1)}%`, backgroundColor: barColor }} />
                           </span>
-                          <span className="w-8 text-zinc-500">%{share}</span>
+                          <span className="w-8 text-zinc-500">{t("%{v}", { v: share })}</span>
                         </span>
                       )}
                     </td>
@@ -172,7 +173,7 @@ export function SpendingBreakdown({
       )}
       {rows.length > LIMIT && (
         <button className="btn-ghost -ml-2 mt-auto self-start px-2 py-1 text-xs" onClick={() => setExpanded((v) => !v)}>
-          {expanded ? "Daha az göster" : `Tümünü göster (${rows.length})`}
+          {expanded ? t("Daha az göster") : t("Tümünü göster ({n})", { n: rows.length })}
         </button>
       )}
     </section>

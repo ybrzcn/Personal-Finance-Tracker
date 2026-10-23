@@ -19,6 +19,7 @@ import { Dashboard } from "./pages/Dashboard";
 import { SettingsPage } from "./pages/Settings";
 import { Transactions } from "./pages/Transactions";
 import { api } from "./lib/api";
+import { t } from "./lib/i18n";
 import { useAutoPost } from "./state/autoPost";
 import { useData } from "./state/data";
 import { useUI, type Page } from "./state/ui";
@@ -49,7 +50,7 @@ export default function App() {
     api
       .databaseInfo()
       .then((db) => {
-        if (db.fallbackFrom) toast(`Seçili veritabanı açılamadı (${db.fallbackFrom}); varsayılan veritabanı kullanılıyor. Ayarlar'a bakın.`, "error");
+        if (db.fallbackFrom) toast(t("Seçili veritabanı açılamadı ({path}); varsayılan veritabanı kullanılıyor. Ayarlar'a bakın.", { path: db.fallbackFrom }), "error");
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -91,10 +92,10 @@ export default function App() {
           ) : loadError ? (
             <div className="card mx-auto mt-20 max-w-md p-6 text-center">
               <AlertTriangle className="mx-auto mb-3 text-rose-500" />
-              <p className="font-medium">Veriler yüklenemedi</p>
+              <p className="font-medium">{t("Veriler yüklenemedi")}</p>
               <p className="mt-1 text-sm text-zinc-500">{loadError}</p>
               <button className="btn-primary mt-4" onClick={() => void reload()}>
-                Tekrar dene
+                {t("Tekrar dene")}
               </button>
             </div>
           ) : (

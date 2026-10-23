@@ -4,6 +4,7 @@ import { api, errorMessage } from "../lib/api";
 import { openStatementFile } from "../lib/fileio";
 import { formatDate, formatDateShort } from "../lib/format";
 import { isForeign } from "../lib/fx";
+import { locale, t, tm } from "../lib/i18n";
 import { newId } from "../lib/id";
 import type { ColumnMap, ImportRow, SignMode, StatementSummary, Transaction } from "../lib/types";
 import { useData } from "../state/data";
@@ -19,12 +20,12 @@ interface Props {
 }
 
 const COLUMN_LABELS: { key: keyof ColumnMap; label: string; required?: boolean }[] = [
-  { key: "date", label: "Tarih", required: true },
-  { key: "description", label: "Açıklama" },
-  { key: "amount", label: "Tutar (tek sütun)" },
-  { key: "debit", label: "Borç / Çıkan" },
-  { key: "credit", label: "Alacak / Giren" },
-  { key: "installments", label: "Taksit" },
+  { key: "date", label: t("Tarih"), required: true },
+  { key: "description", label: t("Açıklama") },
+  { key: "amount", label: t("Tutar (tek sütun)") },
+  { key: "debit", label: t("Borç / Çıkan") },
+  { key: "credit", label: t("Alacak / Giren") },
+  { key: "installments", label: t("Taksit") },
 ];
 
 export function StatementImportDialog({ accountId: initialAccountId, onClose, onSaved }: Props) {
@@ -56,7 +57,7 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
   const rowsSeq = useRef(0);
   const [rowsPending, setRowsPending] = useState(false);
   const rebuild = async (
-    t: string[][],
+    tbl: string[][],
     h: number,
     m: ColumnMap | null,
     s: SignMode | null,
@@ -72,7 +73,7 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
     }
     setRowsPending(true);
     try {
-      const res = await api.statementRows({ table: t, headerRow: h, columns: m, signMode: s, accountId: accId, closingDate: closing });
+      const res = await api.statementRows({ table: tbl, headerRow: h, columns: m, signMode: s, accountId: accId, closingDate: closing });
       if (n !== rowsSeq.current) return;
       setRows(res.rows);
       setSkipped(res.skipped);
@@ -101,13 +102,13 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
       if (!picked || !account) return;
       const file = { name: picked.name };
       // Okuma Rust'ta (tablo, başlık, sütunlar, özet)
-      const { table: t, headerRow: h, columns: m, summary: sum } = picked.file;
+      const { table: tbl, headerRow: h, columns: m, summary: sum } = picked.file;
       setFileName(file.name);
       setSummary(sum);
-      setTable(t);
+      setTable(tbl);
       setHeaderRow(h);
       setMap(m);
-      await rebuild(t, h, m, null, account.id, sum?.closingDate ?? null, true);
+      await rebuild(tbl, h, m, null, account.id, sum?.closingDate ?? null, true);
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -157,11 +158,11 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
   const cardFix = cardNow?.cardFix ?? null;
   const beforeTracking = cardNow?.beforeTracking ?? false;
   const FIX_LABEL: Record<string, string> = {
-    statementDay: "kesim günü",
-    dueDay: "son ödeme günü",
-    creditLimit: "limit",
-    interestRate: "faiz",
-    minPaymentRate: "asgari oran",
+    statementDay: t("kesim günü"),
+    dueDay: t("son ödeme günü"),
+    creditLimit: t("limit"),
+    interestRate: t("faiz"),
+    minPaymentRate: t("asgari oran"),
   };
 
   const doImport = async () => {
@@ -182,11 +183,11 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
         installments: r.type === "expense" && account.kind === "credit_card" ? r.installments : 1,
         createdAt: now,
       }));
-      const bad = newTxs.findIndex((t) => t.type === "transfer" && !t.toAccountId);
-      if (bad >= 0) throw `${selected[bad].line}. satır: transfer için hedef hesap seçin.`;
+      const bad = newTxs.findIndex((tx) => tx.type === "transfer" && !tx.toAccountId);
+      if (bad >= 0) throw t("{line}. satır: transfer için hedef hesap seçin.", { line: selected[bad].line });
       const data = await latest();
       await restore({ ...data, transactions: [...data.transactions, ...newTxs] });
-      onSaved(`${newTxs.length} işlem ${account.name} hesabına aktarıldı.`);
+      onSaved(t("{n} işlem {account} hesabına aktarıldı.", { n: newTxs.length, account: account.name }));
       onClose();
     } catch (e) {
       setError(errorMessage(e));
@@ -203,22 +204,23 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
 
   return (
     <Modal
-      title="Ekstre İçe Aktar"
+      title={t("Ekstre İçe Aktar")}
       onClose={onClose}
       width="max-w-6xl"
       footer={
         <>
           {rows.length > 0 && (
             <span className="mr-auto self-center text-sm text-zinc-500">
-              {selected.length}/{rows.length} satır seçili · Gider {formatMoney(totals.out)} · Gelir {formatMoney(totals.inc)}
-              {skipped > 0 && ` · ${skipped} satır okunamadı`}
+              {t("{selected}/{total} satır seçili", { selected: selected.length, total: rows.length })} · {t("Gider")} {formatMoney(totals.out)} ·{" "}
+              {t("Gelir")} {formatMoney(totals.inc)}
+              {skipped > 0 && ` · ${t("{n} satır okunamadı", { n: skipped })}`}
             </span>
           )}
           <button type="button" className="btn-secondary" onClick={onClose}>
-            Vazgeç
+            {t("Vazgeç")}
           </button>
           <button type="button" className="btn-primary" disabled={saving || rowsPending || !selected.length} onClick={doImport}>
-            İçe aktar
+            {t("İçe aktar")}
           </button>
         </>
       }
@@ -227,7 +229,7 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
         <div className="flex flex-wrap items-end gap-3">
           <div className="w-80">
             <label className="label" htmlFor="si-account">
-              Hesap
+              {t("Hesap")}
             </label>
             <select
               id="si-account"
@@ -244,17 +246,18 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
           </div>
           <button type="button" className="btn-secondary" onClick={pickFile} disabled={!account || reading} aria-busy={reading}>
             {reading ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16} />}{" "}
-            {reading ? "Dosya okunuyor…" : fileName ? "Başka dosya seç" : "Dosya seç (Excel, PDF, CSV)"}
+            {reading ? t("Dosya okunuyor…") : fileName ? t("Başka dosya seç") : t("Dosya seç (Excel, PDF, CSV)")}
           </button>
           {fileName && <span className="text-sm text-zinc-500">{fileName}</span>}
         </div>
 
         {!table.length && (
           <p className="text-sm text-zinc-500">
-            Bankanızın internet şubesinden hesap hareketlerini veya kart ekstresini <strong>Excel</strong>, <strong>PDF</strong> ya da{" "}
-            <strong>CSV</strong> olarak indirip seçin. Sütunlar otomatik tanınır; gerekirse aşağıdan düzeltebilirsiniz. Kategoriler
-            geçmiş işlemlerinize ve bilinen işyeri adlarına göre önerilir. PDF'te tarihle başlayan satırlar okunur; şifreli PDF'leri
-            önce şifresiz kaydedin. Excel en güvenilir sonucu verir.
+            {t(
+              "Bankanızın internet şubesinden hesap hareketlerini veya kart ekstresini {excel}, {pdf} ya da {csv} olarak indirip seçin. Sütunlar otomatik tanınır; gerekirse aşağıdan düzeltebilirsiniz. Kategoriler geçmiş işlemlerinize ve bilinen işyeri adlarına göre önerilir. PDF'te tarihle başlayan satırlar okunur; şifreli PDF'leri önce şifresiz kaydedin. Excel en güvenilir sonucu verir.",
+            )
+              .split(/\{(excel|pdf|csv)\}/)
+              .map((part, i) => (i % 2 ? <strong key={i}>{part === "excel" ? "Excel" : part.toUpperCase()}</strong> : part))}
           </p>
         )}
 
@@ -262,7 +265,7 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
           <div className="grid grid-cols-2 gap-3 rounded-xl bg-zinc-50 p-3 md:grid-cols-4 lg:grid-cols-8 dark:bg-zinc-800/50">
             <div>
               <label className="label" htmlFor="si-header">
-                Başlık satırı
+                {t("Başlık satırı")}
               </label>
               <select
                 id="si-header"
@@ -290,7 +293,7 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
                   <option value={-1}>—</option>
                   {header.map((h, i) => (
                     <option key={i} value={i}>
-                      {h || `Sütun ${i + 1}`}
+                      {h || t("Sütun {n}", { n: i + 1 })}
                     </option>
                   ))}
                 </select>
@@ -298,7 +301,7 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
             ))}
             <div>
               <label className="label" htmlFor="si-sign">
-                Harcama işareti
+                {t("Harcama işareti")}
               </label>
               <select
                 id="si-sign"
@@ -311,8 +314,8 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
                   void rebuild(table, headerRow, map, s, accountId);
                 }}
               >
-                <option value="negativeIsExpense">Eksi (−) = harcama</option>
-                <option value="positiveIsExpense">Artı (+) = harcama</option>
+                <option value="negativeIsExpense">{t("Eksi (−) = harcama")}</option>
+                <option value="positiveIsExpense">{t("Artı (+) = harcama")}</option>
               </select>
             </div>
           </div>
@@ -321,32 +324,38 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
         {summary && (
           <div className="space-y-2 rounded-xl border border-zinc-200 p-3 text-sm dark:border-zinc-800">
             <div className="flex flex-wrap gap-x-5 gap-y-1">
-              <span className="font-medium">Ekstre özeti</span>
-              {summary.closingDate && <span className="text-zinc-500">Kesim <strong className="text-zinc-900 dark:text-zinc-100">{formatDateShort(summary.closingDate)}</strong></span>}
-              {summary.dueDate && <span className="text-zinc-500">Son ödeme <strong className="text-zinc-900 dark:text-zinc-100">{formatDateShort(summary.dueDate)}</strong></span>}
-              {summary.periodDebt !== null && <span className="text-zinc-500">Dönem borcu <strong className="text-zinc-900 dark:text-zinc-100">{formatMoney(summary.periodDebt)}</strong></span>}
-              {summary.creditLimit !== null && <span className="text-zinc-500">Limit <strong className="text-zinc-900 dark:text-zinc-100">{formatMoney(summary.creditLimit)}</strong></span>}
-              {summary.interestRate !== null && <span className="text-zinc-500">Faiz <strong className="text-zinc-900 dark:text-zinc-100">%{summary.interestRate.toLocaleString("tr-TR")}</strong></span>}
+              <span className="font-medium">{t("Ekstre özeti")}</span>
+              {summary.closingDate && <span className="text-zinc-500">{t("Kesim")} <strong className="text-zinc-900 dark:text-zinc-100">{formatDateShort(summary.closingDate)}</strong></span>}
+              {summary.dueDate && <span className="text-zinc-500">{t("Son ödeme")} <strong className="text-zinc-900 dark:text-zinc-100">{formatDateShort(summary.dueDate)}</strong></span>}
+              {summary.periodDebt !== null && <span className="text-zinc-500">{t("Dönem borcu")} <strong className="text-zinc-900 dark:text-zinc-100">{formatMoney(summary.periodDebt)}</strong></span>}
+              {summary.creditLimit !== null && <span className="text-zinc-500">{t("Limit")} <strong className="text-zinc-900 dark:text-zinc-100">{formatMoney(summary.creditLimit)}</strong></span>}
+              {summary.interestRate !== null && <span className="text-zinc-500">{t("Faiz")} <strong className="text-zinc-900 dark:text-zinc-100">{t("%{v}", { v: summary.interestRate.toLocaleString(locale) })}</strong></span>}
             </div>
             {summary.periodSpending !== null && rows.length > 0 && sumsNow && sumsNow.matchesSummary !== null && (
               sumsNow.matchesSummary ? (
-                <p className="text-emerald-600 dark:text-emerald-400">✓ Seçili satırların toplamı ekstredeki dönem içi harcamalarla ({formatMoney(summary.periodSpending)}) birebir tutuyor.</p>
+                <p className="text-emerald-600 dark:text-emerald-400">
+                  ✓ {t("Seçili satırların toplamı ekstredeki dönem içi harcamalarla ({amount}) birebir tutuyor.", { amount: formatMoney(summary.periodSpending) })}
+                </p>
               ) : (
                 <p className="text-amber-600 dark:text-amber-400">
-                  Seçili satırların toplamı {formatMoney(sumsNow.net)}, ekstredeki dönem içi harcamalar {formatMoney(summary.periodSpending)} (fark{" "}
-                  {formatMoney(sumsNow.difference ?? 0)}). Atlanan veya okunamayan satırları kontrol edin.
+                  {t("Seçili satırların toplamı {net}, ekstredeki dönem içi harcamalar {spending} (fark {diff}). Atlanan veya okunamayan satırları kontrol edin.", {
+                    net: formatMoney(sumsNow.net),
+                    spending: formatMoney(summary.periodSpending),
+                    diff: formatMoney(sumsNow.difference ?? 0),
+                  })}
                 </p>
               )
             )}
             {beforeTracking && (
               <p className="text-amber-600 dark:text-amber-400">
-                Bu ekstre kartın takip başlangıcından önce kesilmiş; içe aktarılan harcamalar ödenmiş sayılır ve borca eklenmez. Gerekirse kart
-                ayarlarından takip başlangıcını değiştirin.
+                {t(
+                  "Bu ekstre kartın takip başlangıcından önce kesilmiş; içe aktarılan harcamalar ödenmiş sayılır ve borca eklenmez. Gerekirse kart ayarlarından takip başlangıcını değiştirin.",
+                )}
               </p>
             )}
             {cardFix && account && (
               <div className="flex flex-wrap items-center gap-2">
-                <span className="text-zinc-500">Kart ayarlarınız ekstreden farklı ({cardFix.differs.map((k) => FIX_LABEL[k]).join(", ")}).</span>
+                <span className="text-zinc-500">{t("Kart ayarlarınız ekstreden farklı ({fields}).", { fields: cardFix.differs.map((k) => FIX_LABEL[k]).join(", ") })}</span>
                 <button
                   type="button"
                   className="btn-secondary px-2.5 py-1 text-xs"
@@ -358,7 +367,7 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
                     }
                   }}
                 >
-                  Ekstreye göre güncelle
+                  {t("Ekstreye göre güncelle")}
                 </button>
               </div>
             )}
@@ -373,29 +382,29 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
                   <th className="w-8 px-3 py-2">
                     <input
                       type="checkbox"
-                      aria-label="Tümünü seç"
+                      aria-label={t("Tümünü seç")}
                       checked={selected.length === rows.length}
                       onChange={(e) => setRows((rs) => rs.map((r) => ({ ...r, include: e.target.checked })))}
                     />
                   </th>
-                  <th className="hidden w-28 px-3 py-2 md:table-cell">Tarih</th>
-                  <th className="px-3 py-2">Açıklama</th>
-                  <th className="hidden w-32 px-3 py-2 text-right md:table-cell">Tutar</th>
-                  <th className="hidden w-44 px-3 py-2 md:table-cell">Tür</th>
-                  <th className="hidden w-44 px-3 py-2 md:table-cell">Kategori</th>
+                  <th className="hidden w-28 px-3 py-2 md:table-cell">{t("Tarih")}</th>
+                  <th className="px-3 py-2">{t("Açıklama")}</th>
+                  <th className="hidden w-32 px-3 py-2 text-right md:table-cell">{t("Tutar")}</th>
+                  <th className="hidden w-44 px-3 py-2 md:table-cell">{t("Tür")}</th>
+                  <th className="hidden w-44 px-3 py-2 md:table-cell">{t("Kategori")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
                 {rows.map((r, i) => {
                   const typeSelect = (
-                    <select className="input py-1 text-xs" aria-label="Tür" value={typeValue(r)} onChange={(e) => setType(i, e.target.value)}>
-                      <option value="expense">Gider</option>
-                      <option value="income">Gelir / İade</option>
+                    <select className="input py-1 text-xs" aria-label={t("Tür")} value={typeValue(r)} onChange={(e) => setType(i, e.target.value)}>
+                      <option value="expense">{t("Gider")}</option>
+                      <option value="income">{t("Gelir / İade")}</option>
                       {accounts
                         .filter((a) => a.id !== accountId && !a.archived && !isForeign(a.currency))
                         .map((a) => (
                           <option key={a.id} value={`transfer:${a.id}`}>
-                            Transfer → {a.name}
+                            {t("Transfer")} → {a.name}
                           </option>
                         ))}
                     </select>
@@ -406,11 +415,11 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
                     ) : (
                       <select
                         className="input py-1 text-xs"
-                        aria-label="Kategori"
+                        aria-label={t("Kategori")}
                         value={r.categoryId ?? ""}
                         onChange={(e) => patchRow(i, { categoryId: e.target.value || null })}
                       >
-                        <option value="">Kategorisiz</option>
+                        <option value="">{t("Kategorisiz")}</option>
                         {categories
                           .filter((c) => c.type === r.type)
                           .map((c) => (
@@ -429,9 +438,9 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
                       <td className="px-3 py-1.5 md:max-w-0">
                         <div className="truncate" title={r.description}>
                           {r.description || "—"}
-                          {r.installments > 1 && <span className="ml-1 text-xs text-zinc-500">({r.installments} taksit)</span>}
+                          {r.installments > 1 && <span className="ml-1 text-xs text-zinc-500">({t("{n} taksit", { n: r.installments })})</span>}
                         </div>
-                        {r.note && <div className="truncate text-xs text-amber-600 dark:text-amber-400">{r.note}</div>}
+                        {r.note && <div className="truncate text-xs text-amber-600 dark:text-amber-400">{tm(r.note)}</div>}
                         {/* Telefonda tarih, tutar, tür ve kategori açıklamanın altında */}
                         <div className="mt-1 space-y-1.5 md:hidden">
                           <div className="flex justify-between text-xs text-zinc-500">
@@ -455,7 +464,7 @@ export function StatementImportDialog({ accountId: initialAccountId, onClose, on
 
         {map && rows.length === 0 && (
           <p className="text-sm text-amber-600 dark:text-amber-400">
-            Satır okunamadı. Tarih ve tutar (veya borç/alacak) sütunlarını kontrol edin.
+            {t("Satır okunamadı. Tarih ve tutar (veya borç/alacak) sütunlarını kontrol edin.")}
           </p>
         )}
         {error && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">{error}</p>}

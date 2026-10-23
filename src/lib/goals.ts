@@ -1,14 +1,15 @@
 import { formatQty, TRY } from "./fx";
 import type { GoalStatus } from "./types";
+import { locale, t } from "./i18n";
 
 /** Hedefe bağlanabilen hesap türleri (döviz/altın/fon hesapları da bu türlerde) */
 export const GOAL_ACCOUNT_KINDS = new Set(["bank", "cash"]);
 
 export const STATUS_LABEL: Record<GoalStatus, string> = {
-  reached: "Ulaşıldı",
-  on_track: "Yolunda",
-  behind: "Geride",
-  unknown: "Bilinmiyor",
+  reached: t("Ulaşıldı"),
+  on_track: t("Yolunda"),
+  behind: t("Geride"),
+  unknown: t("Bilinmiyor"),
 };
 
 export const STATUS_TONE: Record<GoalStatus, string> = {
@@ -22,5 +23,6 @@ export const STATUS_TONE: Record<GoalStatus, string> = {
 export const formatGoalAmount = (v: number, code: string, money: (n: number) => string): string =>
   code === TRY ? money(v) : formatQty(v, code);
 
-const MONTHS = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
-export const monthYear = (iso: string): string => `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(0, 4)}`;
+const monthYearFmt = new Intl.DateTimeFormat(locale, { month: "long", year: "numeric" });
+/** "2027-03-01" → "Mart 2027" */
+export const monthYear = (iso: string): string => monthYearFmt.format(new Date(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, 1));

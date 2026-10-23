@@ -1,6 +1,7 @@
 import { Download, Loader2, X } from "lucide-react";
 import { openReleases } from "../lib/updater";
 import { updatesEnabled, useUpdates } from "../state/updates";
+import { t } from "../lib/i18n";
 
 /** Yeni sürüm uyarısı (masaüstü): sağ altta; "Sonra" o sürüm için gizler, Ayarlar'dan yine kurulabilir */
 export function UpdateNotice() {
@@ -23,16 +24,16 @@ function Notice() {
           <Download size={16} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold">Finans {update.version} hazır</p>
+          <p className="text-sm font-semibold">{t("Finans {v} hazır", { v: update.version })}</p>
           <p className="mt-0.5 text-xs text-zinc-500">
-            Şu an {update.currentVersion} kullanıyorsun.{" "}
+            {t("Şu an {v} kullanıyorsun.", { v: update.currentVersion })}{" "}
             <button className="underline hover:text-zinc-700 dark:hover:text-zinc-300" onClick={() => void openReleases()}>
-              Yenilikler
+              {t("Yenilikler")}
             </button>
           </p>
         </div>
         {!working && (
-          <button className="icon-btn -mr-1 -mt-1" title="Sonra" aria-label="Sonra" onClick={dismiss}>
+          <button className="icon-btn -mr-1 -mt-1" title={t("Sonra")} aria-label={t("Sonra")} onClick={dismiss}>
             <X size={16} />
           </button>
         )}
@@ -48,27 +49,31 @@ function Notice() {
           </div>
           <p className="flex items-center gap-1.5 text-xs text-zinc-500">
             <Loader2 size={12} className="animate-spin" />
-            {phase === "installing" ? "Kuruluyor; uygulama yeniden başlayacak…" : `İndiriliyor${percent === null ? "…" : ` %${percent}`}`}
+            {phase === "installing"
+              ? t("Kuruluyor; uygulama yeniden başlayacak…")
+              : percent === null
+                ? t("İndiriliyor…")
+                : t("İndiriliyor %{v}", { v: percent })}
           </p>
         </div>
       ) : update.canInstall ? (
         <div className="mt-3 flex flex-wrap gap-2">
           <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => void install()}>
-            Güncelle ve yeniden başlat
+            {t("Güncelle ve yeniden başlat")}
           </button>
           <button className="btn-ghost px-3 py-1.5 text-xs" onClick={dismiss}>
-            Sonra
+            {t("Sonra")}
           </button>
         </div>
       ) : (
         <div className="mt-3 space-y-2">
-          <p className="text-xs text-zinc-500">Bu kurulum kendini güncelleyemiyor; yeni sürümü indirip kurman gerekiyor.</p>
+          <p className="text-xs text-zinc-500">{t("Bu kurulum kendini güncelleyemiyor; yeni sürümü indirip kurman gerekiyor.")}</p>
           <div className="flex flex-wrap gap-2">
             <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => void openReleases()}>
-              İndirme sayfasını aç
+              {t("İndirme sayfasını aç")}
             </button>
             <button className="btn-ghost px-3 py-1.5 text-xs" onClick={dismiss}>
-              Sonra
+              {t("Sonra")}
             </button>
           </div>
         </div>

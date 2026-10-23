@@ -466,8 +466,9 @@ impl DataStore for PgStore<'_, '_> {
     fn insert_attachment(&mut self, a: &Attachment, data: &[u8]) -> CoreResult<()> {
         let u = self.user_id.clone();
         self.exec(
-            "INSERT INTO attachments (user_id, id, transaction_id, name, mime, size, data) VALUES ($1, $2, $3, $4, $5, $6, $7)",
-            &[&u, &a.id, &a.transaction_id, &a.name, &a.mime, &a.size, &data],
+            "INSERT INTO attachments (user_id, id, transaction_id, name, mime, size, data, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE(NULLIF($8, '')::timestamptz, clock_timestamp()))",
+            &[&u, &a.id, &a.transaction_id, &a.name, &a.mime, &a.size, &data, &a.created_at],
         )?;
         Ok(())
     }

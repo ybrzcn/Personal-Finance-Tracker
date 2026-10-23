@@ -2,6 +2,8 @@ import { AlertTriangle, Check, Trophy, TrendingDown } from "lucide-react";
 import { useState, type KeyboardEvent } from "react";
 import { EmptyState, PageHeader, Term, TERMS } from "../components/common";
 import { errorMessage } from "../lib/api";
+import { locale, t } from "../lib/i18n";
+import { rich } from "../lib/rich";
 import { DEBT_RULE_LABEL, STRATEGY_LABEL, type DebtRule } from "../lib/debtLabels";
 import { amountToInput, formatDate, parseAmount } from "../lib/format";
 import { monthName } from "../lib/recurring";
@@ -48,7 +50,7 @@ function MonthBudgetInput({
       className={`input w-32 py-1 text-right tabular-nums ${value !== undefined ? "font-semibold" : ""} ${warn ? "border-amber-400 dark:border-amber-500/60" : ""}`}
       inputMode="decimal"
       placeholder={placeholder}
-      title={warn ? "Bu ay gelirden (düzenli giderler düşüldükten sonra) fazlası ayrılıyor" : "Boş bırakılırsa varsayılan aylık tutar kullanılır"}
+      title={warn ? t("Bu ay gelirden (düzenli giderler düşüldükten sonra) fazlası ayrılıyor") : t("Boş bırakılırsa varsayılan aylık tutar kullanılır")}
       value={text}
       onChange={(e) => setText(e.target.value)}
       onBlur={commit}
@@ -63,7 +65,7 @@ export function DebtPlannerPage() {
   const { settings, formatMoney } = useSettings();
   const { report, error, retry, refreshing, save } = useDebtPlan();
   // Ayar veritabanına yazılamazsa değer geri alınır ve kullanıcı uyarılır
-  const update = (patch: DebtSettingsPatch) => void save(patch).catch((e) => toast(`Borç planı kaydedilemedi: ${errorMessage(e)}`, "error"));
+  const update = (patch: DebtSettingsPatch) => void save(patch).catch((e) => toast(t("Borç planı kaydedilemedi: {error}", { error: errorMessage(e) }), "error"));
   const [budgetText, setBudgetText] = useState(settings.debtBudget > 0 ? amountToInput(settings.debtBudget) : "");
   const [selected, setSelected] = useState<DebtStrategy>("avalanche");
   const overrides = settings.debtBudgetOverrides ?? {};
@@ -89,7 +91,7 @@ export function DebtPlannerPage() {
     const v = budgetText.trim() ? parseAmount(budgetText) : 0;
     update({ debtBudget: v && v > 0 ? v : 0 });
   };
-  const header = <PageHeader title="Borç Planı" subtitle="Hangi borcu hangi sırayla kapatırsanız daha az faiz ödersiniz" />;
+  const header = <PageHeader title={t("Borç Planı")} subtitle={t("Hangi borcu hangi sırayla kapatırsanız daha az faiz ödersiniz")} />;
 
   if (!report)
     return (
@@ -97,13 +99,13 @@ export function DebtPlannerPage() {
         {header}
         {error ? (
           <div role="alert" className="card flex items-center justify-between gap-3 px-5 py-4 text-sm">
-            <span className="text-rose-600 dark:text-rose-400">Borç planı alınamadı: {error}</span>
+            <span className="text-rose-600 dark:text-rose-400">{t("Borç planı alınamadı: {error}", { error })}</span>
             <button className="btn-secondary px-3 py-1.5 text-xs" onClick={retry}>
-              Tekrar dene
+              {t("Tekrar dene")}
             </button>
           </div>
         ) : (
-          <div className="card p-5 text-sm text-zinc-500">Borç planı hesaplanıyor…</div>
+          <div className="card p-5 text-sm text-zinc-500">{t("Borç planı hesaplanıyor…")}</div>
         )}
       </>
     );
@@ -112,7 +114,7 @@ export function DebtPlannerPage() {
       <>
         {header}
         <div className="card">
-          <EmptyState icon={Trophy} title="Faiz işleyen borcunuz yok" hint="Kredi kartı borcu, KMH kullanımı veya kredi eklendiğinde burada plan oluşturulur." />
+          <EmptyState icon={Trophy} title={t("Faiz işleyen borcunuz yok")} hint={t("Kredi kartı borcu, KMH kullanımı veya kredi eklendiğinde burada plan oluşturulur.")} />
         </div>
       </>
     );
@@ -120,8 +122,8 @@ export function DebtPlannerPage() {
 
   const debts = report.debts;
   const nameOf = (d: DebtPlanDebt) => {
-    const name = accountById.get(d.id)?.name ?? "Silinmiş hesap";
-    return d.kind === "bank" ? `${name} (KMH)` : name;
+    const name = accountById.get(d.id)?.name ?? t("Silinmiş hesap");
+    return d.kind === "bank" ? t("{name} (KMH)", { name }) : name;
   };
   const colorOf = (id: string) => accountById.get(id)?.color ?? "#a1a1aa";
   const debtById = new Map(debts.map((d) => [d.id, d]));
@@ -145,7 +147,7 @@ export function DebtPlannerPage() {
       <div className="grid grid-cols-1 gap-4 2xl:grid-cols-4">
         <section className="card p-5">
           <label className="label" htmlFor="debt-budget">
-            Borçlara ayırabileceğim aylık tutar
+            {t("Borçlara ayırabileceğim aylık tutar")}
           </label>
           <input
             id="debt-budget"
@@ -158,16 +160,18 @@ export function DebtPlannerPage() {
             onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
           />
           <p className={`mt-2 text-xs text-zinc-500 ${dim}`}>
-            Bu ay asgari ödemeler + kredi taksitleri: <strong>{money(report.minimumCents)}</strong>. Boş bırakılırsa bu tutar kullanılır.
+            {rich(t("Bu ay asgari ödemeler + kredi taksitleri: {amount}. Boş bırakılırsa bu tutar kullanılır."), {
+              amount: <strong>{money(report.minimumCents)}</strong>,
+            })}
           </p>
           {current.budgetShort && (
             <p className={`mt-2 flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400 ${dim}`}>
-              <AlertTriangle size={14} className="mt-px shrink-0" /> Bazı aylarda asgari ödemeler bu tutarı aşıyor; plan asgarileri yine de öder.
+              <AlertTriangle size={14} className="mt-px shrink-0" /> {t("Bazı aylarda asgari ödemeler bu tutarı aşıyor; plan asgarileri yine de öder.")}
             </p>
           )}
           {refreshing && (
             <p className="mt-2 text-xs text-zinc-500" role="status">
-              Hesaplanıyor…
+              {t("Hesaplanıyor…")}
             </p>
           )}
         </section>
@@ -176,13 +180,13 @@ export function DebtPlannerPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-200 bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60">
-                <th className="px-4 py-2.5">Borç</th>
-                <th className="px-4 py-2.5 text-right">Bakiye</th>
+                <th className="px-4 py-2.5">{t("Borç")}</th>
+                <th className="px-4 py-2.5 text-right">{t("Bakiye")}</th>
                 <th className="whitespace-nowrap px-4 py-2.5 text-right">
-                  <Term hint={TERMS.efektif}>Aylık faiz</Term>
+                  <Term hint={TERMS.efektif}>{t("Aylık faiz")}</Term>
                 </th>
-                <th className="whitespace-nowrap px-4 py-2.5 text-right">Asgari</th>
-                <th className="whitespace-nowrap px-4 py-2.5">Planım</th>
+                <th className="whitespace-nowrap px-4 py-2.5 text-right">{t("Asgari")}</th>
+                <th className="whitespace-nowrap px-4 py-2.5">{t("Planım")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -201,21 +205,25 @@ export function DebtPlannerPage() {
                     <td className="px-4 py-2.5 text-right tabular-nums">
                       {money(d.balanceCents)}
                       {d.firstMonthCents !== null && d.firstMonthCents !== d.balanceCents && (
-                        <div className="text-xs text-zinc-500">ilk ay {money(d.firstMonthCents)}</div>
+                        <div className="text-xs text-zinc-500">{t("ilk ay {amount}", { amount: money(d.firstMonthCents) })}</div>
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums">
-                      %{(d.monthlyRate * 100).toLocaleString("tr-TR", { maximumFractionDigits: 2 })}
+                      {t("%{v}", { v: (d.monthlyRate * 100).toLocaleString(locale, { maximumFractionDigits: 2 }) })}
                       {/* Hesaptaki akdi oranla farkı çelişki gibi görünmesin: vergiler ayrıca gösterilir */}
-                      {rate ? <div className="text-xs text-zinc-500">%{rate.toLocaleString("tr-TR", { maximumFractionDigits: 2 })} akdi + vergiler</div> : null}
-                      <div className="text-xs text-zinc-500">{money(d.interestCents)}/ay</div>
+                      {rate ? (
+                        <div className="text-xs text-zinc-500">
+                          {t("%{v} akdi + vergiler", { v: rate.toLocaleString(locale, { maximumFractionDigits: 2 }) })}
+                        </div>
+                      ) : null}
+                      <div className="text-xs text-zinc-500">{t("{amount}/ay", { amount: money(d.interestCents) })}</div>
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums">{money(d.minimumCents)}</td>
                     <td className="px-4 py-2">
                       <div className="flex items-center gap-1.5">
                         <select
                           className="input w-32 py-1 text-xs"
-                          aria-label={`${name} ödeme kuralı`}
+                          aria-label={t("{name} ödeme kuralı", { name })}
                           value={ruleOf(d.id).mode}
                           onChange={(e) => {
                             const mode = e.target.value as DebtRuleMode;
@@ -227,7 +235,7 @@ export function DebtPlannerPage() {
                         >
                           {RULE_MODES.map((m) => (
                             <option key={m} value={m}>
-                              {d.kind === "loan" && m === "minimum" ? "Taksit" : d.kind === "bank" && m === "minimum" ? "Yalnız faiz" : DEBT_RULE_LABEL[m]}
+                              {d.kind === "loan" && m === "minimum" ? t("Taksit") : d.kind === "bank" && m === "minimum" ? t("Yalnız faiz") : DEBT_RULE_LABEL[m]}
                             </option>
                           ))}
                         </select>
@@ -235,7 +243,7 @@ export function DebtPlannerPage() {
                           <MonthBudgetInput
                             key={`rule:${d.id}:${ruleOf(d.id).amount ?? ""}`}
                             value={ruleOf(d.id).amount}
-                            placeholder="Aylık"
+                            placeholder={t("Aylık")}
                             warn={false}
                             onSave={(v) => {
                               setRule(d.id, { mode: "fixed", amount: v ?? 0 });
@@ -251,8 +259,10 @@ export function DebtPlannerPage() {
             </tbody>
           </table>
           <p className="border-t border-zinc-100 px-4 py-2 text-xs text-zinc-500 dark:border-zinc-800">
-            Aylık faiz, akdi faize <Term hint={TERMS.KKDF}>KKDF</Term> ve <Term hint={TERMS.BSMV}>BSMV</Term> eklenmiş orandır. Krediler sabit
-            taksitle ödenir; ek ödeme en son krediye yönlendirilir.
+            {rich(t("Aylık faiz, akdi faize {kkdf} ve {bsmv} eklenmiş orandır. Krediler sabit taksitle ödenir; ek ödeme en son krediye yönlendirilir."), {
+              kkdf: <Term hint={TERMS.KKDF}>KKDF</Term>,
+              bsmv: <Term hint={TERMS.BSMV}>BSMV</Term>,
+            })}
           </p>
         </section>
       </div>
@@ -271,27 +281,27 @@ export function DebtPlannerPage() {
                 <span className="text-sm font-semibold">{STRATEGY_LABEL[s]}</span>
                 {isBest && (
                   <span className="shrink-0 whitespace-nowrap rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
-                    En az faiz
+                    {t("En az faiz")}
                   </span>
                 )}
               </div>
               {s === "manual" && planEmpty ? (
-                <p className="mt-3 text-sm text-zinc-500">Planını kur: tabloda her borç için kural seç ya da tutar yaz.</p>
+                <p className="mt-3 text-sm text-zinc-500">{t("Planını kur: tabloda her borç için kural seç ya da tutar yaz.")}</p>
               ) : r.months === null || r.payoffDate === null ? (
-                <p className="mt-3 text-sm text-rose-600 dark:text-rose-400">30 yılda kapanmıyor</p>
+                <p className="mt-3 text-sm text-rose-600 dark:text-rose-400">{t("30 yılda kapanmıyor")}</p>
               ) : (
                 <>
                   <div className="mt-3 text-xl font-semibold tabular-nums">{money(r.totalInterestCents)}</div>
-                  <div className="text-xs text-zinc-500">toplam faiz</div>
+                  <div className="text-xs text-zinc-500">{t("toplam faiz")}</div>
                   <div className="mt-2 text-sm">
-                    {r.months} ay · {formatDate(r.payoffDate)}
+                    {t("{n} ay", { n: r.months })} · {formatDate(r.payoffDate)}
                   </div>
                   {r.extraInterestCents !== null && (
                     <div className="mt-1 text-xs">
                       {r.extraInterestCents >= 100 ? (
-                        <span className="text-rose-600 dark:text-rose-400">+{money(r.extraInterestCents)} fazla faiz</span>
+                        <span className="text-rose-600 dark:text-rose-400">{t("+{amount} fazla faiz", { amount: money(r.extraInterestCents) })}</span>
                       ) : (
-                        <span className="text-zinc-500">En iyiyle aynı sonuç</span>
+                        <span className="text-zinc-500">{t("En iyiyle aynı sonuç")}</span>
                       )}
                     </div>
                   )}
@@ -305,27 +315,27 @@ export function DebtPlannerPage() {
       <section className="card mt-4 overflow-hidden">
         <div className="flex items-center gap-2 border-b border-zinc-200 px-5 py-3.5 dark:border-zinc-800">
           <TrendingDown size={16} className="text-indigo-500" />
-          <h2 className="text-sm font-semibold">{STRATEGY_LABEL[selected]} · aylık ödeme planı</h2>
+          <h2 className="text-sm font-semibold">{STRATEGY_LABEL[selected]} · {t("aylık ödeme planı")}</h2>
           <span className="ml-auto text-xs text-zinc-500">
             {isManual
-              ? "Her borcun her ayki ödemesini hücreye yazın; boş hücreler 'Planım' kuralını kullanır (seçilmediyse ödeme yok)."
-              : "\"Borçlara ayrılan\" sütununda her ay için farklı tutar girebilirsiniz; boş aylar varsayılan tutarı kullanır."}
+              ? t("Her borcun her ayki ödemesini hücreye yazın; boş hücreler 'Planım' kuralını kullanır (seçilmediyse ödeme yok).")
+              : t("\"Borçlara ayrılan\" sütununda her ay için farklı tutar girebilirsiniz; boş aylar varsayılan tutarı kullanır.")}
           </span>
           {isManual && (Object.keys(rules).length > 0 || Object.keys(cells).length > 0) && (
             <button
               className="btn-secondary px-2.5 py-1 text-xs"
-              title="Tüm kuralları ve hücrelere yazılan tutarları temizler"
+              title={t("Tüm kuralları ve hücrelere yazılan tutarları temizler")}
               onClick={async () => {
                 const ok = await confirm({
-                  title: "Plan temizlensin mi?",
-                  message: "Kendi planındaki tüm borç kuralları ve hücrelere yazdığın tutarlar silinir.",
-                  confirmLabel: "Temizle",
+                  title: t("Plan temizlensin mi?"),
+                  message: t("Kendi planındaki tüm borç kuralları ve hücrelere yazdığın tutarlar silinir."),
+                  confirmLabel: t("Temizle"),
                   danger: true,
                 });
                 if (ok) update({ debtRules: {}, debtCells: {} });
               }}
             >
-              Planı temizle
+              {t("Planı temizle")}
             </button>
           )}
         </div>
@@ -333,33 +343,34 @@ export function DebtPlannerPage() {
           <div className={`space-y-2 border-b border-zinc-200 px-5 py-3 text-sm dark:border-zinc-800 ${dim}`}>
             {isManual && planEmpty && (
               <p className="text-zinc-600 dark:text-zinc-300">
-                Başlamak için yukarıdaki tabloda her borcun <strong>Planım</strong> kuralını seç (Tam öde, Asgari, Sabit tutar) ya da aşağıdaki
-                hücrelere o ay ödeyeceğin tutarı yaz.
+                {rich(t("Başlamak için yukarıdaki tabloda her borcun {plan} kuralını seç (Tam öde, Asgari, Sabit tutar) ya da aşağıdaki hücrelere o ay ödeyeceğin tutarı yaz."), {
+                  plan: <strong>{t("Planım")}</strong>,
+                })}
               </p>
             )}
             {(constIncome || constFixed) && (
               <p className="text-zinc-500">
                 {constIncome && (
                   <>
-                    Her ay gelir <strong className="tabular-nums text-emerald-600 dark:text-emerald-400">{money(rows[0].incomeCents)}</strong>
+                    {t("Her ay gelir")} <strong className="tabular-nums text-emerald-600 dark:text-emerald-400">{money(rows[0].incomeCents)}</strong>
                   </>
                 )}
                 {constIncome && constFixed && " · "}
                 {constFixed && (
                   <>
-                    düzenli gider <strong className="tabular-nums">{rows[0].fixedCents ? `−${money(rows[0].fixedCents)}` : "yok"}</strong>
+                    {t("düzenli gider")} <strong className="tabular-nums">{rows[0].fixedCents ? `−${money(rows[0].fixedCents)}` : t("yok")}</strong>
                   </>
                 )}
               </p>
             )}
             {current.payoffs.length > 0 && (
-              <ul className="flex flex-wrap gap-2" aria-label="Borçların kapanış ayları">
+              <ul className="flex flex-wrap gap-2" aria-label={t("Borçların kapanış ayları")}>
                 {current.payoffs.map((p) => {
                   const d = debtById.get(p.id);
                   return (
                     <li key={p.id} className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300">
                       <span className="h-2 w-2 rounded-full" style={{ backgroundColor: colorOf(p.id) }} />
-                      {d ? nameOf(d) : "Silinmiş hesap"} · bitiş <strong>{monthLabel(p.monthKey)}</strong>
+                      {d ? nameOf(d) : t("Silinmiş hesap")} · {t("bitiş")} <strong>{monthLabel(p.monthKey)}</strong>
                     </li>
                   );
                 })}
@@ -371,19 +382,22 @@ export function DebtPlannerPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-zinc-200 bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500 dark:border-zinc-800 dark:bg-zinc-900/60">
-                <th className="sticky left-0 z-10 whitespace-nowrap bg-zinc-50 px-4 py-2.5 dark:bg-zinc-900">Ay</th>
-                {!constIncome && <th className="whitespace-nowrap px-4 py-2.5 text-right">Gelir</th>}
-                {!constFixed && <th className="whitespace-nowrap px-4 py-2.5 text-right">Düzenli gider</th>}
-                <th className="whitespace-nowrap px-4 py-2.5 text-right" title={isManual ? undefined : `Boş aylarda ${money(report.budgetCents)} kullanılır`}>
-                  {isManual ? "Gelirden kalan" : `Borçlara ayrılan (${money(report.budgetCents)})`}
+                <th className="sticky left-0 z-10 whitespace-nowrap bg-zinc-50 px-4 py-2.5 dark:bg-zinc-900">{t("Ay")}</th>
+                {!constIncome && <th className="whitespace-nowrap px-4 py-2.5 text-right">{t("Gelir")}</th>}
+                {!constFixed && <th className="whitespace-nowrap px-4 py-2.5 text-right">{t("Düzenli gider")}</th>}
+                <th
+                  className="whitespace-nowrap px-4 py-2.5 text-right"
+                  title={isManual ? undefined : t("Boş aylarda {amount} kullanılır", { amount: money(report.budgetCents) })}
+                >
+                  {isManual ? t("Gelirden kalan") : t("Borçlara ayrılan ({amount})", { amount: money(report.budgetCents) })}
                 </th>
                 {debts.map((d) => (
                   <th key={d.id} className={`max-w-[10rem] truncate whitespace-nowrap py-2.5 ${isManual ? "px-2 text-center" : "px-4 text-right"}`} title={nameOf(d)}>
                     {nameOf(d)}
                   </th>
                 ))}
-                <th className="px-4 py-2.5 text-right">Toplam</th>
-                <th className="px-4 py-2.5 text-right">Kalan borç</th>
+                <th className="px-4 py-2.5 text-right">{t("Toplam")}</th>
+                <th className="px-4 py-2.5 text-right">{t("Kalan borç")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -393,7 +407,7 @@ export function DebtPlannerPage() {
                   <tr key={row.month}>
                     <td className="sticky left-0 z-10 whitespace-nowrap bg-white px-4 py-2 text-zinc-500 dark:bg-zinc-900">
                       {monthLabel(key)}
-                      {row.salaryMonth !== key && <span className="ml-1 text-xs text-zinc-400">· {monthName(row.salaryMonth)} maaşı</span>}
+                      {row.salaryMonth !== key && <span className="ml-1 text-xs text-zinc-400">· {t("{month} maaşı", { month: monthName(row.salaryMonth) })}</span>}
                     </td>
                     {!constIncome && (
                       <td className="whitespace-nowrap px-4 py-2 text-right tabular-nums text-emerald-600 dark:text-emerald-400">{money(row.incomeCents)}</td>
@@ -405,7 +419,7 @@ export function DebtPlannerPage() {
                       {isManual ? (
                         <span
                           className={`px-2 font-medium tabular-nums ${row.freeCents < 0 ? "text-rose-600 dark:text-rose-400" : "text-zinc-600 dark:text-zinc-300"}`}
-                          title="Gelir − düzenli giderler − bu ayki borç ödemeleri"
+                          title={t("Gelir − düzenli giderler − bu ayki borç ödemeleri")}
                         >
                           {money(row.freeCents)}
                         </span>
@@ -449,8 +463,10 @@ export function DebtPlannerPage() {
                               />
                               <button
                                 type="button"
-                                title={full ? "Geri al (kurala dön)" : "Bu ayın tamamını öde"}
-                                aria-label={full ? `${nameOf(d)} tamamını ödeme işaretini kaldır` : `${nameOf(d)} bu ayın tamamını öde`}
+                                title={full ? t("Geri al (kurala dön)") : t("Bu ayın tamamını öde")}
+                                aria-label={
+                                  full ? t("{name} tamamını ödeme işaretini kaldır", { name: nameOf(d) }) : t("{name} bu ayın tamamını öde", { name: nameOf(d) })
+                                }
                                 aria-pressed={full}
                                 onClick={() => setCell(cellKey, full ? null : PAY_FULL)}
                                 className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border transition ${
@@ -477,13 +493,14 @@ export function DebtPlannerPage() {
           </table>
         </div>
         {current.hasMore && (
-          <p className="border-t border-zinc-100 px-5 py-2 text-xs text-zinc-500 dark:border-zinc-800">İlk 24 ay gösteriliyor.</p>
+          <p className="border-t border-zinc-100 px-5 py-2 text-xs text-zinc-500 dark:border-zinc-800">{t("İlk 24 ay gösteriliyor.")}</p>
         )}
       </section>
 
       <p className="mt-4 text-xs text-zinc-500">
-        Simülasyon yeni harcama olmadığını ve faiz oranlarının sabit kaldığını varsayar; gerçek banka hesaplamalarından (günlük faiz,
-        gecikme faizi) farklı olabilir. Çığ yöntemi genellikle en az faizi, Kartopu ise en hızlı "borç kapatma" motivasyonunu sağlar.
+        {t(
+          "Simülasyon yeni harcama olmadığını ve faiz oranlarının sabit kaldığını varsayar; gerçek banka hesaplamalarından (günlük faiz, gecikme faizi) farklı olabilir. Çığ yöntemi genellikle en az faizi, Kartopu ise en hızlı \"borç kapatma\" motivasyonunu sağlar.",
+        )}
       </p>
     </>
   );

@@ -1,6 +1,6 @@
 [package]
 name = "finans-core"
-version = "1.24.0"
+version = "1.25.0"
 edition = "2021"
 license = "MIT"
 description = "Finans veri katmanı: SQLite şeması, veri işlemleri ve ekstre okuma (masaüstü ve sunucu ortak)"
@@ -12,7 +12,7 @@ serde_json = { version = "1", features = ["float_roundtrip"] }
 fancy-regex = "0.14"
 # "bundled": SQLite C kaynağı derlenip gömülür; sistemde SQLite kurulu olması gerekmez
 rusqlite = { version = "0.32", features = ["bundled"] }
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v5"] }
 calamine = { version = "0.36.1", features = ["dates"] }
 pdf-extract = "0.12.1"
 # Kur kaynakları: TCMB (HTTP) ve Harem (WebSocket); TLS rustls + ring (sunucuyla aynı sağlayıcı)
@@ -22,3 +22,9 @@ rustls = { version = "0.23", default-features = false, features = ["ring", "std"
 # Türkçe alfabetik sıralama: JS localeCompare(…, "tr") ile aynı ICU kuralları (derlenmiş veri gömülü)
 icu_collator = "2.3.1"
 icu_locale_core = "2.3"
+# Uçtan uca şifreli eşitleme: anahtar paroladan Argon2id ile, veri XChaCha20-Poly1305 ile; anlık görüntü sıkıştırılır
+argon2 = "0.5"
+chacha20poly1305 = "0.10"
+getrandom = "0.2"
+base64 = "0.22"
+miniz_oxide = "0.8"

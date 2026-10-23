@@ -7,8 +7,9 @@ import { formatRate, fundCode, GROUP_LABEL, INSTRUMENTS, isFund, type FxGroup } 
 import type { RateQuote } from "../lib/types";
 import { useData } from "../state/data";
 import { useRates } from "../state/rates";
+import { locale, t } from "../lib/i18n";
 
-const time = (iso: string) => new Date(iso).toLocaleString("tr-TR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const time = (iso: string) => new Date(iso).toLocaleString(locale, { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
 
 export function RatesPage() {
   const { rates, loading, error, refresh } = useRates();
@@ -22,24 +23,26 @@ export function RatesPage() {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <h1 className="text-xl font-semibold">Kurlar</h1>
+        <h1 className="text-xl font-semibold">{t("Kurlar")}</h1>
         <button className="btn-secondary ml-auto gap-2 px-3 py-1.5 text-xs" onClick={() => void refresh()} disabled={loading}>
-          <RefreshCw size={14} /> Yenile
+          <RefreshCw size={14} /> {t("Yenile")}
         </button>
       </div>
       {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">{error}</p>}
-      <p className="text-xs text-zinc-500">Döviz: TCMB (iş günü 15:30). Altın ve gümüş: Harem Altın (15 dakikada bir). Fonlar: TEFAS (günde bir; resmî olmayan servis). Değerler 1 birimin TL fiyatıdır.</p>
+      <p className="text-xs text-zinc-500">
+        {t("Döviz: TCMB (iş günü 15:30). Altın ve gümüş: Harem Altın (15 dakikada bir). Fonlar: TEFAS (günde bir; resmî olmayan servis). Değerler 1 birimin TL fiyatıdır.")}
+      </p>
       {(["doviz", "altin", "maden"] as FxGroup[]).map((g) => (
         <section key={g} className="card overflow-hidden p-0">
           <h2 className="border-b border-zinc-100 px-4 py-2 text-sm font-semibold dark:border-zinc-800">{GROUP_LABEL[g]}</h2>
           <table className="w-full text-sm tabular-nums">
             <thead className="text-xs text-zinc-500">
               <tr>
-                <th className="px-4 py-2 text-left font-medium">Ad</th>
-                <th className="px-2 py-2 text-right font-medium">Alış</th>
-                <th className="px-2 py-2 text-right font-medium">Satış</th>
-                <th className="px-2 py-2 text-right font-medium">Günlük</th>
-                <th className="px-4 py-2 text-right font-medium">Güncelleme</th>
+                <th className="px-4 py-2 text-left font-medium">{t("Ad")}</th>
+                <th className="px-2 py-2 text-right font-medium">{t("Alış")}</th>
+                <th className="px-2 py-2 text-right font-medium">{t("Satış")}</th>
+                <th className="px-2 py-2 text-right font-medium">{t("Günlük")}</th>
+                <th className="px-4 py-2 text-right font-medium">{t("Güncelleme")}</th>
               </tr>
             </thead>
             <tbody>
@@ -52,12 +55,12 @@ export function RatesPage() {
                     <td className="px-2 py-2 text-right">{q ? formatRate(q.buy) : "—"}</td>
                     <td className="px-2 py-2 text-right">{q ? formatRate(q.sell) : "—"}</td>
                     <td className={`px-2 py-2 text-right ${change === null ? "text-zinc-400" : change >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                      {change === null ? "—" : `${change >= 0 ? "+" : ""}${change.toLocaleString("tr-TR", { maximumFractionDigits: 2 })}%`}
+                      {change === null ? "—" : `${change >= 0 ? "+" : ""}${change.toLocaleString(locale, { maximumFractionDigits: 2 })}%`}
                     </td>
                     <td className="px-4 py-2 text-right text-xs text-zinc-500">
                       {q ? (
                         <span className="inline-flex items-center gap-1">
-                          {q.stale && <AlertTriangle size={12} className="text-amber-500" aria-label="Kur eski" />}
+                          {q.stale && <AlertTriangle size={12} className="text-amber-500" aria-label={t("Kur eski")} />}
                           {time(q.observedAt)}
                         </span>
                       ) : (
@@ -80,14 +83,14 @@ export function RatesPage() {
       ))}
       {funds.length > 0 && (
         <section className="card overflow-hidden p-0">
-          <h2 className="border-b border-zinc-100 px-4 py-2 text-sm font-semibold dark:border-zinc-800">Fonlarım</h2>
+          <h2 className="border-b border-zinc-100 px-4 py-2 text-sm font-semibold dark:border-zinc-800">{t("Fonlarım")}</h2>
           <table className="w-full text-sm tabular-nums">
             <thead className="text-xs text-zinc-500">
               <tr>
-                <th className="px-4 py-2 text-left font-medium">Fon</th>
-                <th className="px-2 py-2 text-right font-medium">Fiyat</th>
-                <th className="px-2 py-2 text-right font-medium">Günlük</th>
-                <th className="px-4 py-2 text-right font-medium">Fiyat günü</th>
+                <th className="px-4 py-2 text-left font-medium">{t("Fon")}</th>
+                <th className="px-2 py-2 text-right font-medium">{t("Fiyat")}</th>
+                <th className="px-2 py-2 text-right font-medium">{t("Günlük")}</th>
+                <th className="px-4 py-2 text-right font-medium">{t("Fiyat günü")}</th>
               </tr>
             </thead>
             <tbody>
@@ -105,12 +108,12 @@ export function RatesPage() {
                     </td>
                     <td className="px-2 py-2 text-right">{q ? formatRate(q.buy) : "—"}</td>
                     <td className={`px-2 py-2 text-right ${change === null ? "text-zinc-400" : change >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
-                      {change === null ? "—" : `${change >= 0 ? "+" : ""}${change.toLocaleString("tr-TR", { maximumFractionDigits: 2 })}%`}
+                      {change === null ? "—" : `${change >= 0 ? "+" : ""}${change.toLocaleString(locale, { maximumFractionDigits: 2 })}%`}
                     </td>
                     <td className="px-4 py-2 text-right text-xs text-zinc-500">
                       {q ? (
                         <span className="inline-flex items-center gap-1">
-                          {q.stale && <AlertTriangle size={12} className="text-amber-500" aria-label="Fiyat eski" />}
+                          {q.stale && <AlertTriangle size={12} className="text-amber-500" aria-label={t("Fiyat eski")} />}
                           {q.observedAt.slice(0, 10)}
                         </span>
                       ) : (
@@ -146,8 +149,8 @@ function History({ code }: { code: string }) {
       .catch((e) => setError(errorMessage(e)));
   }, [code]);
   if (error) return <p className="text-xs text-zinc-500">{error}</p>;
-  if (!points) return <p className="text-xs text-zinc-500">Yükleniyor…</p>;
-  if (points.length < 2) return <p className="text-xs text-zinc-500">Grafik için henüz yeterli geçmiş yok.</p>;
+  if (!points) return <p className="text-xs text-zinc-500">{t("Yükleniyor…")}</p>;
+  if (points.length < 2) return <p className="text-xs text-zinc-500">{t("Grafik için henüz yeterli geçmiş yok.")}</p>;
   const data = points.map((p) => ({ t: p.observedAt.slice(0, 10), alis: p.buy }));
   return (
     <div className="h-48">
@@ -157,7 +160,7 @@ function History({ code }: { code: string }) {
           <XAxis dataKey="t" fontSize={11} />
           <YAxis domain={["auto", "auto"]} fontSize={11} width={70} tickFormatter={(v: number) => formatRate(v)} />
           <Tooltip formatter={(v: number) => formatRate(v)} />
-          <Line type="stepAfter" dataKey="alis" name="Alış" stroke="#6366f1" dot={false} />
+          <Line type="stepAfter" dataKey="alis" name={t("Alış")} stroke="#6366f1" dot={false} />
         </LineChart>
       </ResponsiveContainer>
     </div>

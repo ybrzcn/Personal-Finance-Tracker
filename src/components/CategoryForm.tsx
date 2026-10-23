@@ -1,6 +1,7 @@
 import { Check } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { errorMessage } from "../lib/api";
+import { t } from "../lib/i18n";
 import type { Category, CategoryType } from "../lib/types";
 import { useData } from "../state/data";
 import { Modal } from "./Modal";
@@ -27,16 +28,16 @@ export function CategoryForm({ category, defaultType = "expense", onClose, onSav
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!name.trim()) return setError("Kategori adı boş olamaz.");
+    if (!name.trim()) return setError(t("Kategori adı boş olamaz."));
     setSaving(true);
     setError(null);
     try {
       if (category) {
         await updateCategory({ ...category, name, type, color });
-        onSaved("Kategori güncellendi.");
+        onSaved(t("Kategori güncellendi."));
       } else {
         await addCategory({ name, type, color });
-        onSaved("Kategori eklendi.");
+        onSaved(t("Kategori eklendi."));
       }
       onClose();
     } catch (err) {
@@ -48,15 +49,15 @@ export function CategoryForm({ category, defaultType = "expense", onClose, onSav
 
   return (
     <Modal
-      title={category ? "Kategoriyi Düzenle" : "Yeni Kategori"}
+      title={category ? t("Kategoriyi Düzenle") : t("Yeni Kategori")}
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose}>
-            Vazgeç
+            {t("Vazgeç")}
           </button>
           <button type="submit" form="cat-form" className="btn-primary" disabled={saving}>
-            {category ? "Kaydet" : "Ekle"}
+            {category ? t("Kaydet") : t("Ekle")}
           </button>
         </>
       }
@@ -64,39 +65,39 @@ export function CategoryForm({ category, defaultType = "expense", onClose, onSav
       <form id="cat-form" onSubmit={submit} className="space-y-4">
         <div>
           <label className="label" htmlFor="cat-name">
-            Ad
+            {t("Ad")}
           </label>
           <input
             id="cat-name"
             data-autofocus
             className="input"
             maxLength={60}
-            placeholder="Örn. Abonelikler"
+            placeholder={t("Örn. Abonelikler")}
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
         </div>
         <div>
-          <span className="label">Tür</span>
+          <span className="label">{t("Tür")}</span>
           <div className="grid grid-cols-2 gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-800/70">
-            {(["expense", "income"] as const).map((t) => (
+            {(["expense", "income"] as const).map((k) => (
               <button
-                key={t}
+                key={k}
                 type="button"
-                onClick={() => setType(t)}
+                onClick={() => setType(k)}
                 className={`rounded-lg py-1.5 text-sm font-medium transition ${
-                  type === t
+                  type === k
                     ? "bg-white shadow-sm dark:bg-zinc-900"
                     : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
                 }`}
               >
-                {t === "income" ? "Gelir" : "Gider"}
+                {k === "income" ? t("Gelir") : t("Gider")}
               </button>
             ))}
           </div>
         </div>
         <div>
-          <span className="label">Renk</span>
+          <span className="label">{t("Renk")}</span>
           <div className="flex flex-wrap items-center gap-2">
             {PALETTE.map((c) => (
               <button
@@ -113,7 +114,7 @@ export function CategoryForm({ category, defaultType = "expense", onClose, onSav
                 {color === c && <Check size={14} className="text-white" strokeWidth={3} />}
               </button>
             ))}
-            <label className="relative h-7 w-7 cursor-pointer overflow-hidden rounded-full border border-dashed border-zinc-400" title="Özel renk">
+            <label className="relative h-7 w-7 cursor-pointer overflow-hidden rounded-full border border-dashed border-zinc-400" title={t("Özel renk")}>
               <input
                 type="color"
                 value={color}

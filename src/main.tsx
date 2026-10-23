@@ -12,6 +12,7 @@ import { AttachmentsProvider } from "./state/attachments";
 import { PnlProvider } from "./state/pnl";
 import { RatesProvider } from "./state/rates";
 import { SettingsProvider } from "./state/settings";
+import { SyncProvider } from "./state/sync";
 import { UIProvider } from "./state/ui";
 import { UpdateProvider } from "./state/updates";
 import "@fontsource-variable/onest";
@@ -34,7 +35,9 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
                     <AttachmentsProvider>
                       <SettingsProvider>
                         <UIProvider>
-                          <App />
+                          <SyncProvider>
+                            <App />
+                          </SyncProvider>
                         </UIProvider>
                       </SettingsProvider>
                     </AttachmentsProvider>

@@ -1,8 +1,9 @@
 import { Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { api, errorMessage } from "../lib/api";
-import { amountToInput, formatDate, formatDateShort, formatMonthYear, parseAmount, parseQuantity, todayISO } from "../lib/format";
+import { amountToInput, decimalToInput, formatDate, formatDateShort, formatMonthYear, parseAmount, parseQuantity, todayISO, ZERO_AMOUNT } from "../lib/format";
 import { isForeign, isFund, qtyDecimals, qtyRule, unitOf } from "../lib/fx";
+import { t } from "../lib/i18n";
 import type { AmountChange, CategoryType, MonthException, RecurringDraft, RecurringItem, RecurringPreview, WeekendShift } from "../lib/types";
 import { useSettings } from "../state/settings";
 import { useData } from "../state/data";
@@ -55,7 +56,7 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
     // Boş tutar sessizce "o ay yok" (0) sayılmasın
     const v = exAmount.trim() ? parseAmount(exAmount) : null;
     if (v === null || v < 0) {
-      setError("Bu ayki tutarı yazın (o ay hiç yoksa 0).");
+      setError(t("Bu ayki tutarı yazın (o ay hiç yoksa 0)."));
       return null;
     }
     return [...list.filter((x) => x.month !== exMonth), { month: exMonth, amount: v, note: exNote.trim() }].sort((a, b) =>
@@ -107,8 +108,8 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
   const { rates } = useRates();
   const cur = accounts.find((a) => a.id === accountId)?.currency ?? "TRY";
   const foreign = isForeign(cur);
-  const unitLabel = unitOf(cur) === "currency" ? cur : unitOf(cur) === "gram" ? "gram" : "adet";
-  const [qty, setQty] = useState(item?.origAmount != null ? String(item.origAmount).replace(".", ",") : "");
+  const unitLabel = unitOf(cur) === "currency" ? cur : unitOf(cur) === "gram" ? t("gram") : t("adet");
+  const [qty, setQty] = useState(item?.origAmount != null ? decimalToInput(item.origAmount) : "");
   const qtyVal = foreign ? parseQuantity(qty, qtyDecimals(cur)) : null;
   // Miktar yazılınca TL tutarı güncel alışla (Rust) önerilir
   const qtyEdited = useRef(false);
@@ -151,8 +152,8 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
   const weekendNote = !moves
     ? null
     : moves.length
-      ? `Önümüzdeki 6 ayda: ${moves.map((m) => `${formatDateShort(m.from)} → ${formatDateShort(m.to)}`).join(", ")}`
-      : "Önümüzdeki 6 ayda hafta sonuna denk gelen gün yok.";
+      ? t("Önümüzdeki 6 ayda: {list}", { list: moves.map((m) => `${formatDateShort(m.from)} → ${formatDateShort(m.to)}`).join(", ") })
+      : t("Önümüzdeki 6 ayda hafta sonuna denk gelen gün yok.");
   const futureChanges = useMemo(() => history.filter((h) => h.from > today), [history, today]);
 
   const submit = async (e: FormEvent) => {
@@ -181,17 +182,17 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
           fresh = val === value && from === changeFrom ? first : await latest({ ...previewDraft, amount: val, changeFrom: from || null });
       } catch (err) {
         setErrorField(null);
-        return setError(`Hesap yapılamadı: ${errorMessage(err)}`);
+        return setError(t("Hesap yapılamadı: {error}", { error: errorMessage(err) }));
       }
     }
     const amountChanged = fresh?.amountChanged ?? false;
     const d = Number.parseInt(day, 10);
-    if (!name.trim()) return fail("Bir ad yazın (ör. Maaş).", "rec-name");
-    if (foreign && !(qtyVal && qtyVal > 0)) return fail(`Miktar girin (${unitLabel}, ${qtyRule(cur)}).`, "rec-qty");
-    if (val === null || val <= 0) return fail("Geçerli bir tutar girin (ör. 62.000,00).", "rec-amount");
-    if (!(d >= 1 && d <= 31)) return fail("Ayın günü 1 ile 31 arasında olmalı.", "rec-day");
+    if (!name.trim()) return fail(t("Bir ad yazın (ör. Maaş)."), "rec-name");
+    if (foreign && !(qtyVal && qtyVal > 0)) return fail(t("Miktar girin ({unit}, {rule}).", { unit: unitLabel, rule: qtyRule(cur) }), "rec-qty");
+    if (val === null || val <= 0) return fail(t("Geçerli bir tutar girin (ör. 62.000,00)."), "rec-amount");
+    if (!(d >= 1 && d <= 31)) return fail(t("Ayın günü 1 ile 31 arasında olmalı."), "rec-day");
     if (item && amountChanged && changeMode === "from" && !from)
-      return fail("Yeni tutarın geçerli olacağı tarihi seçin.", "rec-change-from");
+      return fail(t("Yeni tutarın geçerli olacağı tarihi seçin."), "rec-change-from");
     const finalExceptions = exDirty ? withDraft(exceptions) : exceptions;
     if (!finalExceptions) return;
     setSaving(true);
@@ -217,10 +218,10 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
     try {
       if (item) {
         await updateRecurring({ ...payload, id: item.id });
-        onSaved("Kayıt güncellendi.");
+        onSaved(t("Kayıt güncellendi."));
       } else {
         await addRecurring(payload);
-        onSaved(type === "income" ? "Düzenli gelir eklendi." : "Düzenli gider eklendi.");
+        onSaved(type === "income" ? t("Düzenli gelir eklendi.") : t("Düzenli gider eklendi."));
       }
       onClose();
     } catch (err) {
@@ -233,15 +234,15 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
   const remove = async () => {
     if (!item) return;
     const ok = await confirm({
-      title: `${item.name} silinsin mi?`,
-      message: "Düzenli kayıt, tutar geçmişi ve aya özel istisnalarıyla birlikte silinir. Girilmiş işlemler silinmez.",
-      confirmLabel: "Sil",
+      title: t("{name} silinsin mi?", { name: item.name }),
+      message: t("Düzenli kayıt, tutar geçmişi ve aya özel istisnalarıyla birlikte silinir. Girilmiş işlemler silinmez."),
+      confirmLabel: t("Sil"),
       danger: true,
     });
     if (!ok) return;
     try {
       await deleteRecurring(item.id);
-      onSaved("Kayıt silindi.");
+      onSaved(t("Kayıt silindi."));
       onClose();
     } catch (err) {
       setError(errorMessage(err));
@@ -250,47 +251,47 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
 
   return (
     <Modal
-      title={item ? "Düzenli Kaydı Düzenle" : type === "income" ? "Düzenli Gelir" : "Düzenli Gider"}
+      title={item ? t("Düzenli Kaydı Düzenle") : type === "income" ? t("Düzenli Gelir") : t("Düzenli Gider")}
       onClose={onClose}
       width="max-w-lg"
       footer={
         <>
           {item && (
             <button type="button" className="btn-ghost mr-auto text-rose-600" onClick={remove}>
-              <Trash2 size={15} /> Sil
+              <Trash2 size={15} /> {t("Sil")}
             </button>
           )}
           <button type="button" className="btn-secondary" onClick={onClose}>
-            Vazgeç
+            {t("Vazgeç")}
           </button>
           <button type="submit" form="rec-form" className="btn-primary" disabled={saving}>
-            {item ? "Kaydet" : "Ekle"}
+            {item ? t("Kaydet") : t("Ekle")}
           </button>
         </>
       }
     >
       <form id="rec-form" onSubmit={submit} className="space-y-4">
         <div className="grid grid-cols-2 gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-800/70">
-          {(["income", "expense"] as const).map((t) => (
+          {(["income", "expense"] as const).map((k) => (
             <button
-              key={t}
+              key={k}
               type="button"
               onClick={() => {
-                setType(t);
+                setType(k);
                 setCategoryId("");
               }}
               className={`rounded-lg py-1.5 text-sm font-medium transition ${
-                type === t ? "bg-white shadow-sm dark:bg-zinc-900" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
+                type === k ? "bg-white shadow-sm dark:bg-zinc-900" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
               }`}
             >
-              {t === "income" ? "Gelir (maaş vb.)" : "Gider (kira, fatura…)"}
+              {k === "income" ? t("Gelir (maaş vb.)") : t("Gider (kira, fatura…)")}
             </button>
           ))}
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
             <label className="label" htmlFor="rec-name">
-              Ad
+              {t("Ad")}
             </label>
             <input
               id="rec-name"
@@ -304,13 +305,13 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
           </div>
           <div>
             <label className="label" htmlFor="rec-amount">
-              {foreign ? "Tahmini TL tutarı" : "Tutar"}
+              {foreign ? t("Tahmini TL tutarı") : t("Tutar")}
             </label>
             <MoneyInput
               id="rec-amount"
               className={bad("rec-amount")}
               aria-invalid={errorField === "rec-amount" || undefined}
-              placeholder="0,00"
+              placeholder={ZERO_AMOUNT}
               value={amount}
               onValueChange={(v) => {
                 // Elle yazılan tutarı sonradan gelen miktar önerisi ezmez
@@ -323,7 +324,7 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
           </div>
           <div>
             <label className="label" htmlFor="rec-day">
-              Ayın kaçında
+              {t("Ayın kaçında")}
             </label>
             <input
               id="rec-day"
@@ -338,7 +339,7 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
           </div>
           <div className="col-span-2">
             <label className="label" htmlFor="rec-weekend">
-              Hafta sonuna denk gelirse
+              {t("Hafta sonuna denk gelirse")}
             </label>
             <select
               id="rec-weekend"
@@ -346,26 +347,26 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
               value={weekendShift}
               onChange={(e) => setWeekendShift(e.target.value as WeekendShift)}
             >
-              <option value="none">Aynı gün</option>
-              <option value="before">Önceki Cuma ({type === "income" ? "ör. maaş Cuma yatar" : "Cuma ödenir"})</option>
-              <option value="after">Sonraki Pazartesi</option>
+              <option value="none">{t("Aynı gün")}</option>
+              <option value="before">{type === "income" ? t("Önceki Cuma (ör. maaş Cuma yatar)") : t("Önceki Cuma (Cuma ödenir)")}</option>
+              <option value="after">{t("Sonraki Pazartesi")}</option>
             </select>
             {weekendShift !== "none" && weekendNote && <p className="mt-1 text-xs text-zinc-500">{weekendNote}</p>}
           </div>
           <div className="col-span-2">
             <label className="label" htmlFor="rec-start">
-              Başlangıç tarihi
+              {t("Başlangıç tarihi")}
             </label>
             <input id="rec-start" type="date" className="input" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             <p className="mt-1 text-xs text-zinc-500">
               {startDate
-                ? `${formatDate(startDate)} öncesindeki aylara (bütçe, ödeme takvimi) yansımaz.`
-                : "Boş bırakılırsa geçmiş tüm aylara uygulanır."}
+                ? t("{date} öncesindeki aylara (bütçe, ödeme takvimi) yansımaz.", { date: formatDate(startDate) })
+                : t("Boş bırakılırsa geçmiş tüm aylara uygulanır.")}
             </p>
           </div>
           <div>
             <label className="label" htmlFor="rec-account">
-              Hesap
+              {t("Hesap")}
             </label>
             <select id="rec-account" className="input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
               <option value="">—</option>
@@ -382,7 +383,7 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
           {foreign && (
             <div>
               <label className="label" htmlFor="rec-qty">
-                Miktar ({unitLabel})
+                {t("Miktar ({unit})", { unit: unitLabel })}
               </label>
               <input
                 id="rec-qty"
@@ -393,15 +394,15 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
                 value={qty}
                 onChange={(e) => onQty(e.target.value)}
               />
-              <p className="mt-1 text-xs text-zinc-500">TL tutarı planlar için güncel alış kuruyla tahmin edilir; kayıt girilirken o günün kuru kullanılır.</p>
+              <p className="mt-1 text-xs text-zinc-500">{t("TL tutarı planlar için güncel alış kuruyla tahmin edilir; kayıt girilirken o günün kuru kullanılır.")}</p>
             </div>
           )}
           <div>
             <label className="label" htmlFor="rec-category">
-              Kategori
+              {t("Kategori")}
             </label>
             <select id="rec-category" className="input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-              <option value="">Kategorisiz</option>
+              <option value="">{t("Kategorisiz")}</option>
               {categories
                 .filter((c) => c.type === type)
                 .map((c) => (
@@ -415,11 +416,11 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
         {item && amountChanged && (
           <section className="space-y-2 rounded-xl border border-indigo-200 bg-indigo-50/50 p-3 dark:border-indigo-500/30 dark:bg-indigo-500/5">
             <span className="label mb-0">
-              Tutar {formatMoney(currentAmount ?? 0)} → {formatMoney(value ?? 0)}. Bu değişiklik:
+              {t("Tutar {from} → {to}. Bu değişiklik:", { from: formatMoney(currentAmount ?? 0), to: formatMoney(value ?? 0) })}
             </span>
             <label className="flex items-center gap-2 text-sm">
               <input type="radio" checked={changeMode === "from"} onChange={() => setChangeMode("from")} />
-              <span>şu tarihten itibaren geçerli (zam / artış)</span>
+              <span>{t("şu tarihten itibaren geçerli (zam / artış)")}</span>
               <input
                 id="rec-change-from"
                 type="date"
@@ -434,37 +435,39 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
             </label>
             <label className="flex items-center gap-2 text-sm">
               <input type="radio" checked={changeMode === "all"} onChange={() => setChangeMode("all")} />
-              <span>tüm aylar için düzeltme (yanlış girmiştim)</span>
+              <span>{t("tüm aylar için düzeltme (yanlış girmiştim)")}</span>
             </label>
             <p className="text-xs text-zinc-500">
               {changeMode === "from"
                 ? !changeFrom
-                  ? "Yeni tutarın geçerli olacağı tarihi seçin."
-                  : `${formatDate(changeFrom)} öncesi aylar eski tutarla, sonrası yeni tutarla hesaplanır. İleri bir tarih seçerek gelecekteki zammı önceden girebilirsiniz.${
+                  ? t("Yeni tutarın geçerli olacağı tarihi seçin.")
+                  : `${t("{date} öncesi aylar eski tutarla, sonrası yeni tutarla hesaplanır. İleri bir tarih seçerek gelecekteki zammı önceden girebilirsiniz.", {
+                      date: formatDate(changeFrom),
+                    })}${
                       type === "income" && coversPrev
-                        ? " Önceki ayın karşılığı olan gelirde tarih maaşın ait olduğu aydır (Ocak maaşı = 10 Şubat'ta yatan)."
+                        ? ` ${t("Önceki ayın karşılığı olan gelirde tarih maaşın ait olduğu aydır (Ocak maaşı = 10 Şubat'ta yatan).")}`
                         : ""
                     }`
-                : "Geçmiş aylar dahil tüm hesaplar yeni tutarla yapılır; değişiklik geçmişi silinir."}
+                : t("Geçmiş aylar dahil tüm hesaplar yeni tutarla yapılır; değişiklik geçmişi silinir.")}
             </p>
           </section>
         )}
 
         {item && history.length > 0 && (
           <section className="space-y-1.5">
-            <span className="label mb-0">Tutar geçmişi</span>
+            <span className="label mb-0">{t("Tutar geçmişi")}</span>
             <ul className="divide-y divide-zinc-100 rounded-xl border border-zinc-200 text-sm dark:divide-zinc-800 dark:border-zinc-800">
               <li className="flex items-center justify-between px-3 py-1.5 text-zinc-500">
-                <span>Başlangıç tutarı</span>
+                <span>{t("Başlangıç tutarı")}</span>
                 <span className="tabular-nums">{formatMoney(item.amount)}</span>
               </li>
               {history.map((h) => (
                 <li key={h.from} className="flex items-center gap-2 px-3 py-1.5">
                   <span className="flex-1">
-                    {formatDate(h.from)}'den itibaren
+                    {t("{date}'den itibaren", { date: formatDate(h.from) })}
                     {h.from > today && (
                       <span className="ml-1.5 rounded-full bg-indigo-50 px-1.5 text-[10px] font-medium text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400">
-                        gelecek
+                        {t("gelecek")}
                       </span>
                     )}
                   </span>
@@ -472,8 +475,8 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
                   <button
                     type="button"
                     className="icon-btn"
-                    title="Bu değişikliği kaldır"
-                    aria-label="Değişikliği kaldır"
+                    title={t("Bu değişikliği kaldır")}
+                    aria-label={t("Değişikliği kaldır")}
                     onClick={() => {
                       setHistory(history.filter((x) => x.from !== h.from));
                       // Tutar alanı yeni geçmişe göre bugünkü tutarla (Rust) dolar; gelene kadar boş
@@ -487,22 +490,22 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
               ))}
             </ul>
             {futureChanges.length > 0 && (
-              <p className="text-xs text-zinc-500">Ödeme takvimi gelecekteki değişiklikleri ilgili aylardan itibaren kullanır.</p>
+              <p className="text-xs text-zinc-500">{t("Ödeme takvimi gelecekteki değişiklikleri ilgili aylardan itibaren kullanır.")}</p>
             )}
           </section>
         )}
 
         {item && (
           <details className="space-y-2" open={exceptions.length > 0 || exDirty}>
-            <summary className="cursor-pointer text-sm font-medium">Tek aylık fark ekle (ücretsiz izin, ikramiye…)</summary>
+            <summary className="cursor-pointer text-sm font-medium">{t("Tek aylık fark ekle (ücretsiz izin, ikramiye…)")}</summary>
             <div className="mt-2">
-              <span className="label mb-0">Bu aya özel</span>
+              <span className="label mb-0">{t("Bu aya özel")}</span>
               <p className="text-xs text-zinc-500">
                 {type === "income"
-                  ? `Ücretsiz izin, eksik maaş veya ikramiye gibi tek aylık farklar için. 0 = o ay hiç yatmayacak.${
-                      coversPrev ? " Ay, maaşın ait olduğu aydır (Kasım = 10 Aralık'ta yatan Kasım maaşı)." : ""
+                  ? `${t("Ücretsiz izin, eksik maaş veya ikramiye gibi tek aylık farklar için. 0 = o ay hiç yatmayacak.")}${
+                      coversPrev ? ` ${t("Ay, maaşın ait olduğu aydır (Kasım = 10 Aralık'ta yatan Kasım maaşı).")}` : ""
                     }`
-                  : "Tek aylık farklı tutar için. 0 = o ay ödenmeyecek."}
+                  : t("Tek aylık farklı tutar için. 0 = o ay ödenmeyecek.")}
               </p>
             </div>
             {exceptions.length > 0 && (
@@ -512,9 +515,9 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
                     <span className="w-32 shrink-0 capitalize">{monthLabel(e.month)}</span>
                     <input
                       className="input min-w-0 flex-1 py-1 text-xs"
-                      placeholder="Sebep (ör. Ücretsiz izin)"
+                      placeholder={t("Sebep (ör. Ücretsiz izin)")}
                       maxLength={60}
-                      aria-label={`${monthLabel(e.month)} sebebi`}
+                      aria-label={t("{month} sebebi", { month: monthLabel(e.month) })}
                       value={e.note === "Yatmayacak" ? "" : e.note}
                       onChange={(ev) => {
                         const note = ev.target.value;
@@ -522,13 +525,13 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
                       }}
                     />
                     <span className={`tabular-nums ${e.amount === 0 ? "font-medium text-rose-600 dark:text-rose-400" : ""}`}>
-                      {e.amount === 0 ? "Yok" : formatMoney(e.amount)}
+                      {e.amount === 0 ? t("Yok") : formatMoney(e.amount)}
                     </span>
                     <button
                       type="button"
                       className="icon-btn"
-                      title="İstisnayı kaldır"
-                      aria-label="İstisnayı kaldır"
+                      title={t("İstisnayı kaldır")}
+                      aria-label={t("İstisnayı kaldır")}
                       onClick={() => setExceptions((xs) => xs.filter((x) => x.month !== e.month))}
                     >
                       <X size={14} />
@@ -542,7 +545,7 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
                 className="input py-1.5 capitalize"
                 value={exMonth}
                 onChange={(e) => draft(() => setExMonth(e.target.value))}
-                aria-label="Ay"
+                aria-label={t("Ay")}
               >
                 {monthOptions.map((o) => (
                   <option key={o.value} value={o.value}>
@@ -553,29 +556,31 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
               <input
                 className="input py-1.5 tabular-nums"
                 inputMode="decimal"
-                aria-label="Bu ayki tutar (0 = yok)"
-                title="Bu ayki tutar (0 = yok)"
-                placeholder="Tutar"
+                aria-label={t("Bu ayki tutar (0 = yok)")}
+                title={t("Bu ayki tutar (0 = yok)")}
+                placeholder={t("Tutar")}
                 value={exAmount}
                 onChange={(e) => draft(() => setExAmount(e.target.value))}
                 onKeyDown={exKey}
               />
               <input
                 className="input py-1.5"
-                placeholder={type === "income" ? "Not (ör. Ücretsiz izin)" : "Not"}
+                placeholder={type === "income" ? t("Not (ör. Ücretsiz izin)") : t("Not")}
                 maxLength={60}
                 value={exNote}
                 onChange={(e) => draft(() => setExNote(e.target.value))}
                 onKeyDown={exKey}
               />
               <button type="button" className="btn-secondary px-2.5 py-1.5 text-xs" onClick={addException}>
-                <Plus size={14} /> Ekle
+                <Plus size={14} /> {t("Ekle")}
               </button>
             </div>
             {exDirty && exAmount.trim() && (
               <p className="text-xs text-indigo-600 dark:text-indigo-400">
-                {monthLabel(exMonth)} için {(parseAmount(exAmount) ?? 0) === 0 ? '"yok"' : formatMoney(parseAmount(exAmount) ?? 0)}{" "}
-                kaydederken eklenecek.
+                {t("{month} için {amount} kaydederken eklenecek.", {
+                  month: monthLabel(exMonth),
+                  amount: (parseAmount(exAmount) ?? 0) === 0 ? `"${t("yok")}"` : formatMoney(parseAmount(exAmount) ?? 0),
+                })}
               </p>
             )}
           </details>
@@ -583,29 +588,29 @@ export function RecurringForm({ item, defaultType = "income", onClose, onSaved }
 
         {type === "income" && (
           <fieldset className="space-y-1.5 text-sm">
-            <legend className="label mb-1">Bu ödeme hangi ayın geliri?</legend>
+            <legend className="label mb-1">{t("Bu ödeme hangi ayın geliri?")}</legend>
             <label className="flex items-center gap-2">
               <input type="radio" name="rec-covers" checked={!coversPrev} onChange={() => setCoversPrev(false)} />
-              Yattığı ayın (ör. 10 Ekim'de yatan → Ekim)
+              {t("Yattığı ayın (ör. 10 Ekim'de yatan → Ekim)")}
             </label>
             <label className="flex items-center gap-2">
               <input type="radio" name="rec-covers" checked={coversPrev} onChange={() => setCoversPrev(true)} />
-              Bir önceki ayın (ör. 10 Ekim'de yatan → Eylül maaşı)
+              {t("Bir önceki ayın (ör. 10 Ekim'de yatan → Eylül maaşı)")}
             </label>
           </fieldset>
         )}
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} />
-          Aktif (ödeme takviminde kullan)
+          {t("Aktif (ödeme takviminde kullan)")}
         </label>
         <label className={`flex items-start gap-2 text-sm ${accountId ? "" : "opacity-50"}`}>
           <input type="checkbox" className="mt-0.5" checked={autoPost && !!accountId} disabled={!accountId} onChange={(e) => setAutoPost(e.target.checked)} />
           <span>
-            Günü gelince işlem olarak otomatik kaydet
+            {t("Günü gelince işlem olarak otomatik kaydet")}
             <span className="block text-xs text-zinc-500">
               {accountId
-                ? "Ödeme günü gelince plan tutarıyla bu hesaba eklenir; ödemeyi o günlerde elle girdiyseniz eklenmez. Açıldığı aydan başlar, sildiğiniz otomatik işlem geri gelmez."
-                : "Otomatik kayıt için hesap seçin."}
+                ? t("Ödeme günü gelince plan tutarıyla bu hesaba eklenir; ödemeyi o günlerde elle girdiyseniz eklenmez. Açıldığı aydan başlar, sildiğiniz otomatik işlem geri gelmez.")
+                : t("Otomatik kayıt için hesap seçin.")}
             </span>
           </span>
         </label>

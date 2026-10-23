@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../lib/api";
 import { isForeign } from "../lib/fx";
+import { t } from "../lib/i18n";
 import { amountToInput, parseAmount, todayISO } from "../lib/format";
 import type { Account } from "../lib/types";
 import { useAccountsReport } from "../state/accountsReport";
@@ -52,14 +53,15 @@ export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     if (!reportReady) return;
-    if (!sourceId) return setError("Ödemenin yapılacağı hesabı seçin.");
+    if (!sourceId) return setError(t("Ödemenin yapılacağı hesabı seçin."));
     // Hatalı yazılmış tutar sessizce 0 sayılmasın
     if ((principal.trim() && parseAmount(principal) === null) || (interest.trim() && parseAmount(interest) === null))
-      return setError("Tutarları geçerli bir sayı olarak girin (ör. 12.500,00).");
-    if (p < 0 || i < 0 || p + i <= 0) return setError("Geçerli tutarlar girin.");
+      return setError(t("Tutarları geçerli bir sayı olarak girin (ör. 12.500,00)."));
+    if (p < 0 || i < 0 || p + i <= 0) return setError(t("Geçerli tutarlar girin."));
     setSaving(true);
     setError(null);
     let savedPrincipal = false;
+    // Kendiliğinden yazılan açıklamalar veridir: dil ne olursa olsun Türkçe (eşitlenen cihazlarda ve kurallarda tek biçim)
     const label = next ? `${account.name} ${next.index}/${summary?.schedule.length ?? 0}. taksit` : `${account.name} ödemesi`;
     try {
       if (p > 0) {
@@ -87,12 +89,12 @@ export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
           installments: 1,
         });
       }
-      onSaved("Kredi ödemesi kaydedildi.");
+      onSaved(t("Kredi ödemesi kaydedildi."));
       onClose();
     } catch (err) {
       if (savedPrincipal) {
         // Anapara kaydedildi, faiz eklenemedi: tekrar kaydetmede anapara çiftlenmesin
-        onSaved(`Anapara kaydedildi, faiz eklenemedi (${errorMessage(err)}). Faizi İşlemler'den ekleyin.`);
+        onSaved(t("Anapara kaydedildi, faiz eklenemedi ({error}). Faizi İşlemler'den ekleyin.", { error: errorMessage(err) }));
         onClose();
         return;
       }
@@ -106,15 +108,15 @@ export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
 
   return (
     <Modal
-      title={`${account.name} · Taksit Öde`}
+      title={`${account.name} · ${t("Taksit Öde")}`}
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose}>
-            Vazgeç
+            {t("Vazgeç")}
           </button>
           <button type="submit" form="loan-pay-form" className="btn-primary" disabled={saving || !reportReady}>
-            Kaydet
+            {t("Kaydet")}
           </button>
         </>
       }
@@ -122,21 +124,21 @@ export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
       <form id="loan-pay-form" onSubmit={submit} className="space-y-4">
         {ar.error && !ar.loading && (
           <div role="alert" className="flex items-center justify-between gap-3 text-sm text-rose-600 dark:text-rose-400">
-            <span>Hesap özetleri alınamadı: {ar.error}</span>
+            <span>{t("Hesap özetleri alınamadı: {error}", { error: ar.error })}</span>
             <button type="button" className="btn-secondary px-3 py-1.5 text-xs" onClick={ar.reload}>
-              Tekrar dene
+              {t("Tekrar dene")}
             </button>
           </div>
         )}
         {next && (
           <p className="rounded-lg bg-zinc-50 px-3 py-2 text-sm dark:bg-zinc-800/50">
-            Sıradaki taksit: <strong>{next.index}/{summary?.schedule.length ?? 0}</strong> · {formatMoney(next.paymentCents / 100)}
+            {t("Sıradaki taksit:")} <strong>{next.index}/{summary?.schedule.length ?? 0}</strong> · {formatMoney(next.paymentCents / 100)}
           </p>
         )}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="label" htmlFor="lp-source">
-              Ödenen hesap
+              {t("Ödenen hesap")}
             </label>
             <select id="lp-source" className="input" value={sourceId} onChange={(e) => setSourceId(e.target.value)}>
               <AccountOptions accounts={sources} />
@@ -144,13 +146,13 @@ export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
           </div>
           <div>
             <label className="label" htmlFor="lp-date">
-              Tarih
+              {t("Tarih")}
             </label>
             <input id="lp-date" type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
           <div>
             <label className="label" htmlFor="lp-principal">
-              Anapara
+              {t("Anapara")}
             </label>
             <MoneyInput id="lp-principal" data-autofocus value={principal} onValueChange={(v) => {
                 touched.current = true;
@@ -159,7 +161,7 @@ export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
           </div>
           <div>
             <label className="label" htmlFor="lp-interest">
-              Faiz + vergi
+              {t("Faiz + vergi")}
             </label>
             <MoneyInput id="lp-interest" value={interest} onValueChange={(v) => {
                 touched.current = true;
@@ -168,7 +170,9 @@ export function LoanPaymentForm({ account, onClose, onSaved }: Props) {
           </div>
         </div>
         <p className="text-xs text-zinc-500">
-          Toplam {formatMoney(p + i)}. Anapara krediye transfer, faiz {feeCategory ? `"${feeCategory.name}"` : ""} gideri olarak kaydedilir.
+          {feeCategory
+            ? t(`Toplam {total}. Anapara krediye transfer, faiz "{category}" gideri olarak kaydedilir.`, { total: formatMoney(p + i), category: feeCategory.name })
+            : t("Toplam {total}. Anapara krediye transfer, faiz gider olarak kaydedilir.", { total: formatMoney(p + i) })}
         </p>
         {error && <p role="alert" className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">{error}</p>}
       </form>

@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { CategoryDonut } from "../components/charts";
 import { api, errorMessage } from "../lib/api";
-import { formatDate, todayISO } from "../lib/format";
+import { formatDate, formatMonthShort, parseISODate, todayISO } from "../lib/format";
 import { currencyLabel, formatQty, formatRate } from "../lib/fx";
 import type { AccountPnl, AllocationSlice, Category, InvestmentIncome, PnlKind, PnlReport } from "../lib/types";
 import { backend } from "../lib/platform";
@@ -12,34 +12,34 @@ import { useData } from "../state/data";
 import { useRates } from "../state/rates";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
+import { locale, t, tm } from "../lib/i18n";
 
 type Period = "thisMonth" | "thisYear" | "lastYear" | "all";
-const PERIOD_LABEL: Record<Period, string> = { thisMonth: "Bu ay", thisYear: "Bu yıl", lastYear: "Geçen yıl", all: "Tümü" };
-const KIND_LABEL: Record<PnlKind, string> = { all: "Tümü", fx: "Döviz ve altın", fund: "Fonlar" };
+const PERIOD_LABEL: Record<Period, string> = { thisMonth: t("Bu ay"), thisYear: t("Bu yıl"), lastYear: t("Geçen yıl"), all: t("Tümü") };
+const KIND_LABEL: Record<PnlKind, string> = { all: t("Tümü"), fx: t("Döviz ve altın"), fund: t("Fonlar") };
 
 function periodRange(p: Period): [string | null, string | null] {
-  const t = todayISO();
-  const y = Number(t.slice(0, 4));
-  if (p === "thisMonth") return [`${t.slice(0, 7)}-01`, t];
-  if (p === "thisYear") return [`${y}-01-01`, t];
+  const today = todayISO();
+  const y = Number(today.slice(0, 4));
+  if (p === "thisMonth") return [`${today.slice(0, 7)}-01`, today];
+  if (p === "thisYear") return [`${y}-01-01`, today];
   if (p === "lastYear") return [`${y - 1}-01-01`, `${y - 1}-12-31`];
   return [null, null];
 }
 
 /** Ortalama maliyet ×1e6 → en çok 4 ondalık (gösterim) */
-const avgFmt = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
-const pct = (bp: number | null) => (bp === null ? "—" : `${bp >= 0 ? "+" : ""}${(bp / 100).toLocaleString("tr-TR", { maximumFractionDigits: 2 })}%`);
+const avgFmt = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+const pct = (bp: number | null) => (bp === null ? "—" : `${bp >= 0 ? "+" : ""}${(bp / 100).toLocaleString(locale, { maximumFractionDigits: 2 })}%`);
 const ALLOCATION: Record<AllocationSlice["key"], { name: string; color: string }> = {
   tl: { name: "TL", color: "#10b981" },
-  deposit: { name: "Vadeli mevduat", color: "#059669" },
-  pension: { name: "BES", color: "#8b5cf6" },
-  asset: { name: "Diğer varlık", color: "#a16207" },
-  fx: { name: "Döviz", color: "#3b82f6" },
-  metal: { name: "Altın ve gümüş", color: "#d4a017" },
-  fund: { name: "Fonlar", color: "#0ea5a4" },
+  deposit: { name: t("Vadeli mevduat"), color: "#059669" },
+  pension: { name: t("BES"), color: "#8b5cf6" },
+  asset: { name: t("Diğer varlık"), color: "#a16207" },
+  fx: { name: t("Döviz"), color: "#3b82f6" },
+  metal: { name: t("Altın ve gümüş"), color: "#d4a017" },
+  fund: { name: t("Fonlar"), color: "#0ea5a4" },
 };
-const MONTHS = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
-const monthLabel = (ym: string) => `${MONTHS[Number(ym.slice(5, 7)) - 1]} ${ym.slice(2, 4)}`;
+const monthLabel = (ym: string) => `${formatMonthShort(parseISODate(`${ym}-01`))} ${ym.slice(2, 4)}`;
 const tone = (v: number | null) => (v === null ? "text-zinc-400" : v >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400");
 
 export function PnlPage() {
@@ -76,17 +76,17 @@ export function PnlPage() {
     void refresh().then(load);
   }, [refresh, load]);
 
-  const t = report?.totals;
+  const tot = report?.totals;
   const cpiOk = report?.cpi.status === "ok";
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-3">
-        <h1 className="text-xl font-semibold">Kâr/Zarar</h1>
+        <h1 className="text-xl font-semibold">{t("Kâr/Zarar")}</h1>
         <button className="btn-secondary ml-auto gap-2 px-3 py-1.5 text-xs" onClick={() => void refresh().then(load)} disabled={loading}>
-          <RefreshCw size={14} /> Yenile
+          <RefreshCw size={14} /> {t("Yenile")}
         </button>
       </div>
-      <div className="flex rounded-lg bg-zinc-100 p-0.5 text-xs dark:bg-zinc-800/60" role="group" aria-label="Varlıklar">
+      <div className="flex rounded-lg bg-zinc-100 p-0.5 text-xs dark:bg-zinc-800/60" role="group" aria-label={t("Varlıklar")}>
         {(Object.keys(KIND_LABEL) as PnlKind[]).map((k) => (
           <button
             key={k}
@@ -99,32 +99,42 @@ export function PnlPage() {
         ))}
       </div>
       {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:bg-rose-950/50 dark:text-rose-300">{error}</p>}
-      {report && t && (
+      {report && tot && (
         <>
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-            <Stat label="Toplam değer" value={money(t.valueCents)} />
-            <Stat label="Kâğıt üstü kâr/zarar" value={signed(t.unrealizedCents)} sub={pct(t.unrealizedBp)} cls={tone(t.unrealizedCents)} />
-            <Stat label={`Gerçekleşen (${PERIOD_LABEL[period].toLocaleLowerCase("tr")})`} value={signed(t.realizedCents)} cls={tone(t.realizedCents)} />
-            <Stat label={`Yatırım geliri (${PERIOD_LABEL[period].toLocaleLowerCase("tr")})`} value={signed(t.incomeCents)} sub="faiz, temettü, fon dağıtımı" cls={tone(t.incomeCents)} />
+            <Stat label={t("Toplam değer")} value={money(tot.valueCents)} />
+            <Stat label={t("Kâğıt üstü kâr/zarar")} value={signed(tot.unrealizedCents)} sub={pct(tot.unrealizedBp)} cls={tone(tot.unrealizedCents)} />
+            <Stat label={t("Gerçekleşen ({period})", { period: PERIOD_LABEL[period].toLocaleLowerCase(locale) })} value={signed(tot.realizedCents)} cls={tone(tot.realizedCents)} />
+            <Stat label={t("Yatırım geliri ({period})", { period: PERIOD_LABEL[period].toLocaleLowerCase(locale) })}
+              value={signed(tot.incomeCents)}
+              sub={t("faiz, temettü, fon dağıtımı")} cls={tone(tot.incomeCents)} />
             <Stat
-              label="Toplam kazanç"
-              value={signed(t.totalGainCents)}
-              sub={period === "all" ? "kâğıt üstü + gerçekleşen + gelir" : `bugünkü kâğıt üstü + ${PERIOD_LABEL[period].toLocaleLowerCase("tr")} gerçekleşen ve gelir`}
-              cls={tone(t.totalGainCents)}
+              label={t("Toplam kazanç")}
+              value={signed(tot.totalGainCents)}
+              sub={
+                period === "all"
+                  ? t("kâğıt üstü + gerçekleşen + gelir")
+                  : t("bugünkü kâğıt üstü + {period} gerçekleşen ve gelir", { period: PERIOD_LABEL[period].toLocaleLowerCase(locale) })
+              }
+              cls={tone(tot.totalGainCents)}
             />
-            {cpiOk && <Stat label="Reel getiri / enflasyon" value={pct(t.realUnrealizedBp)} sub={`enflasyon ${pct(t.inflationBp)}`} cls={tone(t.realUnrealizedBp)} />}
+            {cpiOk && <Stat label={t("Reel getiri / enflasyon")} value={pct(tot.realUnrealizedBp)} sub={t("enflasyon {v}", { v: pct(tot.inflationBp) })} cls={tone(tot.realUnrealizedBp)} />}
           </div>
-          {t.partial && <p className="text-xs text-amber-600 dark:text-amber-400">Bazı hesaplar ya da satışlar (kur alınamadı ya da maliyet bilinmiyor) toplama girmedi.</p>}
+          {tot.partial && <p className="text-xs text-amber-600 dark:text-amber-400">{t("Bazı hesaplar ya da satışlar (kur alınamadı ya da maliyet bilinmiyor) toplama girmedi.")}</p>}
           {cpiOk && report.cpi.latestMonth && (
-            <p className="text-xs text-zinc-500">TÜFE verisi {report.cpi.latestMonth} ayına kadar (TCMB EVDS); sonraki aylarda son açıklanan ay kullanılır (≈).</p>
+            <p className="text-xs text-zinc-500">
+              {t("TÜFE verisi {month} ayına kadar (TCMB EVDS); sonraki aylarda son açıklanan ay kullanılır (≈).", { month: report.cpi.latestMonth })}
+            </p>
           )}
           {!cpiOk && (
             <p className="text-xs text-zinc-500">
               {report.cpi.status === "noKey"
                 ? localDesktop
-                  ? "Enflasyon karşılaştırması için Ayarlar'dan TCMB EVDS API anahtarı girin."
-                  : "Enflasyon karşılaştırması kapalı: sunucuda FINANS_EVDS_KEY tanımlı değil."
-                : `Enflasyon verisi alınamadı${report.cpi.message ? `: ${report.cpi.message}` : "."}`}
+                  ? t("Enflasyon karşılaştırması için Ayarlar'dan TCMB EVDS API anahtarı girin.")
+                  : t("Enflasyon karşılaştırması kapalı: sunucuda FINANS_EVDS_KEY tanımlı değil.")
+                : report.cpi.message
+                  ? t("Enflasyon verisi alınamadı: {error}", { error: tm(report.cpi.message) })
+                  : t("Enflasyon verisi alınamadı.")}
             </p>
           )}
           <Holdings rows={report.accounts} cpiOk={cpiOk} money={money} signed={signed} />
@@ -134,24 +144,24 @@ export function PnlPage() {
                 income={report.income}
                 pending={appSettings.investmentIncomeCategoryIds}
                 categories={categories}
-                periodLabel={PERIOD_LABEL[period].toLocaleLowerCase("tr")}
+                periodLabel={PERIOD_LABEL[period].toLocaleLowerCase(locale)}
                 money={money}
                 onChange={(ids) => void saveSetting("investmentIncomeCategoryIds", ids).catch((e) => setError(errorMessage(e)))}
               />
             )}
             {report.allocation.length > 0 && (
               <section className="card p-4">
-                <h2 className="mb-3 text-sm font-semibold">Varlık dağılımı</h2>
+                <h2 className="mb-3 text-sm font-semibold">{t("Varlık dağılımı")}</h2>
                 <CategoryDonut
                   data={report.allocation.map((a) => ({ id: a.key, name: ALLOCATION[a.key].name, color: ALLOCATION[a.key].color, value: a.valueCents / 100 }))}
                 />
-                <p className="mt-3 text-xs text-zinc-500">Bugünkü değerle; kredi ve kart borçları düşülmez (net servet için Hesaplar).</p>
+                <p className="mt-3 text-xs text-zinc-500">{t("Bugünkü değerle; kredi ve kart borçları düşülmez (net servet için Hesaplar).")}</p>
               </section>
             )}
           </div>
           <section className="card p-4">
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              <h2 className="text-sm font-semibold">Gerçekleşenler</h2>
+              <h2 className="text-sm font-semibold">{t("Gerçekleşenler")}</h2>
               <div className="ml-auto flex gap-1">
                 {(Object.keys(PERIOD_LABEL) as Period[]).map((p) => (
                   <button key={p} className={p === period ? "btn-primary px-2.5 py-1 text-xs" : "btn-secondary px-2.5 py-1 text-xs"} onClick={() => setPeriod(p)}>
@@ -168,7 +178,7 @@ export function PnlPage() {
                     <XAxis dataKey="ay" fontSize={11} />
                     <YAxis fontSize={11} width={70} tickFormatter={(v: number) => formatMoney(v)} />
                     <Tooltip formatter={(v: number) => formatMoney(v)} />
-                    <Bar dataKey="tl" name="Kâr/zarar">
+                    <Bar dataKey="tl" name={t("Kâr/zarar")}>
                       {report.months.map((m) => (
                         <Cell key={m.month} fill={m.pnlCents >= 0 ? "#10b981" : "#f43f5e"} />
                       ))}
@@ -178,19 +188,19 @@ export function PnlPage() {
               </div>
             )}
             {report.realized.length === 0 ? (
-              <p className="text-sm text-zinc-500">Bu dönemde satış ya da döviz/altın harcaması yok.</p>
+              <p className="text-sm text-zinc-500">{t("Bu dönemde satış ya da döviz/altın harcaması yok.")}</p>
             ) : (
               <div className="overflow-x-auto">
                 <table className="mt-3 w-full text-sm tabular-nums">
                   <thead className="text-xs text-zinc-500">
                     <tr>
-                      <th className="py-2 text-left font-medium">Tarih</th>
-                      <th className="py-2 text-left font-medium">Hesap</th>
-                      <th className="py-2 text-right font-medium">Miktar</th>
-                      <th className="py-2 text-right font-medium">Tutar</th>
-                      <th className="py-2 text-right font-medium">Maliyet</th>
-                      <th className="py-2 text-right font-medium">Kâr/zarar</th>
-                      {cpiOk && <th className="py-2 text-right font-medium">Reel</th>}
+                      <th className="py-2 text-left font-medium">{t("Tarih")}</th>
+                      <th className="py-2 text-left font-medium">{t("Hesap")}</th>
+                      <th className="py-2 text-right font-medium">{t("Miktar")}</th>
+                      <th className="py-2 text-right font-medium">{t("Tutar")}</th>
+                      <th className="py-2 text-right font-medium">{t("Maliyet")}</th>
+                      <th className="py-2 text-right font-medium">{t("Kâr/zarar")}</th>
+                      {cpiOk && <th className="py-2 text-right font-medium">{t("Reel")}</th>}
                     </tr>
                   </thead>
                   <tbody>
@@ -205,16 +215,16 @@ export function PnlPage() {
                       >
                         <td className="py-2">{formatDate(i.date)}</td>
                         <td className="py-2">
-                          {accountById.get(i.accountId)?.name ?? "—"} <span className="text-xs text-zinc-400">{i.kind === "expense" ? "gider" : "satış"}</span>
+                          {accountById.get(i.accountId)?.name ?? "—"} <span className="text-xs text-zinc-400">{i.kind === "expense" ? t("gider") : t("satış")}</span>
                         </td>
                         <td className="py-2 text-right">{formatQty(i.qty, i.currency)}</td>
                         <td className="py-2 text-right">{money(i.proceedsCents)}</td>
-                        <td className="py-2 text-right">{i.costUnknown ? "bilinmiyor" : money(i.costCents)}</td>
+                        <td className="py-2 text-right">{i.costUnknown ? t("bilinmiyor") : money(i.costCents)}</td>
                         <td className={`py-2 text-right ${tone(i.pnlCents)}`}>{signed(i.pnlCents)}</td>
                         {cpiOk && (
                           <td className={`py-2 text-right ${tone(i.realPnlCents)}`}>
                             {signed(i.realPnlCents)}
-                            {i.cpiApprox && <span title="TÜFE ayı henüz açıklanmadı; son ay kullanıldı">≈</span>}
+                            {i.cpiApprox && <span title={t("TÜFE ayı henüz açıklanmadı; son ay kullanıldı")}>≈</span>}
                           </td>
                         )}
                       </tr>
@@ -249,16 +259,16 @@ function IncomeCard({
   const { formatMoney } = useSettings();
   const incomeCats = categories.filter((c) => c.type === "income");
   const chosen = new Set(pending ?? income.categoryIds);
-  const nameOf = (id: string) => categories.find((c) => c.id === id)?.name ?? "Silinmiş kategori";
+  const nameOf = (id: string) => categories.find((c) => c.id === id)?.name ?? t("Silinmiş kategori");
   const toggle = (id: string) => onChange(incomeCats.filter((c) => (c.id === id ? !chosen.has(c.id) : chosen.has(c.id))).map((c) => c.id));
   return (
     <section className="card p-4">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold">Yatırım geliri</h2>
+        <h2 className="text-sm font-semibold">{t("Yatırım geliri")}</h2>
         <span className="text-sm font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{money(income.totalCents)}</span>
       </div>
-      <p className="text-xs text-zinc-500">Faiz, temettü ve fon dağıtımı ({periodLabel}); seçili gelir kategorilerindeki işlemler.</p>
-      <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="Yatırım geliri kategorileri">
+      <p className="text-xs text-zinc-500">{t("Faiz, temettü ve fon dağıtımı ({period}); seçili gelir kategorilerindeki işlemler.", { period: periodLabel })}</p>
+      <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label={t("Yatırım geliri kategorileri")}>
         {incomeCats.map((c) => (
           <button
             key={c.id}
@@ -275,9 +285,9 @@ function IncomeCard({
         ))}
       </div>
       {income.categoryIds.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">Faiz, temettü ve fon gelirlerinin kaydedildiği gelir kategorisini seçin.</p>
+        <p className="mt-3 text-sm text-zinc-500">{t("Faiz, temettü ve fon gelirlerinin kaydedildiği gelir kategorisini seçin.")}</p>
       ) : income.months.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">Bu dönemde seçili kategorilerde gelir yok.</p>
+        <p className="mt-3 text-sm text-zinc-500">{t("Bu dönemde seçili kategorilerde gelir yok.")}</p>
       ) : (
         <>
           <div className="mt-3 h-40">
@@ -287,7 +297,7 @@ function IncomeCard({
                 <XAxis dataKey="ay" fontSize={11} />
                 <YAxis fontSize={11} width={70} tickFormatter={(v: number) => formatMoney(v)} />
                 <Tooltip formatter={(v: number) => formatMoney(v)} />
-                <Bar dataKey="tl" name="Gelir" fill="#10b981" isAnimationActive={false} />
+                <Bar dataKey="tl" name={t("Gelir")} fill="#10b981" isAnimationActive={false} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -318,29 +328,29 @@ function Stat({ label, value, sub, cls = "" }: { label: string; value: string; s
 }
 
 function Holdings({ rows, cpiOk, money, signed }: { rows: AccountPnl[]; cpiOk: boolean; money: (c: number | null) => string; signed: (c: number | null) => string }) {
-  if (rows.length === 0) return <p className="card p-4 text-sm text-zinc-500">Döviz ya da altın hesabı yok.</p>;
+  if (rows.length === 0) return <p className="card p-4 text-sm text-zinc-500">{t("Döviz ya da altın hesabı yok.")}</p>;
   return (
     <section className="card overflow-x-auto p-0">
-      <h2 className="border-b border-zinc-100 px-4 py-2 text-sm font-semibold dark:border-zinc-800">Elimdekiler</h2>
+      <h2 className="border-b border-zinc-100 px-4 py-2 text-sm font-semibold dark:border-zinc-800">{t("Elimdekiler")}</h2>
       <table className="w-full text-sm tabular-nums">
         <thead className="text-xs text-zinc-500">
           <tr>
-            <th className="px-4 py-2 text-left font-medium">Hesap</th>
-            <th className="px-2 py-2 text-right font-medium">Miktar</th>
-            <th className="px-2 py-2 text-right font-medium">Ort. maliyet</th>
-            <th className="px-2 py-2 text-right font-medium">Güncel alış</th>
-            <th className="px-2 py-2 text-right font-medium">Değer</th>
-            <th className="px-2 py-2 text-right font-medium">Kâr/zarar</th>
-            {cpiOk && <th className="px-4 py-2 text-right font-medium">Reel</th>}
+            <th className="px-4 py-2 text-left font-medium">{t("Hesap")}</th>
+            <th className="px-2 py-2 text-right font-medium">{t("Miktar")}</th>
+            <th className="px-2 py-2 text-right font-medium">{t("Ort. maliyet")}</th>
+            <th className="px-2 py-2 text-right font-medium">{t("Güncel alış")}</th>
+            <th className="px-2 py-2 text-right font-medium">{t("Değer")}</th>
+            <th className="px-2 py-2 text-right font-medium">{t("Kâr/zarar")}</th>
+            {cpiOk && <th className="px-4 py-2 text-right font-medium">{t("Reel")}</th>}
           </tr>
         </thead>
         <tbody>
           {rows.map((a) => {
             const warn = [
-              a.costUnknown && "Maliyet bilinmiyor: açılış maliyetini hesap formundan girin",
-              a.inconsistentSince && `Kayıtlar tutarsız: ${formatDate(a.inconsistentSince)} tarihinde eldekinden fazla çıkış`,
-              a.noRate && "Kur alınamadı",
-              a.rateStale && "Kur eski",
+              a.costUnknown && t("Maliyet bilinmiyor: açılış maliyetini hesap formundan girin"),
+              a.inconsistentSince && t("Kayıtlar tutarsız: {date} tarihinde eldekinden fazla çıkış", { date: formatDate(a.inconsistentSince) }),
+              a.noRate && t("Kur alınamadı"),
+              a.rateStale && t("Kur eski"),
             ].filter(Boolean) as string[];
             return (
               <tr key={a.accountId} className="border-t border-zinc-100 dark:border-zinc-800">
@@ -365,7 +375,7 @@ function Holdings({ rows, cpiOk, money, signed }: { rows: AccountPnl[]; cpiOk: b
                 {cpiOk && (
                   <td className={`px-4 py-2 text-right ${tone(a.realUnrealizedCents)}`}>
                     {signed(a.realUnrealizedCents)} {a.realUnrealizedBp !== null && <span className="text-xs">{pct(a.realUnrealizedBp)}</span>}
-                    {a.cpiApprox && <span title="TÜFE ayı henüz açıklanmadı; son ay kullanıldı">≈</span>}
+                    {a.cpiApprox && <span title={t("TÜFE ayı henüz açıklanmadı; son ay kullanıldı")}>≈</span>}
                   </td>
                 )}
               </tr>

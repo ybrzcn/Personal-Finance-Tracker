@@ -3,6 +3,7 @@ mod auth;
 mod auth_sqlite;
 mod auth_store;
 mod config;
+mod mfa;
 mod data;
 mod pg;
 mod cpi;
@@ -25,7 +26,10 @@ mod routes_reports;
 mod routes_attachments;
 mod routes_pnl;
 mod routes_rates;
+mod routes_security;
+mod routes_sync;
 mod routes_tags;
+mod webauthn;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -99,8 +103,26 @@ async fn main() {
             }
             std::process::exit(if found { 0 } else { 1 });
         }
+        Some("disable-2fa") => {
+            let Some(email) = args.get(1).cloned() else {
+                eprintln!("Kullanım: finans-server disable-2fa <eposta>");
+                std::process::exit(2);
+            };
+            let (auth, data) = stores(&config).await;
+            let found = tokio::task::spawn_blocking(move || {
+                let found = auth::cli_disable_2fa(&*auth, &email).expect("iki aşamalı doğrulama kapatılamadı");
+                drop((auth, data));
+                found
+            })
+            .await
+            .unwrap();
+            if !found {
+                eprintln!("Kullanıcı bulunamadı");
+            }
+            std::process::exit(if found { 0 } else { 1 });
+        }
         Some(other) => {
-            eprintln!("Bilinmeyen komut: {other}\nKullanım: finans-server [serve | users | reset-password <eposta> | health]");
+            eprintln!("Bilinmeyen komut: {other}\nKullanım: finans-server [serve | users | reset-password <eposta> | disable-2fa <eposta> | health]");
             std::process::exit(2);
         }
     }
@@ -228,6 +250,7 @@ async fn serve(config: Config) {
         rates,
         cpi,
         limiter: Default::default(),
+        tickets: Default::default(),
         hash_permits: tokio::sync::Semaphore::new(4),
         parse_permits: tokio::sync::Semaphore::new(2),
     });
@@ -235,6 +258,8 @@ async fn serve(config: Config) {
     let not_found = || async { app::ApiError::new(StatusCode::NOT_FOUND, "Bulunamadı.") };
     let router = Router::new()
         .merge(routes_auth::router())
+        .merge(routes_security::router())
+        .merge(routes_sync::router())
         .merge(routes_backup::router())
         .merge(routes_data::router())
         .merge(routes_rates::router())

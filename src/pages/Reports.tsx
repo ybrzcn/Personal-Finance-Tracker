@@ -3,39 +3,41 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Legend, Rectangle, ResponsiveContainer, Sankey, Tooltip, XAxis, YAxis } from "recharts";
 import { CategoryDot, EmptyState, PageHeader, Segmented, SummaryTile, type TileTone } from "../components/common";
 import { api, errorMessage } from "../lib/api";
-import { formatDate } from "../lib/format";
+import { formatDate, formatMonthYearShort } from "../lib/format";
+import { locale, t } from "../lib/i18n";
 import type { ReportCompare, ReportGroup, ReportPreset, ReportRow, ReportsQuery, ReportsReport } from "../lib/types";
 import { useData } from "../state/data";
 import { useSettings } from "../state/settings";
 
 const PRESETS: { value: ReportPreset; label: string }[] = [
-  { value: "thisMonth", label: "Bu ay" },
-  { value: "lastMonth", label: "Geçen ay" },
-  { value: "thisYear", label: "Bu yıl" },
-  { value: "lastYear", label: "Geçen yıl" },
-  { value: "last12", label: "Son 12 ay" },
-  { value: "custom", label: "Özel" },
+  { value: "thisMonth", label: t("Bu ay") },
+  { value: "lastMonth", label: t("Geçen ay") },
+  { value: "thisYear", label: t("Bu yıl") },
+  { value: "lastYear", label: t("Geçen yıl") },
+  { value: "last12", label: t("Son 12 ay") },
+  { value: "custom", label: t("Özel") },
 ];
 const KINDS: { value: ReportsQuery["kind"]; label: string }[] = [
-  { value: "expense", label: "Gider" },
-  { value: "income", label: "Gelir" },
+  { value: "expense", label: t("Gider") },
+  { value: "income", label: t("Gelir") },
 ];
 const GROUPS: { value: ReportGroup; label: string }[] = [
-  { value: "category", label: "Kategori" },
-  { value: "account", label: "Hesap" },
-  { value: "tag", label: "Etiket" },
+  { value: "category", label: t("Kategori") },
+  { value: "account", label: t("Hesap") },
+  { value: "tag", label: t("Etiket") },
 ];
 const COMPARES: { value: ReportCompare; label: string }[] = [
-  { value: "previous", label: "Önceki dönem" },
-  { value: "lastYear", label: "Geçen yıl" },
-  { value: "none", label: "Karşılaştırma yok" },
+  { value: "previous", label: t("Önceki dönem") },
+  { value: "lastYear", label: t("Geçen yıl") },
+  { value: "none", label: t("Karşılaştırma yok") },
 ];
-const MONTHS = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
-const monthLabel = (ym: string) => `${MONTHS[Number(ym.slice(5, 7)) - 1]} ${ym.slice(2, 4)}`;
+const monthLabel = formatMonthYearShort;
 const GREY = "#94a3b8";
 /** Baz puan → "+%12,5" / "−%12,5" (`sign`: artıda da işaret) */
 const pct = (bp: number | null, sign = true) =>
-  bp === null ? "—" : `${bp < 0 ? "−" : sign && bp > 0 ? "+" : ""}%${(Math.abs(bp) / 100).toLocaleString("tr-TR", { maximumFractionDigits: 1 })}`;
+  bp === null
+    ? "—"
+    : `${bp < 0 ? "−" : sign && bp > 0 ? "+" : ""}${t("%{v}", { v: (Math.abs(bp) / 100).toLocaleString(locale, { maximumFractionDigits: 1 }) })}`;
 
 /** Akış diyagramı düğümü: dikdörtgen ve sağında ad ile tutar (sağ kenar payı son sütunun etiketine yer bırakır) */
 function FlowNode(props: { x: number; y: number; width: number; height: number; payload: { name: string; color: string; value: number }; money: (v: number) => string }) {
@@ -83,40 +85,44 @@ export function ReportsPage() {
 
   const money = (c: number | null | undefined) => (c == null ? "—" : formatMoney(c / 100));
   const nameOf = (key: string | null): { name: string; color: string } => {
-    if (key === "other") return { name: "Diğer", color: GREY };
-    if (key === null) return { name: q.group === "tag" ? "Etiketsiz" : "Kategorisiz", color: GREY };
+    if (key === "other") return { name: t("Diğer"), color: GREY };
+    if (key === null) return { name: q.group === "tag" ? t("Etiketsiz") : t("Kategorisiz"), color: GREY };
     if (q.group === "account") {
       const a = accountById.get(key);
-      return { name: a?.name ?? "Silinmiş hesap", color: a?.color ?? GREY };
+      return { name: a?.name ?? t("Silinmiş hesap"), color: a?.color ?? GREY };
     }
     if (q.group === "tag") {
-      const t = tagById.get(key);
-      return { name: t?.name ?? "Silinmiş etiket", color: t?.color ?? GREY };
+      const tg = tagById.get(key);
+      return { name: tg?.name ?? t("Silinmiş etiket"), color: tg?.color ?? GREY };
     }
     const c = categoryById.get(key);
-    return { name: c?.name ?? "Silinmiş kategori", color: c?.color ?? GREY };
+    return { name: c?.name ?? t("Silinmiş kategori"), color: c?.color ?? GREY };
   };
   const catOf = (key: string | null) => {
-    if (key === "other") return { name: "Diğer", color: GREY };
-    if (key === null) return { name: "Kategorisiz", color: GREY };
+    if (key === "other") return { name: t("Diğer"), color: GREY };
+    if (key === null) return { name: t("Kategorisiz"), color: GREY };
     const c = categoryById.get(key);
-    return { name: c?.name ?? "Silinmiş kategori", color: c?.color ?? GREY };
+    return { name: c?.name ?? t("Silinmiş kategori"), color: c?.color ?? GREY };
   };
 
-  const t = report?.totals;
+  const tot = report?.totals;
   const c = report?.compareTotals ?? null;
   const d = report?.totalsDelta ?? null;
   const delta = (v: number | undefined) =>
-    v === undefined ? null : v === 0 ? "karşılaştırmayla aynı" : `${v > 0 ? "+" : "−"}${formatMoney(Math.abs(v) / 100)} karşılaştırmaya göre`;
+    v === undefined
+      ? null
+      : v === 0
+        ? t("karşılaştırmayla aynı")
+        : t("{amount} karşılaştırmaya göre", { amount: `${v > 0 ? "+" : "−"}${formatMoney(Math.abs(v) / 100)}` });
   const tiles: { label: string; value: string; tone: TileTone; hint: string | null }[] = [
-    { label: "Gelir", value: money(t?.incomeCents), tone: "income", hint: delta(d?.incomeCents) },
-    { label: "Gider", value: money(t?.expenseCents), tone: "expense", hint: delta(d?.expenseCents) },
-    { label: "Net", value: money(t?.netCents), tone: !t ? "plain" : t.netCents < 0 ? "expense" : "income", hint: delta(d?.netCents) },
+    { label: t("Gelir"), value: money(tot?.incomeCents), tone: "income", hint: delta(d?.incomeCents) },
+    { label: t("Gider"), value: money(tot?.expenseCents), tone: "expense", hint: delta(d?.expenseCents) },
+    { label: t("Net"), value: money(tot?.netCents), tone: !tot ? "plain" : tot.netCents < 0 ? "expense" : "income", hint: delta(d?.netCents) },
     {
-      label: "Birikim oranı",
-      value: t ? pct(t.savingsRateBp, false) : "—",
+      label: t("Birikim oranı"),
+      value: tot ? pct(tot.savingsRateBp, false) : "—",
       tone: "info",
-      hint: c ? `karşılaştırma ${pct(c.savingsRateBp, false)}` : null,
+      hint: c ? t("karşılaştırma {v}", { v: pct(c.savingsRateBp, false) }) : null,
     },
   ];
 
@@ -127,10 +133,10 @@ export function ReportsPage() {
     const nodes: { name: string; color: string }[] = [];
     const links: { source: number; target: number; value: number }[] = [];
     for (const x of f.incomes) nodes.push(catOf(x.key));
-    if (f.deficitCents > 0) nodes.push({ name: "Açık (birikimden/borçla)", color: "#f43f5e" });
+    if (f.deficitCents > 0) nodes.push({ name: t("Açık (birikimden/borçla)"), color: "#f43f5e" });
     const hub = nodes.length;
     // Açık varsa orta düğüm gelir değil, harcanan toplam
-    nodes.push({ name: f.deficitCents > 0 ? "Kullanılabilir" : "Gelir", color: "#10b981" });
+    nodes.push({ name: f.deficitCents > 0 ? t("Kullanılabilir") : t("Gelir"), color: "#10b981" });
     f.incomes.forEach((x, i) => links.push({ source: i, target: hub, value: x.cents / 100 }));
     if (f.deficitCents > 0) links.push({ source: hub - 1, target: hub, value: f.deficitCents / 100 });
     for (const x of f.expenses) {
@@ -139,21 +145,26 @@ export function ReportsPage() {
     }
     if (f.savedCents > 0) {
       links.push({ source: hub, target: nodes.length, value: f.savedCents / 100 });
-      nodes.push({ name: "Birikim", color: "#6366f1" });
+      nodes.push({ name: t("Birikim"), color: "#6366f1" });
     }
     return { nodes, links };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report, categoryById]);
 
   const rows = report?.rows ?? [];
-  const kindLabel = q.kind === "expense" ? "Gider" : "Gelir";
+  const kindLabel = q.kind === "expense" ? t("Gider") : t("Gelir");
+  const groupLabel = GROUPS.find((g) => g.value === q.group)!.label;
   const compareLabel = report?.compareRange ? `${formatDate(report.compareRange.from)} – ${formatDate(report.compareRange.to)}` : null;
 
   return (
     <>
       <PageHeader
-        title="Raporlar"
-        subtitle={report ? `${formatDate(report.range.from)} – ${formatDate(report.range.to)}${compareLabel ? ` · karşılaştırma ${compareLabel}` : ""}` : "Dönem, kırılım ve karşılaştırma"}
+        title={t("Raporlar")}
+        subtitle={
+          report
+            ? `${formatDate(report.range.from)} – ${formatDate(report.range.to)}${compareLabel ? ` · ${t("karşılaştırma {v}", { v: compareLabel })}` : ""}`
+            : t("Dönem, kırılım ve karşılaştırma")
+        }
       />
       <section className="card mb-4 space-y-3 p-4">
         <div className="flex flex-wrap items-center gap-2">
@@ -163,9 +174,9 @@ export function ReportsPage() {
           </div>
           {q.preset === "custom" && (
             <div className="flex items-center gap-2">
-              <input type="date" aria-label="Başlangıç" className="input w-40" value={q.from ?? ""} onChange={(e) => set({ from: e.target.value || null })} />
+              <input type="date" aria-label={t("Başlangıç")} className="input w-40" value={q.from ?? ""} onChange={(e) => set({ from: e.target.value || null })} />
               <span className="text-zinc-400">–</span>
-              <input type="date" aria-label="Bitiş" className="input w-40" value={q.to ?? ""} onChange={(e) => set({ to: e.target.value || null })} />
+              <input type="date" aria-label={t("Bitiş")} className="input w-40" value={q.to ?? ""} onChange={(e) => set({ to: e.target.value || null })} />
             </div>
           )}
         </div>
@@ -189,19 +200,19 @@ export function ReportsPage() {
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
         <section className="card overflow-x-auto xl:col-span-3">
           <h2 className="border-b border-zinc-200 px-5 py-3 text-sm font-semibold dark:border-zinc-800">
-            {kindLabel} · {GROUPS.find((g) => g.value === q.group)!.label.toLocaleLowerCase("tr")} kırılımı
+            {kindLabel} · {t("{group} kırılımı", { group: groupLabel.toLocaleLowerCase(locale) })}
           </h2>
           {rows.length === 0 ? (
-            <EmptyState icon={ChartColumn} title={`Bu dönemde ${kindLabel.toLocaleLowerCase("tr")} yok`} />
+            <EmptyState icon={ChartColumn} title={q.kind === "expense" ? t("Bu dönemde gider yok") : t("Bu dönemde gelir yok")} />
           ) : (
             <table className="w-full min-w-[520px] text-sm tabular-nums">
               <thead className="text-xs text-zinc-500">
                 <tr>
-                  <th className="px-5 py-2 text-left font-medium">{GROUPS.find((g) => g.value === q.group)!.label}</th>
-                  <th className="px-2 py-2 text-right font-medium">Tutar</th>
-                  <th className="px-2 py-2 text-right font-medium">Pay</th>
-                  {report?.compareRange && <th className="px-2 py-2 text-right font-medium">Önceki</th>}
-                  {report?.compareRange && <th className="px-5 py-2 text-right font-medium">Değişim</th>}
+                  <th className="px-5 py-2 text-left font-medium">{groupLabel}</th>
+                  <th className="px-2 py-2 text-right font-medium">{t("Tutar")}</th>
+                  <th className="px-2 py-2 text-right font-medium">{t("Pay")}</th>
+                  {report?.compareRange && <th className="px-2 py-2 text-right font-medium">{t("Önceki")}</th>}
+                  {report?.compareRange && <th className="px-5 py-2 text-right font-medium">{t("Değişim")}</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -216,11 +227,11 @@ export function ReportsPage() {
                         <span className="flex items-center gap-2">
                           <CategoryDot color={n.color} size={8} />
                           <span className="truncate">{n.name}</span>
-                          <span className="text-xs text-zinc-400">{r.count} işlem</span>
+                          <span className="text-xs text-zinc-400">{t("{n} işlem", { n: r.count })}</span>
                         </span>
                       </td>
                       <td className="px-2 py-2 text-right font-medium">{money(r.cents)}</td>
-                      <td className="px-2 py-2 text-right text-zinc-500">%{(r.shareBp / 100).toLocaleString("tr-TR", { maximumFractionDigits: 1 })}</td>
+                      <td className="px-2 py-2 text-right text-zinc-500">{t("%{v}", { v: (r.shareBp / 100).toLocaleString(locale, { maximumFractionDigits: 1 }) })}</td>
                       {report?.compareRange && <td className="px-2 py-2 text-right text-zinc-500">{money(r.compareCents)}</td>}
                       {report?.compareRange && (
                         <td className={`px-5 py-2 text-right ${r.deltaCents ? (bad ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400") : "text-zinc-400"}`}>
@@ -235,12 +246,12 @@ export function ReportsPage() {
             </table>
           )}
           {q.group === "tag" && rows.length > 0 && (
-            <p className="px-5 py-2 text-xs text-zinc-500">Birden çok etiketli işlem her etiketinde sayılır; paylar toplamı %100'ü aşabilir.</p>
+            <p className="px-5 py-2 text-xs text-zinc-500">{t("Birden çok etiketli işlem her etiketinde sayılır; paylar toplamı %100'ü aşabilir.")}</p>
           )}
         </section>
 
         <section className="card p-5 xl:col-span-2">
-          <h2 className="text-sm font-semibold">Aylık {kindLabel.toLocaleLowerCase("tr")}</h2>
+          <h2 className="text-sm font-semibold">{q.kind === "expense" ? t("Aylık gider") : t("Aylık gelir")}</h2>
           {report && report.months.length > 0 ? (
             <div className="mt-3 h-64">
               <ResponsiveContainer>
@@ -250,8 +261,8 @@ export function ReportsPage() {
                   <YAxis tickFormatter={(v) => formatCompact(Number(v))} tick={{ fill: "var(--chart-axis)", fontSize: 11 }} axisLine={false} tickLine={false} width={56} />
                   <Tooltip formatter={(v: number) => formatMoney(v)} />
                   {report.compareRange && <Legend wrapperStyle={{ fontSize: 12 }} />}
-                  <Bar dataKey="bu" name="Bu dönem" fill={q.kind === "expense" ? "var(--expense)" : "var(--income)"} isAnimationActive={false} />
-                  {report.compareRange && <Bar dataKey="onceki" name="Karşılaştırma" fill="var(--chart-axis)" fillOpacity={0.45} isAnimationActive={false} />}
+                  <Bar dataKey="bu" name={t("Bu dönem")} fill={q.kind === "expense" ? "var(--expense)" : "var(--income)"} isAnimationActive={false} />
+                  {report.compareRange && <Bar dataKey="onceki" name={t("Karşılaştırma")} fill="var(--chart-axis)" fillOpacity={0.45} isAnimationActive={false} />}
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -262,8 +273,8 @@ export function ReportsPage() {
       </div>
 
       <section className="card mt-4 p-5">
-        <h2 className="text-sm font-semibold">Gelir akışı</h2>
-        <p className="text-xs text-zinc-500">Gelir kaynaklarından giderlere ve birikime (kategoriye göre; küçük kalemler "Diğer")</p>
+        <h2 className="text-sm font-semibold">{t("Gelir akışı")}</h2>
+        <p className="text-xs text-zinc-500">{t("Gelir kaynaklarından giderlere ve birikime (kategoriye göre; küçük kalemler \"Diğer\")")}</p>
         {sankey ? (
           <div className="mt-3 h-[420px] overflow-x-auto text-zinc-700 dark:text-zinc-300">
             <div className="h-full min-w-[640px]">
@@ -282,7 +293,7 @@ export function ReportsPage() {
             </div>
           </div>
         ) : (
-          <p className="mt-3 text-sm text-zinc-500">Bu dönemde gelir ya da gider yok.</p>
+          <p className="mt-3 text-sm text-zinc-500">{t("Bu dönemde gelir ya da gider yok.")}</p>
         )}
       </section>
     </>

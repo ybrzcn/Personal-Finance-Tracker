@@ -1,4 +1,5 @@
 /** Döviz ve altın: para birimi listesi (Rust'taki `fx::INSTRUMENTS` ile aynı sırada), miktar ve kur hesapları. */
+import { locale, t } from "./i18n";
 
 export const TRY = "TRY";
 export type FxUnit = "currency" | "gram" | "piece" | "share";
@@ -11,24 +12,24 @@ export interface Instrument {
   group: FxGroup;
 }
 
-export const GROUP_LABEL: Record<FxGroup, string> = { doviz: "Döviz", altin: "Altın", maden: "Diğer madenler" };
+export const GROUP_LABEL: Record<FxGroup, string> = { doviz: t("Döviz"), altin: t("Altın"), maden: t("Diğer madenler") };
 
 const c = (code: string, name: string): Instrument => ({ code, name, unit: "currency", group: "doviz" });
 const g = (code: string, name: string, group: FxGroup = "altin"): Instrument => ({ code, name, unit: "gram", group });
 const p = (code: string, name: string): Instrument => ({ code, name, unit: "piece", group: "altin" });
 
 export const INSTRUMENTS: Instrument[] = [
-  c("USD", "ABD doları"), c("EUR", "Euro"), c("GBP", "İngiliz sterlini"), c("CHF", "İsviçre frangı"), c("JPY", "Japon yeni"),
-  c("CAD", "Kanada doları"), c("AUD", "Avustralya doları"), c("DKK", "Danimarka kronu"), c("SEK", "İsveç kronu"),
-  c("NOK", "Norveç kronu"), c("SAR", "Suudi Arabistan riyali"), c("KWD", "Kuveyt dinarı"), c("QAR", "Katar riyali"),
-  c("AED", "BAE dirhemi"), c("RON", "Rumen leyi"), c("RUB", "Rus rublesi"), c("CNY", "Çin yuanı"), c("PKR", "Pakistan rupisi"),
-  c("KRW", "Güney Kore wonu"), c("AZN", "Azerbaycan manatı"), c("KZT", "Kazakistan tengesi"),
-  g("ALTIN", "Gram altın (has)"), g("KULCEALTIN", "Külçe altın"), g("AYAR22", "22 ayar altın"), g("AYAR14", "14 ayar altın"),
-  p("CEYREK_YENI", "Çeyrek altın (yeni)"), p("CEYREK_ESKI", "Çeyrek altın (eski)"), p("YARIM_YENI", "Yarım altın (yeni)"),
-  p("YARIM_ESKI", "Yarım altın (eski)"), p("TEK_YENI", "Tam altın (yeni)"), p("TEK_ESKI", "Tam altın (eski)"),
-  p("ATA_YENI", "Ata lira (yeni)"), p("ATA_ESKI", "Ata lira (eski)"), p("ATA5_YENI", "Ata beşli (yeni)"),
-  p("ATA5_ESKI", "Ata beşli (eski)"), p("GREMESE_YENI", "Gremse (yeni)"), p("GREMESE_ESKI", "Gremse (eski)"),
-  g("GUMUSTRY", "Gümüş", "maden"),
+  c("USD", t("ABD doları")), c("EUR", t("Euro")), c("GBP", t("İngiliz sterlini")), c("CHF", t("İsviçre frangı")), c("JPY", t("Japon yeni")),
+  c("CAD", t("Kanada doları")), c("AUD", t("Avustralya doları")), c("DKK", t("Danimarka kronu")), c("SEK", t("İsveç kronu")),
+  c("NOK", t("Norveç kronu")), c("SAR", t("Suudi Arabistan riyali")), c("KWD", t("Kuveyt dinarı")), c("QAR", t("Katar riyali")),
+  c("AED", t("BAE dirhemi")), c("RON", t("Rumen leyi")), c("RUB", t("Rus rublesi")), c("CNY", t("Çin yuanı")), c("PKR", t("Pakistan rupisi")),
+  c("KRW", t("Güney Kore wonu")), c("AZN", t("Azerbaycan manatı")), c("KZT", t("Kazakistan tengesi")),
+  g("ALTIN", t("Gram altın (has)")), g("KULCEALTIN", t("Külçe altın")), g("AYAR22", t("22 ayar altın")), g("AYAR14", t("14 ayar altın")),
+  p("CEYREK_YENI", t("Çeyrek altın (yeni)")), p("CEYREK_ESKI", t("Çeyrek altın (eski)")), p("YARIM_YENI", t("Yarım altın (yeni)")),
+  p("YARIM_ESKI", t("Yarım altın (eski)")), p("TEK_YENI", t("Tam altın (yeni)")), p("TEK_ESKI", t("Tam altın (eski)")),
+  p("ATA_YENI", t("Ata lira (yeni)")), p("ATA_ESKI", t("Ata lira (eski)")), p("ATA5_YENI", t("Ata beşli (yeni)")),
+  p("ATA5_ESKI", t("Ata beşli (eski)")), p("GREMESE_YENI", t("Gremse (yeni)")), p("GREMESE_ESKI", t("Gremse (eski)")),
+  g("GUMUSTRY", t("Gümüş"), "maden"),
 ];
 
 export const instrumentByCode = new Map(INSTRUMENTS.map((i) => [i.code, i]));
@@ -43,22 +44,22 @@ export const unitOf = (code: string): FxUnit => (isFund(code) ? "share" : (instr
 export const isForeign = (code: string | null | undefined): boolean => !!code && code !== TRY;
 export const qtyDecimals = (code: string): number => ({ currency: 2, gram: 3, piece: 0, share: 0 })[unitOf(code)];
 /** Miktar alanı hata mesajı için: birimin kabul ettiği hane */
-export const qtyRule = (code: string): string => ({ currency: "en çok 2 ondalık", gram: "en çok 3 ondalık", piece: "tam sayı", share: "tam sayı" })[unitOf(code)];
+export const qtyRule = (code: string): string => ({ currency: t("en çok 2 ondalık"), gram: t("en çok 3 ondalık"), piece: t("tam sayı"), share: t("tam sayı") })[unitOf(code)];
 /** Miktar alanının birim etiketi */
-export const unitLabel = (code: string): string => ({ currency: code, gram: "gram", piece: "adet", share: "pay" })[unitOf(code)];
+export const unitLabel = (code: string): string => ({ currency: code, gram: t("gram"), piece: t("adet"), share: t("pay") })[unitOf(code)];
 export const currencyLabel = (code: string): string =>
-  code === TRY ? "Türk lirası" : isFund(code) ? `${fundCode(code)} fonu` : (instrumentByCode.get(code)?.name ?? code);
+  code === TRY ? t("Türk lirası") : isFund(code) ? t("{code} fonu", { code: fundCode(code) ?? "" }) : (instrumentByCode.get(code)?.name ?? code);
 
 
-const fmt = (d: number) => new Intl.NumberFormat("tr-TR", { minimumFractionDigits: d, maximumFractionDigits: d });
+const fmt = (d: number) => new Intl.NumberFormat(locale, { minimumFractionDigits: d, maximumFractionDigits: d });
 
 export function formatQty(value: number, code: string): string {
   const u = unitOf(code);
-  if (u === "share") return `${fmt(0).format(value)} pay`;
-  if (u === "piece") return `${fmt(0).format(value)} adet`;
+  if (u === "share") return t("{v} pay", { v: fmt(0).format(value) });
+  if (u === "piece") return t("{v} adet", { v: fmt(0).format(value) });
   if (u === "gram") return `${fmt(3).format(value)} g`;
   return `${fmt(2).format(value)} ${code}`;
 }
 
-const rateFmt = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 6 });
+const rateFmt = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 6 });
 export const formatRate = (rate: number): string => rateFmt.format(rate);

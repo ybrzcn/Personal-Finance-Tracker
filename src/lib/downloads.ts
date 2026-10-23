@@ -1,4 +1,5 @@
 import names from "../../scripts/release-names.json";
+import { t } from "./i18n";
 
 export type PlatformKey = "macos" | "windows" | "linux";
 
@@ -24,17 +25,20 @@ export const REPO_URL = `https://github.com/${REPO}`;
 export const downloadUrl = (file: string) => `${REPO_URL}/releases/latest/download/${file}`;
 
 const NOTES: Record<PlatformKey, string> = {
-  macos: "Uygulama henüz imzalı değil: ilk açılışta Uygulamalar klasöründe Finans'a sağ tıklayıp Aç'ı seçin.",
-  windows: "Uygulama henüz imzalı değil: SmartScreen uyarısında Ek bilgi → Yine de çalıştır.",
-  linux: "AppImage'ı çalıştırılabilir yapın: chmod +x Finans-linux-*.AppImage",
+  macos: t("Uygulama henüz imzalı değil: ilk açılışta Uygulamalar klasöründe Finans'a sağ tıklayıp Aç'ı seçin."),
+  windows: t("Uygulama henüz imzalı değil: SmartScreen uyarısında Ek bilgi → Yine de çalıştır."),
+  linux: t("AppImage'ı çalıştırılabilir yapın: chmod +x Finans-linux-*.AppImage"),
 };
+
+/** Dosya etiketi ve açıklaması release-names.json'da Türkçe; seçili dile çevrilir */
+const localized = (d: DownloadItem): DownloadItem => ({ ...d, label: t(d.label), description: t(d.description) });
 
 const NAMES: Record<PlatformKey, string> = { macos: "macOS", windows: "Windows", linux: "Linux" };
 
 export const PLATFORMS: Record<PlatformKey, Platform> = Object.fromEntries(
   (Object.keys(NAMES) as PlatformKey[]).map((k) => [
     k,
-    { name: NAMES[k], primary: names.platforms[k].primary, others: names.platforms[k].others, note: NOTES[k] },
+    { name: NAMES[k], primary: localized(names.platforms[k].primary), others: names.platforms[k].others.map(localized), note: NOTES[k] },
   ]),
 ) as Record<PlatformKey, Platform>;
 

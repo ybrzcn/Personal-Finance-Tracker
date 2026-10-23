@@ -3,6 +3,7 @@ import { useData } from "../state/data";
 import { useGoals } from "../state/goals";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
+import { t } from "../lib/i18n";
 
 /** En çok 3 etkin, ulaşılmamış hedef; hedef yoksa gösterilmez */
 export function GoalsSummary() {
@@ -22,15 +23,15 @@ function Summary() {
   return (
     <section className="card col-span-2 px-5 py-4 lg:col-span-4">
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-[15px] font-semibold">Hedefler</h2>
+        <h2 className="text-[15px] font-semibold">{t("Hedefler")}</h2>
         <button className="text-xs font-medium text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200" onClick={() => setPage("goals")}>
-          Tümü
+          {t("Tümü")}
         </button>
       </div>
       {g.error && !g.report ? (
-        <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">Hedefler hesaplanamadı.</p>
+        <p className="mt-2 text-xs text-rose-600 dark:text-rose-400">{t("Hedefler hesaplanamadı.")}</p>
       ) : shown.length === 0 ? (
-        <p className="mt-2 text-xs text-zinc-500">Etkin hedeflerin hepsine ulaşıldı.</p>
+        <p className="mt-2 text-xs text-zinc-500">{t("Etkin hedeflerin hepsine ulaşıldı.")}</p>
       ) : (
         <ul className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
           {shown.map((x) => {
@@ -45,7 +46,7 @@ function Summary() {
                   <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, p?.percent ?? 0))}%`, backgroundColor: x.color }} />
                 </div>
                 <div className="mt-1 text-xs text-zinc-500">
-                  {p ? `%${Math.round(p.percent)} · ${formatGoalAmount(p.current, x.currency, formatMoney)}` : "…"}
+                  {p ? `${t("%{v}", { v: Math.round(p.percent) })} · ${formatGoalAmount(p.current, x.currency, formatMoney)}` : "…"}
                 </div>
               </li>
             );

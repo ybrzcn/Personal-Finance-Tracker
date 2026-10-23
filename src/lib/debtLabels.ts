@@ -1,4 +1,5 @@
 import type { DebtRuleMode, DebtStrategy } from "./types";
+import { t } from "./i18n";
 
 /** "Kendi planım"da borç başına ödeme kuralı (ayarlarda saklanan biçim) */
 export interface DebtRule {
@@ -8,16 +9,16 @@ export interface DebtRule {
 }
 
 export const STRATEGY_LABEL: Record<DebtStrategy, string> = {
-  avalanche: "En yüksek faizliden başla (Çığ)",
-  snowball: "En küçük borçtan başla (Kartopu)",
-  custom: "Benim sıramla (hesap sırası)",
-  minimum: "Yalnız asgari / taksit",
-  manual: "Kendi planım",
+  avalanche: t("En yüksek faizliden başla (Çığ)"),
+  snowball: t("En küçük borçtan başla (Kartopu)"),
+  custom: t("Benim sıramla (hesap sırası)"),
+  minimum: t("Yalnız asgari / taksit"),
+  manual: t("Kendi planım"),
 };
 
 export const DEBT_RULE_LABEL: Record<DebtRuleMode, string> = {
-  full: "Tam öde",
-  minimum: "Asgari",
-  fixed: "Sabit tutar",
-  none: "Ödeme yok",
+  full: t("Tam öde"),
+  minimum: t("Asgari"),
+  fixed: t("Sabit tutar"),
+  none: t("Ödeme yok"),
 };

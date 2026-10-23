@@ -135,6 +135,14 @@ pub struct RateLimiter {
 const LIMITER_CAP: usize = 50_000;
 
 impl RateLimiter {
+    /// Sayaç pencere içinde `max`'a ulaştı mı (artırmadan). Yalnız başarısız denemeler sayılacaksa
+    /// önce buna bakılır, başarısızlıkta `allow` ile sayılır.
+    pub fn exceeded(&self, key: &str, max: u32) -> bool {
+        let hits = self.hits.lock().unwrap_or_else(|e| e.into_inner());
+        let k: [u8; 32] = Sha256::digest(key.as_bytes()).into();
+        hits.get(&k).is_some_and(|(n, start, w)| Instant::now().duration_since(*start) < *w && *n >= max)
+    }
+
     pub fn allow(&self, key: &str, max: u32, window: Duration) -> bool {
         let mut hits = self.hits.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
@@ -209,5 +217,15 @@ pub fn cli_reset_password(store: &dyn AuthStore, email: &str) -> StoreResult<boo
     store.delete_sessions(&user.id, None)?;
     println!("{} için geçici şifre: {password}", user.email);
     println!("Kullanıcı giriş yaptıktan sonra Ayarlar → Hesap'tan şifresini değiştirmeli.");
+    Ok(true)
+}
+
+/// `finans-server disable-2fa <eposta>`: doğrulama uygulaması kodunu kapatır ve passkey'leri siler (telefonunu ve
+/// kurtarma kodunu kaybeden kullanıcı için). Oturumlar kapanmaz. Kullanıcı yoksa false.
+pub fn cli_disable_2fa(store: &dyn AuthStore, email: &str) -> StoreResult<bool> {
+    let Some(user) = store.find_user(&email.trim().to_lowercase())? else { return Ok(false) };
+    store.set_totp(&user.id, None)?;
+    let removed = store.delete_passkeys(&user.id)?;
+    println!("{}: doğrulama uygulaması kodu kapatıldı, {removed} passkey silindi.", user.email);
     Ok(true)
 }

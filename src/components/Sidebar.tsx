@@ -26,30 +26,31 @@ import { useEffect, useState } from "react";
 import { isMac, modKey } from "../lib/platform";
 import { useSettings, type ThemePref } from "../state/settings";
 import { useUI, type Page } from "../state/ui";
+import { t } from "../lib/i18n";
 
 /** `key`: App.tsx'deki kısayol (⌘1–9); kısayolu olmayan sayfada yok */
 const NAV: { page: Page; label: string; icon: typeof LayoutDashboard; key?: string }[] = [
-  { page: "dashboard", label: "Genel Bakış", icon: LayoutDashboard, key: "1" },
-  { page: "transactions", label: "İşlemler", icon: ArrowLeftRight, key: "2" },
-  { page: "accounts", label: "Hesaplar", icon: Landmark, key: "3" },
-  { page: "rates", label: "Kurlar", icon: Coins },
-  { page: "pnl", label: "Kâr/Zarar", icon: TrendingUp },
-  { page: "budget", label: "Bütçe", icon: PiggyBank, key: "4" },
-  { page: "goals", label: "Hedefler", icon: Target },
-  { page: "analysis", label: "Analiz", icon: Activity, key: "5" },
-  { page: "reports", label: "Raporlar", icon: ChartColumn },
-  { page: "plan", label: "Ödeme Takvimi", icon: CalendarRange, key: "6" },
-  { page: "debt", label: "Borç Planı", icon: TrendingDown, key: "7" },
-  { page: "projection", label: "Uzun Vade", icon: Telescope },
-  { page: "categories", label: "Kategoriler", icon: Tags, key: "8" },
-  { page: "tags", label: "Etiketler", icon: TagIcon },
-  { page: "settings", label: "Ayarlar", icon: Settings, key: "9" },
+  { page: "dashboard", label: t("Genel Bakış"), icon: LayoutDashboard, key: "1" },
+  { page: "transactions", label: t("İşlemler"), icon: ArrowLeftRight, key: "2" },
+  { page: "accounts", label: t("Hesaplar"), icon: Landmark, key: "3" },
+  { page: "rates", label: t("Kurlar"), icon: Coins },
+  { page: "pnl", label: t("Kâr/Zarar"), icon: TrendingUp },
+  { page: "budget", label: t("Bütçe"), icon: PiggyBank, key: "4" },
+  { page: "goals", label: t("Hedefler"), icon: Target },
+  { page: "analysis", label: t("Analiz"), icon: Activity, key: "5" },
+  { page: "reports", label: t("Raporlar"), icon: ChartColumn },
+  { page: "plan", label: t("Ödeme Takvimi"), icon: CalendarRange, key: "6" },
+  { page: "debt", label: t("Borç Planı"), icon: TrendingDown, key: "7" },
+  { page: "projection", label: t("Uzun Vade"), icon: Telescope },
+  { page: "categories", label: t("Kategoriler"), icon: Tags, key: "8" },
+  { page: "tags", label: t("Etiketler"), icon: TagIcon },
+  { page: "settings", label: t("Ayarlar"), icon: Settings, key: "9" },
 ];
 
 const THEMES: { value: ThemePref; icon: typeof Sun; label: string }[] = [
-  { value: "light", icon: Sun, label: "Açık" },
-  { value: "system", icon: Monitor, label: "Sistem" },
-  { value: "dark", icon: Moon, label: "Koyu" },
+  { value: "light", icon: Sun, label: t("Açık") },
+  { value: "system", icon: Monitor, label: t("Sistem") },
+  { value: "dark", icon: Moon, label: t("Koyu") },
 ];
 
 const COLLAPSE_KEY = "finans-sidebar-collapsed";
@@ -113,18 +114,18 @@ export function Sidebar({ topInset }: { topInset: boolean }) {
           </div>
           <div className={lg("hidden lg:block")}>
             <div className="text-[17px] font-bold leading-tight">Finans</div>
-            <div className="text-xs text-zinc-500">Kişisel bütçe takibi</div>
+            <div className="text-xs text-zinc-500">{t("Kişisel bütçe takibi")}</div>
           </div>
         </div>
 
         <button
           className={lg("btn-primary mb-3 w-full justify-center px-0 lg:justify-between lg:px-3")}
           onClick={() => openTransactionForm()}
-          title={`Yeni İşlem (${modKey}N)`}
-          aria-label="Yeni İşlem"
+          title={`${t("Yeni İşlem")} (${modKey}N)`}
+          aria-label={t("Yeni İşlem")}
         >
           <span className="inline-flex items-center gap-1.5">
-            <Plus size={16} /> <span className={lg("hidden lg:inline")}>Yeni İşlem</span>
+            <Plus size={16} /> <span className={lg("hidden lg:inline")}>{t("Yeni İşlem")}</span>
           </span>
           <kbd className={lg("hidden font-sans text-xs font-normal opacity-70 lg:inline")}>{modKey}N</kbd>
         </button>
@@ -169,8 +170,8 @@ export function Sidebar({ topInset }: { topInset: boolean }) {
           <button
             type="button"
             onClick={toggle}
-            title={`${collapsed ? "Menüyü genişlet" : "Menüyü daralt"} (${modKey}B)`}
-            aria-label={collapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+            title={`${collapsed ? t("Menüyü genişlet") : t("Menüyü daralt")} (${modKey}B)`}
+            aria-label={collapsed ? t("Menüyü genişlet") : t("Menüyü daralt")}
             aria-expanded={!collapsed}
             // Dar pencerede menü zaten simge şeridi; düğme yalnız geniş ekranda
             className={`hidden w-full items-center gap-2 rounded-[10px] px-3 py-2 text-xs font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 lg:flex dark:hover:bg-zinc-800 dark:hover:text-zinc-100 ${
@@ -178,9 +179,9 @@ export function Sidebar({ topInset }: { topInset: boolean }) {
             }`}
           >
             {collapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />}
-            <span className={lg("hidden lg:inline")}>Menüyü daralt</span>
+            <span className={lg("hidden lg:inline")}>{t("Menüyü daralt")}</span>
           </button>
-          <div className={lg("flex flex-col gap-0.5 rounded-[9px] bg-zinc-100 p-[3px] lg:flex-row dark:bg-zinc-950")} role="group" aria-label="Tema">
+          <div className={lg("flex flex-col gap-0.5 rounded-[9px] bg-zinc-100 p-[3px] lg:flex-row dark:bg-zinc-950")} role="group" aria-label={t("Tema")}>
             {THEMES.map(({ value, icon: Icon, label }) => (
               <button
                 key={value}

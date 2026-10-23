@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { t } from "../lib/i18n";
 
 interface Props {
   title: string;
@@ -90,7 +91,7 @@ export function Modal({ title, onClose, children, footer, width = "max-w-md" }: 
       >
         <div className="flex shrink-0 items-center justify-between border-b border-zinc-200 px-5 py-3.5 dark:border-zinc-800">
           <h2 className="text-base font-semibold">{title}</h2>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Kapat">
+          <button type="button" className="icon-btn" onClick={onClose} aria-label={t("Kapat")}>
             <X size={18} />
           </button>
         </div>

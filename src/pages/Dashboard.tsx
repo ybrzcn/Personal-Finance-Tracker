@@ -15,6 +15,7 @@ import { useData } from "../state/data";
 import { useOverview } from "../state/overview";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
+import { merchantName, t, tm } from "../lib/i18n";
 
 type CardPeriod = RangePreset;
 const PERIODS: CardPeriod[] = ["thisMonth", "lastMonth", "last30", "thisYear", "all"];
@@ -56,9 +57,9 @@ function MonthlyTable({ data }: { data: MonthPoint[] }) {
     <table className="mt-1 w-full border-collapse text-[13px] tabular-nums">
       <thead>
         <tr className="border-b border-zinc-200 text-right text-[11px] text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
-          <th className="py-1.5 text-left font-medium">Ay</th>
-          <th className="font-medium">Gelir</th>
-          <th className="font-medium">Gider</th>
+          <th className="py-1.5 text-left font-medium">{t("Ay")}</th>
+          <th className="font-medium">{t("Gelir")}</th>
+          <th className="font-medium">{t("Gider")}</th>
           <th className="hidden w-[38%] sm:table-cell" />
         </tr>
       </thead>
@@ -96,30 +97,30 @@ function RecentTable({
       <table className="mt-1 w-full border-collapse text-[13px] tabular-nums">
         <thead>
           <tr className="border-b border-zinc-200 text-left text-[11px] text-zinc-400 dark:border-zinc-800 dark:text-zinc-500">
-            <th className="py-1.5 font-medium">Tarih</th>
-            <th className="font-medium">Açıklama</th>
-            <th className="hidden font-medium sm:table-cell">Kategori</th>
-            <th className="hidden font-medium md:table-cell">Hesap</th>
-            <th className="text-right font-medium">Tutar</th>
+            <th className="py-1.5 font-medium">{t("Tarih")}</th>
+            <th className="font-medium">{t("Açıklama")}</th>
+            <th className="hidden font-medium sm:table-cell">{t("Kategori")}</th>
+            <th className="hidden font-medium md:table-cell">{t("Hesap")}</th>
+            <th className="text-right font-medium">{t("Tutar")}</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((t) => {
-            const transfer = t.type === "transfer";
-            const c = categoryOf(t);
+          {items.map((tx) => {
+            const transfer = tx.type === "transfer";
+            const c = categoryOf(tx);
             const color = c?.color ?? UNCATEGORIZED.color;
             const name = c?.name ?? UNCATEGORIZED.name;
             return (
               <tr
-                key={t.id}
-                onClick={() => onOpen(t)}
+                key={tx.id}
+                onClick={() => onOpen(tx)}
                 className="h-[34px] cursor-pointer border-b border-zinc-100 last:border-0 hover:bg-zinc-50 dark:border-zinc-800/70 dark:hover:bg-zinc-800/50"
               >
-                <td className="whitespace-nowrap pr-3 text-zinc-500">{formatDate(t.date)}</td>
+                <td className="whitespace-nowrap pr-3 text-zinc-500">{formatDate(tx.date)}</td>
                 <td className="max-w-[16rem] pr-3 font-medium">
                   {/* Klavyeyle de açılabilsin diye açıklama bir düğme */}
-                  <button type="button" className="block w-full truncate text-left" onClick={(e) => (e.stopPropagation(), onOpen(t))}>
-                    {t.description || (transfer ? "Transfer" : name)}
+                  <button type="button" className="block w-full truncate text-left" onClick={(e) => (e.stopPropagation(), onOpen(tx))}>
+                    {tx.description || (transfer ? t("Transfer") : name)}
                   </button>
                 </td>
                 <td className="hidden pr-3 sm:table-cell">
@@ -135,9 +136,9 @@ function RecentTable({
                     </span>
                   )}
                 </td>
-                <td className="hidden truncate pr-3 text-zinc-600 md:table-cell dark:text-zinc-400">{accountOf(t)}</td>
+                <td className="hidden truncate pr-3 text-zinc-600 md:table-cell dark:text-zinc-400">{accountOf(tx)}</td>
                 <td className="text-right">
-                  <Amount tx={t} />
+                  <Amount tx={tx} />
                 </td>
               </tr>
             );
@@ -168,23 +169,23 @@ function UpcomingPayments() {
     <section className="card col-span-2 px-5 py-4">
       <div className="mb-1 flex items-center justify-between">
         <h2 className="text-[15px] font-semibold">
-          Yaklaşan Ödemeler <span className="font-medium text-zinc-500">· 30 gün</span>
+          {t("Yaklaşan Ödemeler")} <span className="font-medium text-zinc-500">· {t("30 gün")}</span>
         </h2>
         <button className="btn-ghost -mr-2 px-2 py-1 text-xs" onClick={() => setPage("plan")}>
-          Ödeme takvimi <ArrowRight size={14} />
+          {t("Ödeme takvimi")} <ArrowRight size={14} />
         </button>
       </div>
   {error ? (
     <div role="alert" className="flex items-center justify-between gap-3 py-3 text-sm">
-      <span className="text-rose-600 dark:text-rose-400">Yaklaşan ödemeler alınamadı: {error}</span>
+      <span className="text-rose-600 dark:text-rose-400">{t("Yaklaşan ödemeler alınamadı: {error}", { error: tm(error) })}</span>
       <button className="btn-secondary px-3 py-1.5 text-xs" onClick={retry}>
-        Tekrar dene
+        {t("Tekrar dene")}
       </button>
     </div>
   ) : !report ? (
     <p className="py-3 text-sm text-zinc-500">{loading ? "…" : "—"}</p>
   ) : items.length === 0 ? (
-        <EmptyState icon={CalendarCheck} title="Önümüzdeki 30 günde kart veya kredi ödemesi yok" />
+        <EmptyState icon={CalendarCheck} title={t("Önümüzdeki 30 günde kart veya kredi ödemesi yok")} />
       ) : (
         <ul className="divide-y divide-zinc-100 border-t border-zinc-100 dark:divide-zinc-800 dark:border-zinc-800">
           {items.map((ob) => {
@@ -194,11 +195,11 @@ function UpcomingPayments() {
                 <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: account?.color ?? "#94a3b8" }} />
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm font-medium">
-                    {ob.label}
-                    {ob.estimated && <span className="ml-2 text-xs font-normal text-zinc-500">(tahmini)</span>}
+                    {tm(ob.label)}
+                    {ob.estimated && <span className="ml-2 text-xs font-normal text-zinc-500">{t("(tahmini)")}</span>}
                   </div>
                   <div className={`text-xs ${ob.overdue ? "text-rose-600 dark:text-rose-400" : "text-zinc-500"}`}>
-                    Son ödeme {formatDate(ob.date)} · {dueText(ob.daysLeft)}
+                    {t("Son ödeme {date}", { date: formatDate(ob.date) })} · {dueText(ob.daysLeft)}
                   </div>
                 </div>
                 <div className="text-base font-bold tabular-nums">{formatMoney(ob.amountCents / 100)}</div>
@@ -207,7 +208,7 @@ function UpcomingPayments() {
                   <span className="w-[60px]" />
                 ) : (
                   <button className="btn-primary min-h-8 w-[60px] px-0 py-1 text-[13px] font-semibold" onClick={() => pay(ob)}>
-                    Öde
+                    {t("Öde")}
                   </button>
                 )}
               </li>
@@ -253,9 +254,9 @@ export function Dashboard() {
     previous: ov.previous ? categorySlices(ov.previous) : null,
     accounts: ov.accounts.map((s): CategorySlice => {
       const a = accountById.get(s.accountId);
-      return { id: s.accountId, name: a?.name ?? "Silinmiş hesap", color: a?.color ?? UNCATEGORIZED.color, value: s.cents / 100 };
+      return { id: s.accountId, name: a?.name ?? t("Silinmiş hesap"), color: a?.color ?? UNCATEGORIZED.color, value: s.cents / 100 };
     }),
-    merchants: ov.merchants.map((m): MerchantRow => ({ key: m.key, name: m.name, count: m.count, total: m.totalCents / 100 })),
+    merchants: ov.merchants.map((m): MerchantRow => ({ key: m.key, name: merchantName(m.name), count: m.count, total: m.totalCents / 100 })),
   };
   const monthly: MonthPoint[] = (ov?.monthly ?? []).map((m) => ({
     key: m.month,
@@ -267,16 +268,16 @@ export function Dashboard() {
   const recent = transactions.filter((t) => t.date <= todayISO()).slice(0, 6);
   const netHint = totals
     ? totals.savingsRatePct !== null
-      ? `Tasarruf oranı: %${totals.savingsRatePct} · ${totals.count} işlem`
-      : `${totals.count} işlem`
+      ? `${t("Tasarruf oranı: %{v}", { v: totals.savingsRatePct })} · ${t("{n} işlem", { n: totals.count })}`
+      : t("{n} işlem", { n: totals.count })
     : undefined;
   const incomeHint =
-    totals && totals.plannedCents > 0 ? `${periodLabel} · ${formatMoney(totals.plannedCents / 100)} düzenli gelir (plan) dahil` : periodLabel;
+    totals && totals.plannedCents > 0 ? `${periodLabel} · ${t("{amount} düzenli gelir (plan) dahil", { amount: formatMoney(totals.plannedCents / 100) })}` : periodLabel;
 
   return (
     <>
       <PageHeader
-        title="Genel Bakış"
+        title={t("Genel Bakış")}
         subtitle={formatMonthYear(new Date())}
         actions={
           <>
@@ -295,23 +296,23 @@ export function Dashboard() {
 
       {error && (
         <div role="alert" className="card mb-4 flex items-center justify-between gap-3 px-5 py-4 text-sm">
-          <span className="text-rose-600 dark:text-rose-400">İstatistikler alınamadı: {error}</span>
+          <span className="text-rose-600 dark:text-rose-400">{t("İstatistikler alınamadı: {error}", { error: tm(error) })}</span>
           <button className="btn-secondary px-3 py-1.5 text-xs" onClick={retry}>
-            Tekrar dene
+            {t("Tekrar dene")}
           </button>
         </div>
       )}
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard label="Net Bakiye" value={money(totals?.netCents)} tone="net" className={`col-span-2 ${dim}`} hint={netHint} />
-        <StatCard label="Toplam Gelir" value={money(totals?.incomeCents)} tone="income" className={dim} hint={incomeHint} />
+        <StatCard label={t("Net Bakiye")} value={money(totals?.netCents)} tone="net" className={`col-span-2 ${dim}`} hint={netHint} />
+        <StatCard label={t("Toplam Gelir")} value={money(totals?.incomeCents)} tone="income" className={dim} hint={incomeHint} />
         <StatCard
-          label="Toplam Gider"
+          label={t("Toplam Gider")}
           value={money(totals?.expenseCents)}
           tone="expense"
           className={dim}
           // Bütçe sayfası kart harcamalarını ödeyecek maaşın ayına yazar; burada harcama tarihi esas alınır
-          hint={`${periodLabel} · harcama tarihine göre`}
+          hint={`${periodLabel} · ${t("harcama tarihine göre")}`}
         />
 
         {/* Tek kartta kategori / hesap / harcama yeri; hiç işlem yokken kurulum listesi yeterli */}
@@ -321,7 +322,7 @@ export function Dashboard() {
               <SpendingBreakdown {...breakdown} periodLabel={periodLabel} />
             ) : (
               <section className="card flex w-full flex-col px-5 py-4">
-                <h2 className="text-[15px] font-semibold">Harcama dağılımı · {periodLabel}</h2>
+                <h2 className="text-[15px] font-semibold">{t("Harcama dağılımı")} · {periodLabel}</h2>
                 <p className="mt-6 text-sm text-zinc-500">{ph}</p>
               </section>
             )}
@@ -334,16 +335,16 @@ export function Dashboard() {
 
         <section className={`card col-span-2 px-5 py-4 ${transactions.length > 0 ? "" : "lg:col-span-4"} ${dim}`} aria-busy={refreshing}>
           <div className="flex items-baseline justify-between gap-3">
-            <h2 className="text-[15px] font-semibold">Son 6 Ay · Gelir / Gider</h2>
+            <h2 className="text-[15px] font-semibold">{t("Son 6 Ay · Gelir / Gider")}</h2>
             {monthly.length > 0 && (
               <span className="flex gap-3 text-xs text-zinc-500" aria-hidden>
                 <span className="inline-flex items-center gap-1.5">
                   <span className="h-[9px] w-[9px] rounded-[3px] bg-[var(--income)]" />
-                  Gelir
+                  {t("Gelir")}
                 </span>
                 <span className="inline-flex items-center gap-1.5">
                   <span className="h-[9px] w-[9px] rounded-[3px] bg-[var(--expense)]" />
-                  Gider
+                  {t("Gider")}
                 </span>
               </span>
             )}
@@ -353,8 +354,8 @@ export function Dashboard() {
           ) : ov ? (
             <EmptyState
               icon={PieChart}
-              title="Henüz gelir veya gider yok"
-              hint="İlk işlemini ya da maaşını ekleyince aylık grafik burada görünür."
+              title={t("Henüz gelir veya gider yok")}
+              hint={t("İlk işlemini ya da maaşını ekleyince aylık grafik burada görünür.")}
             />
           ) : (
             <p className="py-3 text-sm text-zinc-500">{ph}</p>
@@ -363,10 +364,10 @@ export function Dashboard() {
 
         <section className="card col-span-2 px-5 py-4 lg:col-span-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-[15px] font-semibold">Son İşlemler</h2>
+            <h2 className="text-[15px] font-semibold">{t("Son İşlemler")}</h2>
             {transactions.length > 0 && (
               <button className="btn-ghost -mr-2 px-2 py-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400" onClick={() => setPage("transactions")}>
-                Tümü <ArrowRight size={14} />
+                {t("Tümü")} <ArrowRight size={14} />
               </button>
             )}
           </div>
@@ -380,11 +381,11 @@ export function Dashboard() {
           ) : (
             <EmptyState
               icon={Receipt}
-              title="Henüz işlem yok"
-              hint="İlk gelir veya giderinizi ekleyerek başlayın."
+              title={t("Henüz işlem yok")}
+              hint={t("İlk gelir veya giderinizi ekleyerek başlayın.")}
               action={
                 <button className="btn-primary" onClick={() => openTransactionForm()}>
-                  <Plus size={16} /> İşlem Ekle
+                  <Plus size={16} /> {t("İşlem Ekle")}
                 </button>
               }
             />

@@ -1,6 +1,7 @@
 import type { BudgetStatus } from "./types";
+import { t } from "./i18n";
 
-export const BUDGET_LABEL: Record<BudgetStatus, string> = { ok: "Uygun", near: "Yaklaşıyor", over: "Aşıldı" };
+export const BUDGET_LABEL: Record<BudgetStatus, string> = { ok: t("Uygun"), near: t("Yaklaşıyor"), over: t("Aşıldı") };
 export const BUDGET_TONE: Record<BudgetStatus, string> = {
   ok: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300",
   near: "bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300",

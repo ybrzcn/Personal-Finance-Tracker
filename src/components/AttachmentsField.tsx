@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, errorMessage } from "../lib/api";
 import { saveBinaryFile } from "../lib/fileio";
 import { formatDate } from "../lib/format";
+import { locale, t } from "../lib/i18n";
 import { isMobile } from "../lib/platform";
 import type { Attachment, ReceiptHint } from "../lib/types";
 import { useAttachmentCounts } from "../state/attachments";
@@ -12,7 +13,7 @@ const ACCEPT = "image/jpeg,image/png,image/webp,application/pdf";
 const MAX_BYTES = 10 * 1024 * 1024;
 const MAX_COUNT = 10;
 
-const sizeLabel = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toLocaleString("tr-TR", { maximumFractionDigits: 1 })} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+const sizeLabel = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toLocaleString(locale, { maximumFractionDigits: 1 })} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 /** Belge satırı */
 const Row = ({ name, size, date, pdf, onOpen, onRemove }: { name: string; size: number; date?: string; pdf: boolean; onOpen(): void; onRemove(): void }) => (
@@ -23,9 +24,9 @@ const Row = ({ name, size, date, pdf, onOpen, onRemove }: { name: string; size: 
     </button>
     <span className="shrink-0 text-xs tabular-nums text-zinc-500">
       {sizeLabel(size)}
-      {date ? ` · ${formatDate(date.slice(0, 10))}` : " · kaydedilince yüklenecek"}
+      {date ? ` · ${formatDate(date.slice(0, 10))}` : ` · ${t("kaydedilince yüklenecek")}`}
     </span>
-    <button type="button" className="icon-btn" title="Kaldır" aria-label={`${name} kaldır`} onClick={onRemove}>
+    <button type="button" className="icon-btn" title={t("Kaldır")} aria-label={t("{name} kaldır", { name })} onClick={onRemove}>
       <Trash2 size={14} />
     </button>
   </li>
@@ -88,8 +89,8 @@ export function AttachmentsField({
     setError(null);
     const list = [...files];
     const tooBig = list.find((f) => f.size > MAX_BYTES);
-    if (tooBig) return setError(`${tooBig.name}: dosya 10 MB'tan büyük olamaz.`);
-    if (count + list.length > MAX_COUNT) return setError("Bir işleme en çok 10 belge eklenebilir.");
+    if (tooBig) return setError(t("{name}: dosya 10 MB'tan büyük olamaz.", { name: tooBig.name }));
+    if (count + list.length > MAX_COUNT) return setError(t("Bir işleme en çok 10 belge eklenebilir."));
     // PDF'ten öneri (yalnız ilk PDF; metni olmayan PDF'te sessizce geçilir)
     const pdf = list.find((f) => f.type === "application/pdf" || f.name.toLowerCase().endsWith(".pdf"));
     if (pdf) {
@@ -145,15 +146,15 @@ export function AttachmentsField({
   return (
     <div>
       <div className="flex items-center justify-between">
-        <span className="label mb-0">Belgeler</span>
+        <span className="label mb-0">{t("Belgeler")}</span>
         <div className="flex gap-1">
           {isMobile && (
             <button type="button" className="btn-ghost px-2 py-1 text-xs" disabled={busy || count >= MAX_COUNT} onClick={() => cameraRef.current?.click()}>
-              <Camera size={14} /> Fotoğraf çek
+              <Camera size={14} /> {t("Fotoğraf çek")}
             </button>
           )}
           <button type="button" className="btn-ghost px-2 py-1 text-xs" disabled={busy || count >= MAX_COUNT} onClick={() => fileRef.current?.click()}>
-            <Paperclip size={14} /> {busy ? "Yükleniyor…" : "Belge ekle"}
+            <Paperclip size={14} /> {busy ? t("Yükleniyor…") : t("Belge ekle")}
           </button>
         </div>
       </div>
@@ -163,7 +164,7 @@ export function AttachmentsField({
         accept={ACCEPT}
         multiple
         hidden
-        aria-label="Belge seç"
+        aria-label={t("Belge seç")}
         onChange={(e) => {
           void pick(e.target.files);
           e.target.value = "";
@@ -197,7 +198,7 @@ export function AttachmentsField({
           ))}
         </ul>
       ) : (
-        <p className="mt-1 text-xs text-zinc-500">Fiş ya da fatura (fotoğraf veya PDF, en çok 10 MB). PDF'teki toplam ve tarih öneri olarak gelir.</p>
+        <p className="mt-1 text-xs text-zinc-500">{t("Fiş ya da fatura (fotoğraf veya PDF, en çok 10 MB). PDF'teki toplam ve tarih öneri olarak gelir.")}</p>
       )}
       {error && <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{error}</p>}
 
@@ -207,10 +208,10 @@ export function AttachmentsField({
             <span className="min-w-0 flex-1 truncate text-sm">{view.name}</span>
             {!isMobile && (
               <button type="button" className="btn-secondary px-2.5 py-1 text-xs" onClick={() => void download()}>
-                <Download size={14} /> Kaydet
+                <Download size={14} /> {t("Kaydet")}
               </button>
             )}
-            <button type="button" className="icon-btn text-white" aria-label="Kapat" onClick={() => setView(null)}>
+            <button type="button" className="icon-btn text-white" aria-label={t("Kapat")} onClick={() => setView(null)}>
               <X size={18} />
             </button>
           </div>
@@ -250,9 +251,9 @@ export function ReceiptHintBar({ hint, name, onApply, onDismiss }: { hint: Recei
         {hint.date && formatDate(hint.date)}
       </span>
       <button type="button" className="btn-primary px-2 py-1 text-xs" onClick={onApply}>
-        Uygula
+        {t("Uygula")}
       </button>
-      <button type="button" className="icon-btn" aria-label="Öneriyi kapat" onClick={onDismiss}>
+      <button type="button" className="icon-btn" aria-label={t("Öneriyi kapat")} onClick={onDismiss}>
         <X size={14} />
       </button>
     </div>

@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { createHttpApi } from "./httpApi";
+import { lang, t, tm } from "./i18n";
 import { backend } from "./platform";
 import type {
   Account,
@@ -262,7 +263,7 @@ const tauriApi: Api = {
   useDefaultDatabase: () => invoke<DatabaseInfo>("use_default_database"),
   appInfo: () => invoke<AppInfo>("app_info"),
   uninstallPlan: () => invoke<UninstallPlan>("uninstall_plan"),
-  uninstallApp: (includeCustomDatabase) => invoke<void>("uninstall_app", { includeCustomDatabase }),
+  uninstallApp: (includeCustomDatabase) => invoke<void>("uninstall_app", { includeCustomDatabase, lang }),
   latestRates: (refresh) => invoke<RateQuote[]>("rates_latest", { refresh }),
   rateAt: (code, date) => invoke<RateQuote | null>("rate_at", { code, date }),
   pnlReport: (from, to, kind) => invoke<PnlReport>("pnl_report", { from, to, kind: kind ?? null }),
@@ -331,8 +332,9 @@ export const api: Api = new Proxy({} as Api, { get: (_target, key) => current[ke
 export { tauriApi };
 
 /** Tauri hataları string olarak gelir; tek tip mesaja çevir. */
+/** Gösterilecek hata metni (Rust ve sunucu Türkçe döner; seçili dile çevrilir) */
 export function errorMessage(e: unknown): string {
-  if (typeof e === "string") return e;
-  if (e instanceof Error) return e.message;
-  return "Beklenmeyen bir hata oluştu.";
+  if (typeof e === "string") return tm(e);
+  if (e instanceof Error) return tm(e.message);
+  return t("Beklenmeyen bir hata oluştu.");
 }

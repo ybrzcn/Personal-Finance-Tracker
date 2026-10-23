@@ -705,10 +705,14 @@ fn as_input(t: &Transaction, category_id: Option<String>) -> TransactionInput {
 }
 
 pub fn create_transaction(s: &mut dyn DataStore, input: TransactionInput) -> CoreResult<Transaction> {
+    create_transaction_with_id(s, db::new_id(), input)
+}
+
+fn create_transaction_with_id(s: &mut dyn DataStore, id: String, input: TransactionInput) -> CoreResult<Transaction> {
     // Arşivli etiket de kabul edilir: silinen işlemi "Geri al" etiketleriyle yeniden ekler (seçiciler arşivliyi göstermez)
     let ids = input.tag_ids.as_deref().unwrap_or_default();
     let tags = clean_tx_tags(s, ids, ids)?;
-    let row = transaction_row(s, db::new_id(), &input, true, None)?;
+    let row = transaction_row(s, id, &input, true, None)?;
     s.insert_transaction(&row)?;
     s.set_tx_tags(&row.id, &tags)?;
     get_transaction(s, &row.id)
@@ -1000,8 +1004,13 @@ pub fn auto_post_recurring(s: &mut dyn DataStore, today: &str) -> CoreResult<Aut
             if s.mark_auto_posted(&r.id, &d.month)? == 0 {
                 continue;
             }
+            // Eşitlenen öbür cihaz bu ödemeyi zaten kaydetmiş olabilir
+            let id = db::auto_post_id(&r.id, &d.month);
+            if s.get_transaction(&id)?.is_some() {
+                continue;
+            }
             // Veritabanı hatası yutulmaz: istek bütünüyle geri alınır (Postgres işlemi bozulmuş kalmasın)
-            result.created.push(create_transaction(s, input)?);
+            result.created.push(create_transaction_with_id(s, id, input)?);
         }
     }
     Ok(result)
@@ -1418,6 +1427,38 @@ pub fn restore_data(
     // Silinmiş düzenli gelire işaret eden finansman bağlantılarını temizle
     s.clear_dangling_funding()?;
     s.unstash_attachments()
+}
+
+/// Eşitleme: yalnız işlemleri değişen veriyi her şeyi yeniden yazmadan uygular (`delete` silinir, `upsert` eklenir ya da
+/// güncellenir). Geri yüklemeyle aynı kurallar: olmayan kategori ve etikete bağlantı atlanır.
+pub fn apply_synced_transactions(s: &mut dyn DataStore, upsert: &[Transaction], delete: &[String]) -> CoreResult<()> {
+    for id in delete {
+        s.delete_transaction(id)?;
+    }
+    let tag_ids: HashSet<String> = s.list_tags()?.into_iter().map(|t| t.id).collect();
+    for t in upsert {
+        let mut category_id = if t.kind == "transfer" { None } else { t.category_id.clone() };
+        if let Some(c) = &category_id {
+            if s.get_category(c)?.is_none() {
+                category_id = None;
+            }
+        }
+        let row = transaction_row(s, t.id.clone(), &as_input(t, category_id), false, clean_created_at(&t.created_at))
+            .map_err(|e| format!("İşlem \"{}\": {e}", t.description))?;
+        if s.get_transaction(&t.id)?.is_some() {
+            s.update_transaction(&row)?;
+        } else {
+            s.insert_transaction(&row)?;
+        }
+        let mut links: Vec<String> = Vec::new();
+        for tg in &t.tag_ids {
+            if tag_ids.contains(tg) && !links.contains(tg) {
+                links.push(tg.clone());
+            }
+        }
+        s.set_tx_tags(&t.id, &links)?;
+    }
+    Ok(())
 }
 
 // Uygulama ayarları

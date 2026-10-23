@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { errorMessage } from "../lib/api";
+import { t } from "../lib/i18n";
 import { tagKey } from "../lib/tags";
 import { useData } from "../state/data";
 import { PALETTE } from "./CategoryForm";
@@ -14,7 +15,7 @@ interface Props {
 }
 
 /** Seçili etiket çipleri + öneri listesi; eşleşme yoksa yeni etiket oluşturur. */
-export function TagPicker({ value, onChange, id = "tag-picker", placeholder = "Etiket ekle…" }: Props) {
+export function TagPicker({ value, onChange, id = "tag-picker", placeholder = t("Etiket ekle…") }: Props) {
   const { tags, tagById, addTag } = useData();
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
@@ -22,10 +23,10 @@ export function TagPicker({ value, onChange, id = "tag-picker", placeholder = "E
   const input = useRef<HTMLInputElement>(null);
   const key = tagKey(q);
   const options = useMemo(
-    () => tags.filter((t) => !t.archived && !value.includes(t.id) && (!key || tagKey(t.name).includes(key))).slice(0, 8),
+    () => tags.filter((tg) => !tg.archived && !value.includes(tg.id) && (!key || tagKey(tg.name).includes(key))).slice(0, 8),
     [tags, value, key],
   );
-  const exact = tags.some((t) => tagKey(t.name) === key);
+  const exact = tags.some((tg) => tagKey(tg.name) === key);
   const add = (tid: string) => {
     onChange([...value, tid]);
     setQ("");
@@ -34,8 +35,8 @@ export function TagPicker({ value, onChange, id = "tag-picker", placeholder = "E
   };
   const create = async () => {
     try {
-      const t = await addTag({ name: q.trim(), color: PALETTE[tags.length % PALETTE.length], budget: null, archived: false });
-      add(t.id);
+      const created = await addTag({ name: q.trim(), color: PALETTE[tags.length % PALETTE.length], budget: null, archived: false });
+      add(created.id);
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -44,12 +45,12 @@ export function TagPicker({ value, onChange, id = "tag-picker", placeholder = "E
     <div className="relative">
       <div className="input flex min-h-[38px] flex-wrap items-center gap-1.5 py-1">
         {value.map((tid) => {
-          const t = tagById.get(tid);
+          const tg = tagById.get(tid);
           return (
             <span key={tid} className="inline-flex items-center gap-1 rounded-full bg-zinc-100 px-2 py-0.5 text-xs dark:bg-zinc-800">
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t?.color ?? "#64748b" }} />
-              {t?.name ?? "?"}
-              <button type="button" aria-label={`${t?.name ?? "Etiket"} kaldır`} onClick={() => onChange(value.filter((x) => x !== tid))}>
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: tg?.color ?? "#64748b" }} />
+              {tg?.name ?? "?"}
+              <button type="button" aria-label={t("{name} kaldır", { name: tg?.name ?? t("Etiket") })} onClick={() => onChange(value.filter((x) => x !== tid))}>
                 <X size={12} />
               </button>
             </span>
@@ -81,15 +82,15 @@ export function TagPicker({ value, onChange, id = "tag-picker", placeholder = "E
       </div>
       {open && (options.length > 0 || (q.trim() && !exact)) && (
         <ul id={`${id}-list`} role="listbox" className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-zinc-200 bg-white p-1 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
-          {options.map((t) => (
-            <li key={t.id} role="option" aria-selected={false} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800" onMouseDown={(e) => (e.preventDefault(), add(t.id))}>
-              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.color }} />
-              {t.name}
+          {options.map((tg) => (
+            <li key={tg.id} role="option" aria-selected={false} className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800" onMouseDown={(e) => (e.preventDefault(), add(tg.id))}>
+              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: tg.color }} />
+              {tg.name}
             </li>
           ))}
           {q.trim() && !exact && (
             <li role="option" aria-selected={false} className="cursor-pointer rounded-lg px-2 py-1.5 text-sm text-indigo-600 hover:bg-zinc-100 dark:text-indigo-400 dark:hover:bg-zinc-800" onMouseDown={(e) => (e.preventDefault(), void create())}>
-              “{q.trim()}” etiketini oluştur
+              {t("“{name}” etiketini oluştur", { name: q.trim() })}
             </li>
           )}
         </ul>

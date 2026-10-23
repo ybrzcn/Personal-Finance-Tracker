@@ -1,3 +1,5 @@
+import { t } from "./i18n";
+
 export type TxType = "income" | "expense" | "transfer";
 export type CategoryType = "income" | "expense";
 export type AccountKind = "bank" | "cash" | "credit_card" | "loan";
@@ -57,9 +59,9 @@ export interface Account {
 export type AccountSubtype = "" | "deposit" | "pension" | "asset";
 
 export const SUBTYPE_LABEL: Record<Exclude<AccountSubtype, "">, string> = {
-  deposit: "Vadeli mevduat",
+  deposit: t("Vadeli mevduat"),
   pension: "BES",
-  asset: "Diğer varlık",
+  asset: t("Diğer varlık"),
 };
 
 /** Vadeli mevduat: dönem başı, vade, yıllık brüt faiz ve stopaj (yüzde) */
@@ -334,16 +336,16 @@ export interface DebtPlanSettings {
 }
 
 export const TYPE_LABEL: Record<TxType, string> = {
-  income: "Gelir",
-  expense: "Gider",
-  transfer: "Transfer",
+  income: t("Gelir"),
+  expense: t("Gider"),
+  transfer: t("Transfer"),
 };
 
 export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {
-  bank: "Vadesiz Hesap",
-  cash: "Nakit",
-  credit_card: "Kredi Kartı",
-  loan: "Kredi",
+  bank: t("Vadesiz Hesap"),
+  cash: t("Nakit"),
+  credit_card: t("Kredi Kartı"),
+  loan: t("Kredi"),
 };
 
 /** Kur: 1 birimin TL fiyatı */

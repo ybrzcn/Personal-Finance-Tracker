@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { t } from "./i18n";
 
 export type Mode = "local" | "server";
 
@@ -27,12 +28,12 @@ export function normalizeServerUrl(input: string): string {
     if (!url.hostname) throw new Error();
     // Şifresiz http yalnız yerel ağda: internette şifre, token ve finans verisi açık metin gitmesin
     if (url.protocol === "http:" && !isLocalHost(url.hostname)) {
-      throw "İnternetteki sunucuya yalnız HTTPS ile bağlanılabilir (https://…). Şifresiz http yalnız yerel ağ adresleri için.";
+      throw t("İnternetteki sunucuya yalnız HTTPS ile bağlanılabilir (https://…). Şifresiz http yalnız yerel ağ adresleri için.");
     }
     return `${url.protocol}//${url.host}${url.pathname.replace(/\/+$/, "")}`;
   } catch (e) {
     if (typeof e === "string") throw e;
-    throw "Geçerli bir sunucu adresi girin (ör. https://finans.ornek.com).";
+    throw t("Geçerli bir sunucu adresi girin (ör. https://finans.ornek.com).");
   }
 }
 

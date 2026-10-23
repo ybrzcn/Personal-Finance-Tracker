@@ -2,6 +2,7 @@ import { Check, X } from "lucide-react";
 import { useState } from "react";
 import { useData } from "../state/data";
 import { useUI } from "../state/ui";
+import { t } from "../lib/i18n";
 
 const DISMISS_KEY = "finans-setup-dismissed";
 
@@ -25,32 +26,32 @@ export function SetupChecklist() {
   const cards = accounts.filter((a) => a.kind === "credit_card" && !a.archived);
   const steps = [
     {
-      title: "Banka hesabını ve bugünkü bakiyesini gir",
-      hint: "Vadesiz hesabın (KMH varsa limitiyle) bakiyesi; nakit planı bundan başlar.",
-      done: accounts.some((a) => a.kind === "bank" && !a.subtype && (a.openingBalance !== 0 || transactions.some((t) => t.accountId === a.id))),
+      title: t("Banka hesabını ve bugünkü bakiyesini gir"),
+      hint: t("Vadesiz hesabın (KMH varsa limitiyle) bakiyesi; nakit planı bundan başlar."),
+      done: accounts.some((a) => a.kind === "bank" && !a.subtype && (a.openingBalance !== 0 || transactions.some((tx) => tx.accountId === a.id))),
       action: () => openAccountForm(accounts.find((a) => a.kind === "bank" && !a.subtype)),
-      label: "Hesabı düzenle",
+      label: t("Hesabı düzenle"),
     },
     {
-      title: "Maaşını ekle",
-      hint: "Yattığı gün, tutarı ve hangi ayın maaşı olduğu; ödemeler maaş dönemlerine göre planlanır.",
+      title: t("Maaşını ekle"),
+      hint: t("Yattığı gün, tutarı ve hangi ayın maaşı olduğu; ödemeler maaş dönemlerine göre planlanır."),
       done: recurring.some((r) => r.type === "income" && r.active),
       action: () => openRecurringForm(undefined, "income"),
-      label: "Maaş ekle",
+      label: t("Maaş ekle"),
     },
     {
-      title: "Kredi kartlarını tanımla",
-      hint: "Hesap kesim ve son ödeme günleriyle; ekstreler ve son ödemeler otomatik hesaplanır.",
+      title: t("Kredi kartlarını tanımla"),
+      hint: t("Hesap kesim ve son ödeme günleriyle; ekstreler ve son ödemeler otomatik hesaplanır."),
       done: cards.length > 0,
       action: () => openAccountForm(),
-      label: "Kart ekle",
+      label: t("Kart ekle"),
     },
     {
-      title: "İlk ekstreni yükle",
-      hint: "Bankadan indirdiğin PDF, Excel veya CSV ekstresi; harcamalar kategorilenerek eklenir.",
-      done: cards.some((c) => transactions.some((t) => t.accountId === c.id)),
+      title: t("İlk ekstreni yükle"),
+      hint: t("Bankadan indirdiğin PDF, Excel veya CSV ekstresi; harcamalar kategorilenerek eklenir."),
+      done: cards.some((c) => transactions.some((tx) => tx.accountId === c.id)),
       action: () => openStatementImport(cards[0]?.id),
-      label: "Ekstre yükle",
+      label: t("Ekstre yükle"),
     },
   ];
   const doneCount = steps.filter((s) => s.done).length;
@@ -70,11 +71,11 @@ export function SetupChecklist() {
       <div className="mb-3 flex items-start gap-3">
         <div className="flex-1">
           <h2 id="setup-title" className="text-sm font-semibold">
-            Kurulum · {doneCount}/{steps.length} adım tamam
+            {t("Kurulum · {done}/{total} adım tamam", { done: doneCount, total: steps.length })}
           </h2>
-          <p className="text-xs text-zinc-500">Bu dört adımla ödeme takvimi, bütçe ve borç planı senin verinle çalışır.</p>
+          <p className="text-xs text-zinc-500">{t("Bu dört adımla ödeme takvimi, bütçe ve borç planı senin verinle çalışır.")}</p>
         </div>
-        <button className="icon-btn" aria-label="Kurulum listesini gizle" title="Gizle" onClick={dismiss}>
+        <button className="icon-btn" aria-label={t("Kurulum listesini gizle")} title={t("Gizle")} onClick={dismiss}>
           <X size={16} />
         </button>
       </div>

@@ -14,6 +14,7 @@ use serde_json::json;
 
 use crate::app::{blocking, clear_cookie, hashing, session_cookie, ApiError, AppState, AuthUser};
 use crate::auth;
+use crate::mfa::{self, Ticket};
 use crate::auth_store::NewUser;
 use crate::config::ProxyMode;
 
@@ -21,6 +22,7 @@ pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/api/auth/register", post(register))
         .route("/api/auth/login", post(login))
+        .route("/api/auth/login/totp", post(login_totp))
         .route("/api/auth/logout", post(logout))
         .route("/api/auth/change-password", post(change_password))
         .route("/api/auth/recover", post(recover))
@@ -33,15 +35,19 @@ struct Credentials {
     password: String,
     #[serde(default)]
     device: String,
+    /// İstemci kod adımını biliyor (1.25+); eski istemciye kod adımı yerine güncelleme uyarısı döner
+    #[serde(default)]
+    mfa: bool,
 }
 
-const MINUTE: Duration = Duration::from_secs(60);
-const HOUR: Duration = Duration::from_secs(3600);
+pub(crate) const MINUTE: Duration = Duration::from_secs(60);
+pub(crate) const HOUR: Duration = Duration::from_secs(3600);
+const DAY: Duration = Duration::from_secs(86_400);
 const BAD_LOGIN: &str = "E-posta veya şifre hatalı.";
 
 /// İstemci IP'si (deneme sınırları için). Proxy başlıklarına yalnız `FINANS_TRUST_PROXY` ayarlıysa güvenilir;
 /// sunucu yalnız proxy'den erişilebilir olmalı (compose portu 127.0.0.1'e açar).
-fn client_ip(state: &AppState, headers: &HeaderMap, peer: &SocketAddr) -> String {
+pub(crate) fn client_ip(state: &AppState, headers: &HeaderMap, peer: &SocketAddr) -> String {
     let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok()).map(str::trim).filter(|v| !v.is_empty());
     let ip = match state.config.proxy {
         ProxyMode::Cloudflare => header("cf-connecting-ip").map(str::to_string),
@@ -68,7 +74,7 @@ fn limit_attempts(state: &AppState, kind: &str, email: &str, ip: &str) -> Result
 }
 
 /// Oturum açan yanıt: çerez (web) + gövdede token (masaüstü/mobil).
-fn session_response(state: &AppState, status: StatusCode, token: &str, body: serde_json::Value) -> Response {
+pub(crate) fn session_response(state: &AppState, status: StatusCode, token: &str, body: serde_json::Value) -> Response {
     (status, [(header::SET_COOKIE, session_cookie(&state.config, token))], Json(body)).into_response()
 }
 
@@ -129,7 +135,7 @@ async fn login(
     }
     limit_attempts(&state, "login", &email, &client_ip(&state, &headers, &peer))?;
     let st = state.clone();
-    let (id, email, token) = hashing(&state, move || {
+    let step = hashing(&state, move || {
         let user = st.auth.find_user(&email)?;
         let bad = || ApiError::new(StatusCode::UNAUTHORIZED, BAD_LOGIN);
         let Some(user) = user else {
@@ -139,8 +145,83 @@ async fn login(
         if !auth::verify_secret(&c.password, &user.password_hash) {
             return Err(bad());
         }
+        // İki aşamalı doğrulama açıksa oturum ancak doğrulama uygulaması koduyla açılır
+        if user.totp_enabled {
+            if !c.mfa {
+                return Err(ApiError::new(
+                    StatusCode::UNAUTHORIZED,
+                    "Bu hesapta iki aşamalı doğrulama açık; giriş için uygulamayı güncelleyin.",
+                ));
+            }
+            let ticket = st.tickets.issue(Ticket::LoginTotp { user_id: user.id, device: c.device }, TOTP_TICKET_TTL);
+            return Ok(Err(ticket));
+        }
         let token = auth::create_session(&*st.auth, &user.id, &c.device)?;
-        Ok((user.id, user.email, token))
+        Ok(Ok((user.id, user.email, token)))
+    })
+    .await?;
+    match step {
+        Ok((id, email, token)) => {
+            Ok(session_response(&state, StatusCode::OK, &token, json!({ "token": token, "user": { "id": id, "email": email } })))
+        }
+        Err(ticket) => Ok(Json(json!({ "mfa": "totp", "ticket": ticket })).into_response()),
+    }
+}
+
+/// Şifreden sonra kod girme süresi
+const TOTP_TICKET_TTL: Duration = Duration::from_secs(300);
+
+#[derive(Deserialize)]
+struct TotpLogin {
+    ticket: String,
+    code: String,
+}
+
+/// Girişin ikinci adımı. Bilet başına 5 deneme; kullanıcı başına saatte 10, günde 50 yanlış kod (kod tahminiyle
+/// geçilemesin; aşılınca passkey ya da kurtarma kodu kalır).
+async fn login_totp(
+    State(state): State<Arc<AppState>>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Json(b): Json<TotpLogin>,
+) -> Result<Response, ApiError> {
+    let expired = || ApiError::new(StatusCode::UNAUTHORIZED, "Giriş adımının süresi doldu; yeniden giriş yapın.");
+    if b.ticket.len() > 128 || b.code.len() > 32 {
+        return Err(expired());
+    }
+    if !state.limiter.allow(&format!("totp:ip:{}", client_ip(&state, &headers, &peer)), 30, MINUTE) {
+        return Err(ApiError::too_many());
+    }
+    let Some(Ticket::LoginTotp { user_id, device }) = state.tickets.peek(&b.ticket) else { return Err(expired()) };
+    let (hour_key, day_key) = (format!("totp:u:h:{user_id}"), format!("totp:u:d:{user_id}"));
+    if state.limiter.exceeded(&hour_key, 10) || state.limiter.exceeded(&day_key, 50) {
+        return Err(ApiError::too_many());
+    }
+    let Some((_, last_try)) = state.tickets.attempt(&b.ticket) else { return Err(expired()) };
+    let st = state.clone();
+    let (id, email, token) = blocking(move || {
+        let (secret, last) = st.auth.totp(&user_id)?;
+        // Bu arada kapatıldıysa şifre adımı yeterli
+        if let Some(secret) = secret {
+            let ok = match mfa::verify_totp(&secret, &b.code, auth::now(), last) {
+                Some(step) => st.auth.use_totp_step(&user_id, step)?,
+                None => false,
+            };
+            if !ok {
+                st.limiter.allow(&hour_key, 10, HOUR);
+                st.limiter.allow(&day_key, 50, DAY);
+                if last_try {
+                    st.tickets.take(&b.ticket);
+                    return Err(ApiError::new(StatusCode::UNAUTHORIZED, "Kod hatalı. Çok fazla yanlış deneme: giriş adımının süresi doldu; yeniden giriş yapın."));
+                }
+                return Err(ApiError::new(StatusCode::UNAUTHORIZED, "Kod hatalı. Uygulamadaki güncel kodu girin."));
+            }
+        }
+        // Aynı bilet ikinci kez kullanılamaz
+        st.tickets.take(&b.ticket).ok_or_else(expired)?;
+        let email = st.auth.user_email(&user_id)?.ok_or_else(expired)?;
+        let token = auth::create_session(&*st.auth, &user_id, &device)?;
+        Ok((user_id, email, token))
     })
     .await?;
     Ok(session_response(&state, StatusCode::OK, &token, json!({ "token": token, "user": { "id": id, "email": email } })))
@@ -177,6 +258,7 @@ async fn change_password(State(state): State<Arc<AppState>>, user: AuthUser, Jso
         }
         st.auth.set_password(&user.id, &auth::hash_secret(&b.new_password))?;
         st.auth.delete_sessions(&user.id, Some(&user.token_hash))?;
+        st.tickets.revoke_user(&user.id);
         Ok(())
     })
     .await?;
@@ -194,6 +276,7 @@ struct Recover {
 }
 
 /// Kurtarma kodu tek kullanımlıktır: başarılı kurtarmada yeni kod verilir, tüm oturumlar kapanır.
+/// Telefon kaybolmuş olabileceği için doğrulama uygulaması kodu kapanır, passkey'ler silinir.
 async fn recover(
     State(state): State<Arc<AppState>>,
     ConnectInfo(peer): ConnectInfo<SocketAddr>,
@@ -207,7 +290,7 @@ async fn recover(
     limit_attempts(&state, "recover", &email, &client_ip(&state, &headers, &peer))?;
     auth::check_password(&b.new_password)?;
     let st = state.clone();
-    let (id, email, token, code) = hashing(&state, move || {
+    let (id, email, token, code, totp_off, passkeys) = hashing(&state, move || {
         let bad = || ApiError::from("E-posta veya kurtarma kodu hatalı.".to_string());
         let code = auth::normalize_recovery_code(&b.recovery_code);
         let Some(user) = st.auth.find_user(&email)? else {
@@ -222,15 +305,18 @@ async fn recover(
         let recovery_hash = auth::hash_secret(&new_code);
         st.auth.set_password_and_recovery(&user.id, &password_hash, &recovery_hash)?;
         st.auth.delete_sessions(&user.id, None)?;
+        st.tickets.revoke_user(&user.id);
+        // Hesabı ele geçiren birinin eklediği passkey kalmasın
+        let passkeys = st.auth.delete_passkeys(&user.id)?;
         let token = auth::create_session(&*st.auth, &user.id, &b.device)?;
-        Ok((user.id, user.email, token, new_code))
+        Ok((user.id, user.email, token, new_code, user.totp_enabled, passkeys))
     })
     .await?;
     Ok(session_response(
         &state,
         StatusCode::OK,
         &token,
-        json!({ "token": token, "user": { "id": id, "email": email }, "recoveryCode": code }),
+        json!({ "token": token, "user": { "id": id, "email": email }, "recoveryCode": code, "totpDisabled": totp_off, "passkeysRemoved": passkeys }),
     ))
 }
 

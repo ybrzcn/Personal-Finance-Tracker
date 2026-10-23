@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import type { CategorySlice, MonthPoint } from "../lib/stats";
 import { useSettings } from "../state/settings";
+import { t } from "../lib/i18n";
 
 function TooltipBox({ active, payload, label }: TooltipProps<number, string>) {
   const { formatMoney } = useSettings();
@@ -65,7 +66,7 @@ export function CategoryDonut({ data }: { data: CategorySlice[] }) {
           </PieChart>
         </ResponsiveContainer>
         <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-[11px] text-zinc-500">Toplam</span>
+          <span className="text-[11px] text-zinc-500">{t("Toplam")}</span>
           <span className="text-base font-semibold tabular-nums">{formatCompact(total)}</span>
         </div>
       </div>
@@ -84,7 +85,7 @@ export function CategoryDonut({ data }: { data: CategorySlice[] }) {
           );
         })}
         {data.length > top.length && (
-          <li className="text-xs text-zinc-500">+{data.length - top.length} kategori daha</li>
+          <li className="text-xs text-zinc-500">{t("+{n} kategori daha", { n: data.length - top.length })}</li>
         )}
       </ul>
     </div>
@@ -119,7 +120,7 @@ export function CategoryBars({ data }: { data: CategorySlice[] }) {
             tickLine={false}
           />
           <Tooltip content={<TooltipBox />} cursor={{ fill: "var(--chart-cursor)" }} />
-          <Bar dataKey="value" name="Harcama" radius={[0, 6, 6, 0]} isAnimationActive={false}>
+          <Bar dataKey="value" name={t("Harcama")} radius={[0, 6, 6, 0]} isAnimationActive={false}>
             {rows.map((d) => (
               <Cell key={d.id} fill={d.color} />
             ))}
@@ -153,8 +154,8 @@ export function MonthlyChart({ data, className = "h-64" }: { data: MonthPoint[];
             wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
             formatter={(v) => <span style={{ color: "var(--chart-axis)" }}>{v}</span>}
           />
-          <Bar dataKey="income" name="Gelir" fill="var(--income)" radius={[5, 5, 0, 0]} maxBarSize={28} isAnimationActive={false} />
-          <Bar dataKey="expense" name="Gider" fill="var(--expense)" radius={[5, 5, 0, 0]} maxBarSize={28} isAnimationActive={false} />
+          <Bar dataKey="income" name={t("Gelir")} fill="var(--income)" radius={[5, 5, 0, 0]} maxBarSize={28} isAnimationActive={false} />
+          <Bar dataKey="expense" name={t("Gider")} fill="var(--expense)" radius={[5, 5, 0, 0]} maxBarSize={28} isAnimationActive={false} />
         </BarChart>
       </ResponsiveContainer>
     </div>

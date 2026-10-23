@@ -637,6 +637,13 @@ pub fn new_id() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+/// Otomatik kaydedilen işlemin kimliği düzenli kayıttan ve plan ayından türetilir: aynı ödemeyi iki cihaz ayrı ayrı
+/// kaydetse de eşitlemede tek işlem olur.
+pub fn auto_post_id(recurring_id: &str, month: &str) -> String {
+    const NS: uuid::Uuid = uuid::Uuid::from_u128(0x5f1e_9a1c_4b7d_4e02_9c6a_0d3b_8e21_f470);
+    uuid::Uuid::new_v5(&NS, format!("{recurring_id}/{month}").as_bytes()).to_string()
+}
+
 pub fn open(path: &Path) -> Result<Connection, Box<dyn std::error::Error>> {
     let conn = Connection::open(path)?;
     conn.pragma_update(None, "foreign_keys", true)?;

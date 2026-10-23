@@ -1,4 +1,5 @@
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { locale, t } from "../lib/i18n";
 import { isTauri } from "../lib/platform";
 import { APP_SETTING_KEYS, type AppDataSettings, type AppSettingKey } from "../lib/types";
 import { SettingsContext } from "./contexts";
@@ -145,14 +146,14 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<SettingsCtx>(() => {
     // Uygulama TL ile çalışır (tutarlar çevrilmediği için para birimi seçeneği kaldırıldı)
-    const money = new Intl.NumberFormat("tr-TR", { style: "currency", currency: "TRY" });
-    const one = new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 1 });
+    const money = new Intl.NumberFormat(locale, { style: "currency", currency: "TRY", currencyDisplay: "narrowSymbol" });
+    const one = new Intl.NumberFormat(locale, { maximumFractionDigits: 1 });
     // Grafik eksenleri için kısa biçim: "₺22 bin", "₺1,5 mn" ("B" milyar ile karışmasın)
     const compact = (n: number) => {
       const a = Math.abs(n);
       const sign = n < 0 ? "-" : "";
-      if (a >= 1_000_000) return `${sign}₺${one.format(a / 1_000_000)} mn`;
-      if (a >= 1_000) return `${sign}₺${one.format(a / 1_000)} bin`;
+      if (a >= 1_000_000) return t("{sign}₺{v} mn", { sign, v: one.format(a / 1_000_000) });
+      if (a >= 1_000) return t("{sign}₺{v} bin", { sign, v: one.format(a / 1_000) });
       return `${sign}₺${one.format(a)}`;
     };
     return {

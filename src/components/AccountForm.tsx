@@ -1,8 +1,9 @@
 import { Check, Trash2 } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 import { api, errorMessage } from "../lib/api";
-import { amountToInput, formatDate, parseAmount, parseQuantity, todayISO } from "../lib/format";
+import { amountToInput, decimalToInput, formatDate, parseAmount, parseQuantity, todayISO, ZERO_AMOUNT } from "../lib/format";
 import { fundCode, fundUnit, GROUP_LABEL, INSTRUMENTS, isForeign, isFund, qtyDecimals, qtyRule, TRY, unitLabel, type FxGroup } from "../lib/fx";
+import { locale, t, tm } from "../lib/i18n";
 import { DEFAULT_LOAN_TAX } from "../lib/loans";
 import { ACCOUNT_KIND_LABEL, SUBTYPE_LABEL, type Account, type AccountDraft, type AccountInput, type AccountKind, type FundHit } from "../lib/types";
 import { useData } from "../state/data";
@@ -23,20 +24,20 @@ interface Props {
 type Saving = "deposit" | "pension" | "asset";
 type FormKind = AccountKind | "fund" | Saving;
 const KINDS: FormKind[] = ["bank", "credit_card", "loan", "cash", "fund", "deposit", "pension", "asset"];
-const KIND_LABEL: Record<FormKind, string> = { ...ACCOUNT_KIND_LABEL, fund: "Yatırım fonu", ...SUBTYPE_LABEL, asset: "Ev, araba vb." };
+const KIND_LABEL: Record<FormKind, string> = { ...ACCOUNT_KIND_LABEL, fund: t("Yatırım fonu"), ...SUBTYPE_LABEL, asset: t("Ev, araba vb.") };
 const isSaving = (k: FormKind): k is Saving => k === "deposit" || k === "pension" || k === "asset";
-const percentInput = (n: number | null) => (n === null ? "" : String(n).replace(".", ","));
+const percentInput = (n: number | null) => (n === null ? "" : decimalToInput(n));
 const isDay = (n: number) => Number.isInteger(n) && n >= 1 && n <= 31;
 
 const OPENING_LABEL: Record<FormKind, string> = {
-  fund: "Pay adedi",
-  bank: "Açılış bakiyesi",
-  cash: "Açılış bakiyesi",
-  credit_card: "Açılış borcu",
-  loan: "Kalan anapara",
-  deposit: "Anapara",
-  pension: "Bugüne kadarki katkılar",
-  asset: "Alış bedeli",
+  fund: t("Pay adedi"),
+  bank: t("Açılış bakiyesi"),
+  cash: t("Açılış bakiyesi"),
+  credit_card: t("Açılış borcu"),
+  loan: t("Kalan anapara"),
+  deposit: t("Anapara"),
+  pension: t("Bugüne kadarki katkılar"),
+  asset: t("Alış bedeli"),
 };
 
 export function AccountForm({ account, onClose, onSaved }: Props) {
@@ -65,7 +66,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
   const [opening, setOpening] = useState(
     account && account.openingBalance !== 0
       ? isForeign(account.currency)
-        ? String(account.openingBalance).replace(".", ",")
+        ? decimalToInput(account.openingBalance)
         : amountToInput(account.openingBalance)
       : "",
   );
@@ -111,19 +112,19 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
       return;
     }
     let live = true;
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => {
       api
         .fundsSearch(q)
         .then((h) => {
           if (!live) return;
           setFundHits(h);
-          setFundError(h.length ? null : "TEFAS'ta bu kodla fon bulunamadı.");
+          setFundError(h.length ? null : t("TEFAS'ta bu kodla fon bulunamadı."));
         })
         .catch((e) => live && setFundError(errorMessage(e)));
     }, 300);
     return () => {
       live = false;
-      clearTimeout(t);
+      clearTimeout(timer);
     };
   }, [fund, fundLocked, fundQuery, fundPick]);
   const sd = Number(statementDay);
@@ -147,7 +148,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
   // Önizleme gelene (ya da alınamazsa) kadar düzenlenen hesap işlemli sayılır: Sil ve tür/birim seçimi açılıp kapanmasın.
   const used = calc?.used ?? !!account;
   const preview =
-    card && calc?.nextClosing && calc.nextDue ? `Sonraki kesim ${formatDate(calc.nextClosing)} → son ödeme ${formatDate(calc.nextDue)}` : null;
+    card && calc?.nextClosing && calc.nextDue ? t("Sonraki kesim {closing} → son ödeme {due}", { closing: formatDate(calc.nextClosing), due: formatDate(calc.nextDue) }) : null;
 
   // Yeni kart: son kesim ve son ödemesi; ödendiyse takip sonraki dönemden, ödenmediyse o ekstreden başlar
   const lastStatement = card ? (calc?.lastStatement ?? null) : null;
@@ -159,7 +160,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
   const optional = (s: string, label: string): number | null => {
     if (!s.trim()) return null;
     const v = parseAmount(s);
-    if (v === null || v < 0) throw `Geçerli bir ${label} girin.`;
+    if (v === null || v < 0) throw t("Geçerli bir {label} girin.", { label });
     return v;
   };
 
@@ -174,23 +175,25 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
         const last = (await latest(draft)).lastStatement;
         if (last) newCardOpening = (lastPaid ?? last.defaultPaid) ? last.openingIfPaid : last.openingIfUnpaid;
       } catch (err) {
-        return setError(`Hesap yapılamadı: ${errorMessage(err)}`);
+        return setError(t("Hesap yapılamadı: {error}", { error: errorMessage(err) }));
       }
     }
     try {
-      if (fund && !unitCode) throw "Listeden bir fon seçin (TEFAS'ta bu kodla fon bulunamadı).";
+      if (fund && !unitCode) throw t("Listeden bir fon seçin (TEFAS'ta bu kodla fon bulunamadı).");
       const openingValue = opening.trim() ? (foreign ? parseQuantity(opening, qtyDecimals(unitCode || currency)) : parseAmount(opening)) : 0;
       if (openingValue === null)
-        throw `Geçerli bir ${OPENING_LABEL[formKind].toLocaleLowerCase("tr")} girin${foreign ? ` (${qtyRule(unitCode || currency)})` : ""}.`;
-      if (card && (!isDay(sd) || !isDay(dd))) throw "Kesim ve son ödeme günü 1 ile 31 arasında olmalıdır.";
+        throw foreign
+          ? t("Geçerli bir {label} girin ({rule}).", { label: OPENING_LABEL[formKind].toLocaleLowerCase(locale), rule: qtyRule(unitCode || currency) })
+          : t("Geçerli bir {label} girin.", { label: OPENING_LABEL[formKind].toLocaleLowerCase(locale) });
+      if (card && (!isDay(sd) || !isDay(dd))) throw t("Kesim ve son ödeme günü 1 ile 31 arasında olmalıdır.");
       const termValue = Number.parseInt(term, 10);
-      if (loan && (!termValue || termValue < 1)) throw "Kalan vade (ay) girin.";
-      if (loan && !firstDue) throw "Sonraki taksit tarihini girin.";
+      if (loan && (!termValue || termValue < 1)) throw t("Kalan vade (ay) girin.");
+      if (loan && !firstDue) throw t("Sonraki taksit tarihini girin.");
       const costValue = openingPositive && openingCost.trim() ? parseAmount(openingCost) : null;
-      const depRateValue = savingKind === "deposit" ? optional(depRate, "yıllık faiz") : null;
-      const depTaxValue = savingKind === "deposit" ? (optional(depTax, "stopaj oranı") ?? 0) : null;
-      if (savingKind === "deposit" && (!depRateValue || !depMaturity)) throw "Yıllık faiz ve vade tarihini girin.";
-      if (openingPositive && openingCost.trim() && (costValue === null || costValue <= 0)) throw "Geçerli bir açılış maliyeti girin.";
+      const depRateValue = savingKind === "deposit" ? optional(depRate, t("yıllık faiz")) : null;
+      const depTaxValue = savingKind === "deposit" ? (optional(depTax, t("stopaj oranı")) ?? 0) : null;
+      if (savingKind === "deposit" && (!depRateValue || !depMaturity)) throw t("Yıllık faiz ve vade tarihini girin.");
+      if (openingPositive && openingCost.trim() && (costValue === null || costValue <= 0)) throw t("Geçerli bir açılış maliyeti girin.");
       input = {
         name,
         kind,
@@ -198,17 +201,17 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
         // Düzenlemede formda olmayan kart açılış borcu korunur
         openingBalance: card ? (account?.kind === "credit_card" ? account.openingBalance : 0) : openingValue,
         openingDate: newCardOpening ?? openingDate,
-        creditLimit: cash || loan || savingKind ? null : optional(limit, "limit"),
-        interestRate: cash || savingKind ? null : optional(rate, "faiz oranı"),
+        creditLimit: cash || loan || savingKind ? null : optional(limit, t("limit")),
+        interestRate: cash || savingKind ? null : optional(rate, t("faiz oranı")),
         statementDay: card ? sd : null,
         dueDay: card ? dd : null,
-        minPaymentRate: card ? (optional(minRate, "asgari ödeme oranı") ?? 20) : null,
+        minPaymentRate: card ? (optional(minRate, t("asgari ödeme oranı")) ?? 20) : null,
         sortOrder: Number.parseInt(sortOrder, 10) || 0,
         archived,
         termMonths: loan ? termValue : null,
         firstDueDate: loan ? firstDue : null,
-        installmentAmount: loan ? optional(installment, "taksit tutarı") : null,
-        taxRate: loan ? (optional(taxRate, "vergi oranı") ?? DEFAULT_LOAN_TAX) : null,
+        installmentAmount: loan ? optional(installment, t("taksit tutarı")) : null,
+        taxRate: loan ? (optional(taxRate, t("vergi oranı")) ?? DEFAULT_LOAN_TAX) : null,
         fundingIncomeId: (card || loan) && fundingIncomeId ? fundingIncomeId : null,
         openingPeriodSpending: account?.openingPeriodSpending ?? null,
         openingInstallments: account?.openingInstallments ?? [],
@@ -230,10 +233,10 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
     try {
       if (account) {
         await updateAccount({ ...input, id: account.id });
-        onSaved("Hesap güncellendi.");
+        onSaved(t("Hesap güncellendi."));
       } else {
         await addAccount(input);
-        onSaved("Hesap eklendi.");
+        onSaved(t("Hesap eklendi."));
       }
       onClose();
     } catch (err) {
@@ -246,19 +249,21 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
   const remove = async () => {
     if (!account) return;
     const ok = await confirm({
-      title: "Hesabı sil",
+      title: t("Hesabı sil"),
       message: (
         <>
-          <strong>{account.name}</strong> hesabı kalıcı olarak silinecek.
+          {t("{name} hesabı kalıcı olarak silinecek.")
+            .split("{name}")
+            .map((part, i) => (i ? [<strong key={i}>{account.name}</strong>, part] : part))}
         </>
       ),
-      confirmLabel: "Sil",
+      confirmLabel: t("Sil"),
       danger: true,
     });
     if (!ok) return;
     try {
       await deleteAccount(account.id);
-      onSaved("Hesap silindi.");
+      onSaved(t("Hesap silindi."));
       onClose();
     } catch (err) {
       setError(errorMessage(err));
@@ -267,21 +272,21 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
 
   return (
     <Modal
-      title={account ? "Hesabı Düzenle" : "Yeni Hesap"}
+      title={account ? t("Hesabı Düzenle") : t("Yeni Hesap")}
       onClose={onClose}
       width="max-w-lg"
       footer={
         <>
           {account && !used && (
             <button type="button" className="btn-ghost mr-auto text-rose-600" onClick={remove}>
-              <Trash2 size={15} /> Sil
+              <Trash2 size={15} /> {t("Sil")}
             </button>
           )}
           <button type="button" className="btn-secondary" onClick={onClose}>
-            Vazgeç
+            {t("Vazgeç")}
           </button>
           <button type="submit" form="account-form" className="btn-primary" disabled={saving}>
-            {account ? "Kaydet" : "Ekle"}
+            {account ? t("Kaydet") : t("Ekle")}
           </button>
         </>
       }
@@ -289,21 +294,21 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
       <form id="account-form" onSubmit={submit} className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
         <div>
           <label className="label" htmlFor="acc-name">
-            Ad
+            {t("Ad")}
           </label>
           <input
             id="acc-name"
             data-autofocus
             className="input"
             maxLength={60}
-            placeholder={loan ? "Örn. İhtiyaç Kredisi" : "Örn. Kredi Kartım"}
+            placeholder={loan ? t("Örn. İhtiyaç Kredisi") : t("Örn. Kredi Kartım")}
             value={name}
             onChange={(e) => setName(e.target.value)}
           />
         </div>
 
         <div>
-          <span className="label">Tür</span>
+          <span className="label">{t("Tür")}</span>
           <div className="grid grid-cols-2 gap-1 rounded-xl bg-zinc-100 p-1 sm:grid-cols-4 dark:bg-zinc-800/70">
             {KINDS.map((k) => (
               <button
@@ -323,40 +328,40 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
               </button>
             ))}
           </div>
-          {used && <p className="mt-1 text-xs text-zinc-500">İşlemi olan hesabın türü değiştirilemez.</p>}
+          {used && <p className="mt-1 text-xs text-zinc-500">{t("İşlemi olan hesabın türü değiştirilemez.")}</p>}
         </div>
 
         {!fund && !savingKind && (kind === "bank" || kind === "cash") && (
           <div>
             <label className="label" htmlFor="acc-currency">
-              Para birimi
+              {t("Para birimi")}
             </label>
             <select id="acc-currency" className="input" value={currency} disabled={used} onChange={(e) => setCurrency(e.target.value)}>
-              <option value={TRY}>Türk lirası (TL)</option>
+              <option value={TRY}>{t("Türk lirası (TL)")}</option>
               {(["doviz", "altin", "maden"] as FxGroup[]).map((g) => (
                 <optgroup key={g} label={GROUP_LABEL[g]}>
                   {INSTRUMENTS.filter((i) => i.group === g).map((i) => (
                     <option key={i.code} value={i.code}>
                       {i.name}
-                      {i.unit === "currency" ? ` (${i.code})` : i.unit === "gram" ? " (gram)" : " (adet)"}
+                      {i.unit === "currency" ? ` (${i.code})` : i.unit === "gram" ? ` (${t("gram")})` : ` (${t("adet")})`}
                     </option>
                   ))}
                 </optgroup>
               ))}
             </select>
-            {used && <p className="mt-1 text-xs text-zinc-500">İşlemi olan hesabın para birimi değiştirilemez.</p>}
+            {used && <p className="mt-1 text-xs text-zinc-500">{t("İşlemi olan hesabın para birimi değiştirilemez.")}</p>}
           </div>
         )}
 
         {fund && (
           <div className="relative">
             <label className="label" htmlFor="acc-fund">
-              Fon
+              {t("Fon")}
             </label>
             <input
               id="acc-fund"
               className="input uppercase"
-              placeholder="Kod ya da ad (ör. AFT)"
+              placeholder={t("Kod ya da ad (ör. AFT)")}
               autoComplete="off"
               disabled={fundLocked}
               value={fundQuery}
@@ -390,7 +395,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
                   >
                     <span className="font-medium">{h.code}</span> <span className="text-zinc-500">{h.name}</span>
                     <span className="block text-xs text-zinc-400">
-                      {h.kindLabel} · {h.price.toLocaleString("tr-TR", { maximumFractionDigits: 6 })} ₺ ({h.date})
+                      {tm(h.kindLabel)} · {h.price.toLocaleString(locale, { maximumFractionDigits: 6 })} ₺ ({h.date})
                     </span>
                   </li>
                 ))}
@@ -398,11 +403,11 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
             )}
             {fundPick && (
               <p className="mt-1 text-xs text-zinc-500">
-                {fundPick.name} · {fundPick.kindLabel}
+                {fundPick.name} · {tm(fundPick.kindLabel)}
               </p>
             )}
             {fundError && !fundPick && <p className="mt-1 text-xs text-amber-600">{fundError}</p>}
-            {fundLocked && <p className="mt-1 text-xs text-zinc-500">Fon hesabının fonu değiştirilemez.</p>}
+            {fundLocked && <p className="mt-1 text-xs text-zinc-500">{t("Fon hesabının fonu değiştirilemez.")}</p>}
           </div>
         )}
 
@@ -427,19 +432,19 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
                   </span>
                 </div>
               ) : (
-                <MoneyInput id="acc-opening" placeholder="0,00" value={opening} onValueChange={setOpening} />
+                <MoneyInput id="acc-opening" placeholder={ZERO_AMOUNT} value={opening} onValueChange={setOpening} />
               )}
               {kind === "bank" && !foreign && !savingKind && (
                 <p className="mt-1 text-xs text-zinc-500">
-                  Eksi değer = <Term hint={TERMS.KMH}>KMH</Term> kullanımı
+                  {t("Eksi değer =")} <Term hint={TERMS.KMH}>{t("KMH")}</Term> {t("kullanımı")}
                 </p>
               )}
-              {savingKind === "pension" && <p className="mt-1 text-xs text-zinc-500">Sonraki katkıları bu hesaba transfer olarak girin.</p>}
-              {savingKind === "asset" && <p className="mt-1 text-xs text-zinc-500">Güncel değeri hesap kartından girin.</p>}
+              {savingKind === "pension" && <p className="mt-1 text-xs text-zinc-500">{t("Sonraki katkıları bu hesaba transfer olarak girin.")}</p>}
+              {savingKind === "asset" && <p className="mt-1 text-xs text-zinc-500">{t("Güncel değeri hesap kartından girin.")}</p>}
             </div>
             <div>
               <label className="label" htmlFor="acc-opening-date">
-                {card || loan ? "Borç tarihi" : "Bakiye tarihi"}
+                {card || loan ? t("Borç tarihi") : t("Bakiye tarihi")}
               </label>
               <input
                 id="acc-opening-date"
@@ -456,12 +461,12 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label" htmlFor="acc-opening-cost">
-                Açılış maliyeti (TL)
+                {t("Açılış maliyeti (TL)")}
               </label>
-              <MoneyInput id="acc-opening-cost" placeholder="İsteğe bağlı" value={openingCost} onValueChange={setOpeningCost} />
+              <MoneyInput id="acc-opening-cost" placeholder={t("İsteğe bağlı")} value={openingCost} onValueChange={setOpeningCost} />
             </div>
             <p className="self-end pb-2 text-xs text-zinc-500">
-              {fund ? "Kâr/zarar için. Boşsa açılış günündeki fon fiyatı kullanılır." : "Kâr/zarar için. Boşsa açılış günündeki kur kullanılır."}
+              {fund ? t("Kâr/zarar için. Boşsa açılış günündeki fon fiyatı kullanılır.") : t("Kâr/zarar için. Boşsa açılış günündeki kur kullanılır.")}
             </p>
           </div>
         )}
@@ -470,37 +475,37 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label" htmlFor="acc-dep-start">
-                Dönem başı
+                {t("Dönem başı")}
               </label>
               <input id="acc-dep-start" type="date" className="input" value={depStart} onChange={(e) => setDepStart(e.target.value)} />
             </div>
             <div>
               <label className="label" htmlFor="acc-dep-maturity">
-                Vade tarihi
+                {t("Vade tarihi")}
               </label>
               <input id="acc-dep-maturity" type="date" className="input" value={depMaturity} onChange={(e) => setDepMaturity(e.target.value)} />
             </div>
             <div>
               <label className="label" htmlFor="acc-dep-rate">
-                Yıllık brüt faiz (%)
+                {t("Yıllık brüt faiz (%)")}
               </label>
               <input
                 id="acc-dep-rate"
                 className="input tabular-nums"
                 inputMode="decimal"
-                placeholder="Örn. 42"
+                placeholder={t("Örn. 42")}
                 value={depRate}
                 onChange={(e) => setDepRate(e.target.value)}
               />
             </div>
             <div>
               <label className="label" htmlFor="acc-dep-tax">
-                Stopaj (%)
+                {t("Stopaj (%)")}
               </label>
               <input id="acc-dep-tax" className="input tabular-nums" inputMode="decimal" value={depTax} onChange={(e) => setDepTax(e.target.value)} />
             </div>
             <p className="col-span-2 text-xs text-zinc-500">
-              Faiz basit faizle (365 gün) hesaplanır; stopaj brüt faizden düşülür. Vade dolunca hesap kartından faizi kaydedip yenileyin.
+              {t("Faiz basit faizle (365 gün) hesaplanır; stopaj brüt faizden düşülür. Vade dolunca hesap kartından faizi kaydedip yenileyin.")}
             </p>
           </div>
         )}
@@ -511,25 +516,25 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
               <div>
                 <label className="label" htmlFor="acc-limit">
                   {card ? (
-                    "Kart limiti"
+                    t("Kart limiti")
                   ) : (
                     <>
-                      <Term hint={TERMS.KMH}>KMH</Term> limiti (varsa)
+                      <Term hint={TERMS.KMH}>{t("KMH")}</Term> {t("limiti (varsa)")}
                     </>
                   )}
                 </label>
-                <MoneyInput id="acc-limit" placeholder="0,00" value={limit} onValueChange={setLimit} />
+                <MoneyInput id="acc-limit" placeholder={ZERO_AMOUNT} value={limit} onValueChange={setLimit} />
               </div>
             )}
             <div>
               <label className="label" htmlFor="acc-rate">
-                Aylık <Term hint={TERMS.akdi}>akdi faiz</Term> (%)
+                {t("Aylık")} <Term hint={TERMS.akdi}>{t("akdi faiz")}</Term> (%)
               </label>
               <input
                 id="acc-rate"
                 className="input tabular-nums"
                 inputMode="decimal"
-                placeholder="Örn. 4,25"
+                placeholder={t("Örn. 4,25")}
                 value={rate}
                 onChange={(e) => setRate(e.target.value)}
               />
@@ -556,7 +561,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="label" htmlFor="acc-term">
-                  Kalan vade (ay)
+                  {t("Kalan vade (ay)")}
                 </label>
                 <input
                   id="acc-term"
@@ -570,28 +575,30 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
               </div>
               <div>
                 <label className="label" htmlFor="acc-first-due">
-                  Sonraki taksit
+                  {t("Sonraki taksit")}
                 </label>
                 <input id="acc-first-due" type="date" className="input" value={firstDue} onChange={(e) => setFirstDue(e.target.value)} />
               </div>
               <div>
                 <label className="label" htmlFor="acc-installment">
-                  Taksit tutarı
+                  {t("Taksit tutarı")}
                 </label>
                 <input
                   id="acc-installment"
                   className="input tabular-nums"
                   inputMode="decimal"
-                  placeholder={suggestedInstallment ? amountToInput(suggestedInstallment) : "Otomatik"}
+                  placeholder={suggestedInstallment ? amountToInput(suggestedInstallment) : t("Otomatik")}
                   value={installment}
                   onChange={(e) => setInstallment(e.target.value)}
                 />
               </div>
             </div>
             <p className="text-xs text-zinc-500">
-              Taksit tutarını boş bırakırsanız faiz ve vergiyle hesaplanır
-              {suggestedInstallment ? ` (${formatMoney(suggestedInstallment)})` : ""}. Bankanın ödeme planındaki tutarı girmek en
-              doğrusudur.
+              {suggestedInstallment
+                ? t("Taksit tutarını boş bırakırsanız faiz ve vergiyle hesaplanır ({amount}). Bankanın ödeme planındaki tutarı girmek en doğrusudur.", {
+                    amount: formatMoney(suggestedInstallment),
+                  })
+                : t("Taksit tutarını boş bırakırsanız faiz ve vergiyle hesaplanır. Bankanın ödeme planındaki tutarı girmek en doğrusudur.")}
             </p>
           </>
         )}
@@ -601,7 +608,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="label" htmlFor="acc-sd">
-                  Kesim günü
+                  {t("Kesim günü")}
                 </label>
                 <input
                   id="acc-sd"
@@ -615,7 +622,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
               </div>
               <div>
                 <label className="label" htmlFor="acc-dd">
-                  Son ödeme günü
+                  {t("Son ödeme günü")}
                 </label>
                 <input
                   id="acc-dd"
@@ -629,7 +636,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
               </div>
               <div>
                 <label className="label" htmlFor="acc-min">
-                  Asgari ödeme (%)
+                  {t("Asgari ödeme (%)")}
                 </label>
                 <input
                   id="acc-min"
@@ -647,7 +654,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
             )}
             {account && (
               <p className="text-xs text-zinc-500">
-                Kesim veya son ödeme günü değişirse geçmiş ekstreler yeni günlere göre yeniden hesaplanır.
+                {t("Kesim veya son ödeme günü değişirse geçmiş ekstreler yeni günlere göre yeniden hesaplanır.")}
               </p>
             )}
           </>
@@ -656,7 +663,7 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
         {card && !account && lastStatement && (
           <section className="space-y-2 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
             <span className="label mb-0">
-              Son ekstre ({formatDate(lastStatement.last)} kesimli, son ödeme {formatDate(lastStatement.due)}) ödendi mi?
+              {t("Son ekstre ({closing} kesimli, son ödeme {due}) ödendi mi?", { closing: formatDate(lastStatement.last), due: formatDate(lastStatement.due) })}
             </span>
             <div className="grid grid-cols-2 gap-1 rounded-xl bg-zinc-100 p-1 dark:bg-zinc-800/70">
               {[true, false].map((v) => (
@@ -668,23 +675,24 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
                     paid === v ? "bg-white shadow-sm dark:bg-zinc-900" : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
                   }`}
                 >
-                  {v ? "Ödendi" : "Ödenmedi"}
+                  {v ? t("Ödendi") : t("Ödenmedi")}
                 </button>
               ))}
             </div>
             <p className="text-xs text-zinc-500">
               {paid
-                ? `Takip ${formatDate(lastStatement.openingIfPaid)} tarihinden başlar; önceki ekstreler ödenmiş sayılır.`
-                : `Takip ${formatDate(lastStatement.last)} ekstresinden başlar; o ekstreye düşen harcama ve taksitleri de girin.`}{" "}
-              Kartı ekledikten sonra harcamaları girin; eski taksitli alışverişleri alış tarihi ve toplam taksit sayısıyla girerseniz
-              ödenmiş taksitler otomatik düşülür.
+                ? t("Takip {date} tarihinden başlar; önceki ekstreler ödenmiş sayılır.", { date: formatDate(lastStatement.openingIfPaid) })
+                : t("Takip {date} ekstresinden başlar; o ekstreye düşen harcama ve taksitleri de girin.", { date: formatDate(lastStatement.last) })}{" "}
+              {t(
+                "Kartı ekledikten sonra harcamaları girin; eski taksitli alışverişleri alış tarihi ve toplam taksit sayısıyla girerseniz ödenmiş taksitler otomatik düşülür.",
+              )}
             </p>
           </section>
         )}
         {card && account && (
           <div>
             <label className="label" htmlFor="acc-opening-date">
-              Takip başlangıcı
+              {t("Takip başlangıcı")}
             </label>
             <input
               id="acc-opening-date"
@@ -693,31 +701,31 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
               value={openingDate}
               onChange={(e) => setOpeningDate(e.target.value)}
             />
-            <p className="mt-1 text-xs text-zinc-500">Bu tarihten önce kesilen ekstreler ödenmiş sayılır.</p>
+            <p className="mt-1 text-xs text-zinc-500">{t("Bu tarihten önce kesilen ekstreler ödenmiş sayılır.")}</p>
           </div>
         )}
 
         {(card || loan) && (
           <div>
             <label className="label" htmlFor="acc-funding">
-              Hangi gelirden ödenecek
+              {t("Hangi gelirden ödenecek")}
             </label>
             <select id="acc-funding" className="input" value={fundingIncomeId} onChange={(e) => setFundingIncomeId(e.target.value)}>
-              <option value="">Otomatik (son ödemeden önceki son gelir)</option>
+              <option value="">{t("Otomatik (son ödemeden önceki son gelir)")}</option>
               {incomes.map((r) => (
                 <option key={r.id} value={r.id}>
-                  {r.name} · her ayın {r.day}'i
+                  {r.name} · {t("her ayın {day}'i", { day: r.day })}
                 </option>
               ))}
             </select>
             {incomes.length === 0 && (
-              <p className="mt-1 text-xs text-zinc-500">Bütçe sayfasından maaş gibi düzenli gelir ekleyebilirsiniz.</p>
+              <p className="mt-1 text-xs text-zinc-500">{t("Bütçe sayfasından maaş gibi düzenli gelir ekleyebilirsiniz.")}</p>
             )}
           </div>
         )}
 
         <div>
-          <span className="label">Renk</span>
+          <span className="label">{t("Renk")}</span>
           <div className="flex flex-wrap items-center gap-2">
             {PALETTE.map((c) => (
               <button
@@ -737,18 +745,18 @@ export function AccountForm({ account, onClose, onSaved }: Props) {
         {account && (
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
-            Arşivle (yeni işlemlerde gösterme)
+            {t("Arşivle (yeni işlemlerde gösterme)")}
           </label>
         )}
         <details className="text-sm">
-          <summary className="cursor-pointer font-medium text-zinc-600 dark:text-zinc-300">Gelişmiş</summary>
+          <summary className="cursor-pointer font-medium text-zinc-600 dark:text-zinc-300">{t("Gelişmiş")}</summary>
           <div className="mt-2 max-w-[12rem]">
             <label className="label" htmlFor="acc-order">
-              Sıra
+              {t("Sıra")}
             </label>
             <input id="acc-order" type="number" className="input" value={sortOrder} onChange={(e) => setSortOrder(e.target.value)} />
             <p className="mt-1 text-xs text-zinc-500">
-              Hesap listelerindeki sıra; Borç Planı'nda "Benim sıramla" stratejisinin ödeme önceliği.
+              {t(`Hesap listelerindeki sıra; Borç Planı'nda "Benim sıramla" stratejisinin ödeme önceliği.`)}
             </p>
           </div>
         </details>

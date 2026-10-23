@@ -1,34 +1,36 @@
 import { useMemo, useState } from "react";
 import { Area, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis, type TooltipProps } from "recharts";
+import { formatMonthShort, parseISODate } from "../lib/format";
 import type { NetWorthRange } from "../lib/networth";
 import type { NetWorthPoint, NetWorthReport } from "../lib/types";
 import { useSettings } from "../state/settings";
 import { Segmented } from "./common";
+import { t } from "../lib/i18n";
+import { rich } from "../lib/rich";
 
 type Range = NetWorthRange;
 type View = "total" | "split" | "kinds";
 const RANGES: { value: Range; label: string }[] = [
-  { value: "1y", label: "1 yıl" },
-  { value: "3y", label: "3 yıl" },
-  { value: "all", label: "Tümü" },
+  { value: "1y", label: t("1 yıl") },
+  { value: "3y", label: t("3 yıl") },
+  { value: "all", label: t("Tümü") },
 ];
 const VIEWS: { value: View; label: string }[] = [
-  { value: "total", label: "Toplam" },
-  { value: "split", label: "Varlık ve borç" },
-  { value: "kinds", label: "Kırılım" },
+  { value: "total", label: t("Toplam") },
+  { value: "split", label: t("Varlık ve borç") },
+  { value: "kinds", label: t("Kırılım") },
 ];
 const KINDS = [
   { key: "tl", name: "TL", color: "var(--income)", sign: 1 },
-  { key: "fx", name: "Döviz/altın", color: "#d4a017", sign: 1 },
-  { key: "fund", name: "Fon", color: "#0ea5a4", sign: 1 },
-  { key: "saving", name: "Mevduat, BES, varlık", color: "#8b5cf6", sign: 1 },
-  { key: "card", name: "Kart", color: "var(--expense)", sign: -1 },
-  { key: "loan", name: "Kredi", color: "#b91c1c", sign: -1 },
-  { key: "overdraft", name: "KMH", color: "#f97316", sign: -1 },
-] as const;
+  { key: "fx", name: t("Döviz/altın"), color: "#d4a017", sign: 1 },
+  { key: "fund", name: t("Fon"), color: "#0ea5a4", sign: 1 },
+  { key: "saving", name: t("Mevduat, BES, varlık"), color: "#8b5cf6", sign: 1 },
+  { key: "card", name: t("Kart"), color: "var(--expense)", sign: -1 },
+  { key: "loan", name: t("Kredi"), color: "#b91c1c", sign: -1 },
+  { key: "overdraft", name: t("KMH"), color: "#f97316", sign: -1 },
+];
 
-const MONTHS = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
-const label = (iso: string) => `${MONTHS[Number(iso.slice(5, 7)) - 1]} ${iso.slice(2, 4)}`;
+const label = (iso: string) => `${formatMonthShort(parseISODate(`${iso.slice(0, 7)}-01`))} ${iso.slice(2, 4)}`;
 
 function Tip({ active, payload, label: l, total }: TooltipProps<number, string> & { total?: boolean }) {
   const { formatMoney } = useSettings();
@@ -48,7 +50,7 @@ function Tip({ active, payload, label: l, total }: TooltipProps<number, string> 
         ))}
       {total && row.net !== undefined && row.cost !== undefined && (
         <div className="mt-1 border-t border-zinc-200 pt-1 text-zinc-500 dark:border-zinc-700">
-          Kur/fiyat kazancı <span className="font-semibold tabular-nums">{formatMoney(row.net - row.cost)}</span>
+          {t("Kur/fiyat kazancı")} <span className="font-semibold tabular-nums">{formatMoney(row.net - row.cost)}</span>
         </div>
       )}
     </div>
@@ -90,27 +92,30 @@ export function NetWorthCard({ report, error }: { report: NetWorthReport | null;
   );
 
   if (error && !report) return null; // hata, kutuların yerindeki mesajda
-  if (!report) return <section className="card h-72 animate-pulse" aria-label="Net servet yükleniyor" />;
+  if (!report) return <section className="card h-72 animate-pulse" aria-label={t("Net servet yükleniyor")} />;
   if (report.points.length === 0) return null;
 
   const last = points.at(-1)!;
   const change = summary?.changeCents ?? 0;
   const fxGain = summary?.fxGainCents ?? 0;
   const signed = (c: number) => `${c > 0 ? "+" : ""}${formatMoney(c / 100)}`;
-  const rangeLabel = RANGES.find((r) => r.value === range)!.label;
 
   return (
     <section className="card space-y-4 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="text-sm font-semibold">Net servet</h2>
+          <h2 className="text-sm font-semibold">{t("Net servet")}</h2>
           <div className="mt-1 text-2xl font-bold tabular-nums tracking-tight">{formatMoney(last.netCents / 100)}</div>
           {points.length > 1 && (
             <p className="text-xs text-zinc-500">
-              {range === "all" ? "Başından beri" : `Son ${rangeLabel}da`} <span className="font-semibold tabular-nums">{signed(change)}</span>
+              {range === "all" ? t("Başından beri") : range === "1y" ? t("Son 1 yılda") : t("Son 3 yılda")}{" "}
+              <span className="font-semibold tabular-nums">{signed(change)}</span>
               {fxGain !== 0 && (
                 <>
-                  {" "}· bunun <span className="font-semibold tabular-nums">{signed(fxGain)}</span> kadarı kur/fiyat kazancı
+                  {" "}·{" "}
+                  {rich(t("bunun {amount} kadarı kur/fiyat kazancı"), {
+                    amount: <span className="font-semibold tabular-nums">{signed(fxGain)}</span>,
+                  })}
                 </>
               )}
             </p>
@@ -131,16 +136,16 @@ export function NetWorthCard({ report, error }: { report: NetWorthReport | null;
             <Tooltip content={<Tip total={view === "total"} />} />
             {view === "total" && (
               <>
-                <Area dataKey="gap" name="Kur/fiyat kazancı" stroke="none" fill="var(--income)" fillOpacity={0.12} isAnimationActive={false} />
-                <Line dataKey="cost" name="Maliyetle" stroke="var(--chart-axis)" strokeDasharray="5 4" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                <Line dataKey="net" name="Bugünkü fiyatla" stroke="var(--chart-net)" strokeWidth={2.5} dot={points.length === 1} isAnimationActive={false} />
+                <Area dataKey="gap" name={t("Kur/fiyat kazancı")} stroke="none" fill="var(--income)" fillOpacity={0.12} isAnimationActive={false} />
+                <Line dataKey="cost" name={t("Maliyetle")} stroke="var(--chart-axis)" strokeDasharray="5 4" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+                <Line dataKey="net" name={t("Bugünkü fiyatla")} stroke="var(--chart-net)" strokeWidth={2.5} dot={points.length === 1} isAnimationActive={false} />
               </>
             )}
             {view === "split" && (
               <>
-                <Area dataKey="assets" name="Varlıklar" stroke="var(--income)" fill="var(--income)" fillOpacity={0.18} isAnimationActive={false} />
-                <Area dataKey="debts" name="Borçlar" stroke="var(--expense)" fill="var(--expense)" fillOpacity={0.18} isAnimationActive={false} />
-                <Line dataKey="net" name="Net servet" stroke="var(--chart-net)" strokeWidth={2.5} dot={points.length === 1} isAnimationActive={false} />
+                <Area dataKey="assets" name={t("Varlıklar")} stroke="var(--income)" fill="var(--income)" fillOpacity={0.18} isAnimationActive={false} />
+                <Area dataKey="debts" name={t("Borçlar")} stroke="var(--expense)" fill="var(--expense)" fillOpacity={0.18} isAnimationActive={false} />
+                <Line dataKey="net" name={t("Net servet")} stroke="var(--chart-net)" strokeWidth={2.5} dot={points.length === 1} isAnimationActive={false} />
               </>
             )}
             {view === "kinds" && (
@@ -148,7 +153,7 @@ export function NetWorthCard({ report, error }: { report: NetWorthReport | null;
                 {KINDS.map((k) => (
                   <Area key={k.key} dataKey={k.key} name={k.name} stackId={k.sign > 0 ? "plus" : "minus"} stroke={k.color} fill={k.color} fillOpacity={0.35} isAnimationActive={false} />
                 ))}
-                {accountId && <Line dataKey="account" name={report.accounts.find((a) => a.accountId === accountId)?.name ?? "Hesap"} stroke="var(--chart-fg)" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />}
+                {accountId && <Line dataKey="account" name={report.accounts.find((a) => a.accountId === accountId)?.name ?? t("Hesap")} stroke="var(--chart-fg)" strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />}
               </>
             )}
           </ComposedChart>
@@ -158,7 +163,7 @@ export function NetWorthCard({ report, error }: { report: NetWorthReport | null;
       {view === "kinds" && (
         <div className="max-w-xs">
           <label className="label" htmlFor="nw-account">
-            Hesap seç
+            {t("Hesap seç")}
           </label>
           <select id="nw-account" className="input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
             <option value="">—</option>
@@ -172,8 +177,8 @@ export function NetWorthCard({ report, error }: { report: NetWorthReport | null;
       )}
 
       <div className="space-y-0.5 text-xs text-zinc-500">
-        {last.costPartial && <p>Maliyeti bilinmeyen hesaplar maliyet çizgisinde bugünkü değeriyle gösteriliyor.</p>}
-        {points.length === 1 && <p>Geçmiş biriktikçe eğri oluşur.</p>}
+        {last.costPartial && <p>{t("Maliyeti bilinmeyen hesaplar maliyet çizgisinde bugünkü değeriyle gösteriliyor.")}</p>}
+        {points.length === 1 && <p>{t("Geçmiş biriktikçe eğri oluşur.")}</p>}
       </div>
     </section>
   );

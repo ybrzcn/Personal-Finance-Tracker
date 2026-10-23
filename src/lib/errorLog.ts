@@ -2,6 +2,8 @@
  * Son hataların yerel kaydı (hata bildirimi için). Yalnız hata metni, yığın ve hangi sayfada olduğu tutulur;
  * finansal veri tutulmaz. Kayıt bu bilgisayarda kalır, kullanıcı raporu kendisi kopyalar ya da kaydeder.
  */
+import { t } from "./i18n";
+
 export interface LoggedError {
   at: string;
   source: string;
@@ -62,20 +64,20 @@ export interface ReportInfo {
 /** Kullanıcının ileteceği düz metin rapor. */
 export function buildReport(description: string, info: ReportInfo, errors: LoggedError[]): string {
   const lines = [
-    "Finans hata raporu",
+    t("Finans hata raporu"),
     "==================",
-    `Tarih: ${new Date().toISOString()}`,
-    `Sürüm: ${info.version} · Şema: ${info.schemaVersion ?? "-"}`,
-    `Sistem: ${info.os} (${info.arch})`,
-    `Sayfa: ${info.page}`,
-    `Tarayıcı motoru: ${navigator.userAgent}`,
+    t("Tarih: {v}", { v: new Date().toISOString() }),
+    t("Sürüm: {version} · Şema: {schema}", { version: info.version, schema: info.schemaVersion ?? "-" }),
+    t("Sistem: {os} ({arch})", { os: info.os, arch: info.arch }),
+    t("Sayfa: {v}", { v: info.page }),
+    t("Tarayıcı motoru: {v}", { v: navigator.userAgent }),
     "",
-    "Kullanıcının açıklaması:",
-    description.trim() || "(açıklama yok)",
+    t("Kullanıcının açıklaması:"),
+    description.trim() || t("(açıklama yok)"),
     "",
-    `Son hatalar (${errors.length}):`,
+    t("Son hatalar ({n}):", { n: errors.length }),
   ];
-  if (!errors.length) lines.push("(kayıtlı hata yok)");
+  if (!errors.length) lines.push(t("(kayıtlı hata yok)"));
   errors.slice(0, 10).forEach((e, i) => {
     lines.push("", `${i + 1}. [${e.at}] (${e.source}) ${e.message}`);
     if (e.stack) lines.push(e.stack);

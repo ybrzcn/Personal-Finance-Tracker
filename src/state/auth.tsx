@@ -8,6 +8,7 @@ import { authApi, createAuthApi, type AuthApi, type Session, type User } from ".
 import { DEFAULT_SERVER_URL, loadClientConfig, saveClientConfig, type ClientConfig, type Mode } from "../lib/client";
 import { createHttpApi, UNAUTHORIZED_EVENT } from "../lib/httpApi";
 import { clearErrors } from "../lib/errorLog";
+import { t, tm } from "../lib/i18n";
 import { backend } from "../lib/platform";
 
 /** Çıkışta bu cihazda kalan kişisel izler temizlenir (ortak bilgisayarda bir sonraki kullanıcı görmesin). */
@@ -65,7 +66,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
 
 function Spinner() {
   return (
-    <div className="grid h-full place-items-center text-zinc-400" role="status" aria-label="Yükleniyor">
+    <div className="grid h-full place-items-center text-zinc-400" role="status" aria-label={t("Yükleniyor")}>
       <Loader2 className="animate-spin" />
     </div>
   );
@@ -101,10 +102,10 @@ function ReauthOverlay({
   onSwitchAccount(session: Session): Promise<void> | void;
 }) {
   return (
-    <div className="fixed inset-0 z-[80] overflow-y-auto bg-zinc-50 dark:bg-zinc-950" role="dialog" aria-modal="true" aria-label="Tekrar giriş">
+    <div className="fixed inset-0 z-[80] overflow-y-auto bg-zinc-50 dark:bg-zinc-950" role="dialog" aria-modal="true" aria-label={t("Tekrar giriş")}>
       <AuthScreen
         auth={auth}
-        notice="Oturumunuz sona erdi. Tekrar giriş yapınca kaldığınız yerden devam edersiniz."
+        notice={t("Oturumunuz sona erdi. Tekrar giriş yapınca kaldığınız yerden devam edersiniz.")}
         onDone={async (session) => {
           if (currentUserId && session.user.id !== currentUserId) {
             // Başka hesap: önceki hesabın bellekteki verisi yeni hesaba hiç yazılmasın; önce kalıcı kaydet, hemen yeniden yükle
@@ -179,11 +180,11 @@ function WebGate({ children }: { children: ReactNode }) {
   if (error) {
     return (
       <ErrorCard
-        title={error.startsWith("Sunucuya ulaşılamıyor") ? "Sunucuya bağlanılamadı" : "Sunucu hatası"}
-        message={error}
+        title={error.startsWith("Sunucuya ulaşılamıyor") ? t("Sunucuya bağlanılamadı") : t("Sunucu hatası")}
+        message={tm(error)}
         actions={
           <button className="btn-primary" onClick={check}>
-            Tekrar dene
+            {t("Tekrar dene")}
           </button>
         }
       />
@@ -266,7 +267,7 @@ function DesktopGate({ children }: { children: ReactNode }) {
           const cleared = { ...c, token: null };
           await saveClientConfig(cleared);
           setConfig(cleared);
-          setStep({ kind: "auth", notice: "Oturumunuz sona erdi, tekrar giriş yapın." });
+          setStep({ kind: "auth", notice: t("Oturumunuz sona erdi, tekrar giriş yapın.") });
           return;
         }
         setApi(createHttpApi({ baseUrl: c.serverUrl ?? "", getToken: () => tokenRef.current }));
@@ -327,7 +328,7 @@ function DesktopGate({ children }: { children: ReactNode }) {
   );
 
   if (loadError) {
-    return <ErrorCard title="Ayarlar okunamadı" message={loadError} actions={<button className="btn-primary" onClick={() => location.reload()}>Tekrar dene</button>} />;
+    return <ErrorCard title={t("Ayarlar okunamadı")} message={tm(loadError)} actions={<button className="btn-primary" onClick={() => location.reload()}>{t("Tekrar dene")}</button>} />;
   }
 
   switch (step.kind) {
@@ -356,9 +357,9 @@ function DesktopGate({ children }: { children: ReactNode }) {
           notice={step.notice}
           header={
             <p className="mb-3 truncate text-xs text-zinc-500">
-              Sunucu: {config.serverUrl} ·{" "}
+              {t("Sunucu: {url}", { url: config.serverUrl ?? "" })} ·{" "}
               <button className="text-indigo-600 hover:underline dark:text-indigo-400" onClick={() => setStep({ kind: "server" })}>
-                Değiştir
+                {t("Değiştir")}
               </button>{" "}
               ·{" "}
               <button
@@ -368,7 +369,7 @@ function DesktopGate({ children }: { children: ReactNode }) {
                   void save(next).then(() => resolve(next));
                 }}
               >
-                Hesapsız devam et
+                {t("Hesapsız devam et")}
               </button>
             </p>
           }
@@ -396,15 +397,15 @@ function DesktopGate({ children }: { children: ReactNode }) {
     case "unreachable":
       return (
         <ErrorCard
-          title="Sunucuya ulaşılamıyor"
-          message={`${config.serverUrl ?? ""} — ${step.message}`}
+          title={t("Sunucuya ulaşılamıyor")}
+          message={`${config.serverUrl ?? ""} — ${tm(step.message)}`}
           actions={
             <>
               <button className="btn-primary" onClick={() => void resolve(config)}>
-                Tekrar dene
+                {t("Tekrar dene")}
               </button>
               <button className="btn-secondary" onClick={() => void logout()}>
-                Çıkış yap
+                {t("Çıkış yap")}
               </button>
             </>
           }

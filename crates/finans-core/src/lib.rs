@@ -25,6 +25,7 @@ pub mod rules;
 pub mod sqlite;
 pub mod statement;
 pub mod store;
+pub mod sync;
 pub mod tags;
 
 /// Kullanıcıya gösterilecek Türkçe hata mesajı taşıyan sonuç.

@@ -345,7 +345,7 @@ impl DataStore for SqliteStore<'_> {
     fn list_attachments(&mut self, transaction_id: &str) -> CoreResult<Vec<Attachment>> {
         let mut st = self
             .conn
-            .prepare("SELECT id, transaction_id, name, mime, size, created_at FROM attachments WHERE transaction_id = ?1 ORDER BY created_at, id")
+            .prepare("SELECT id, transaction_id, name, mime, size, created_at FROM attachments WHERE transaction_id = ?1 ORDER BY created_at, rowid")
             .map_err(db_err)?;
         let rows = st
             .query_map([transaction_id], |r| {
@@ -378,8 +378,10 @@ impl DataStore for SqliteStore<'_> {
     fn insert_attachment(&mut self, a: &Attachment, data: &[u8]) -> CoreResult<()> {
         self.conn
             .execute(
-                "INSERT INTO attachments (id, transaction_id, name, mime, size, data) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![a.id, a.transaction_id, a.name, a.mime, a.size, data],
+                // Eşitlemede gelen ekin eklenme zamanı korunur; yeni ekte şimdi
+                "INSERT INTO attachments (id, transaction_id, name, mime, size, data, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, COALESCE(NULLIF(?7, ''), strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))",
+                params![a.id, a.transaction_id, a.name, a.mime, a.size, data, a.created_at],
             )
             .map_err(db_err)?;
         Ok(())

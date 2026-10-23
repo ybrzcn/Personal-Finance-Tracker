@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, Info, X } from "lucide-react";
 import { ErrorReportDialog } from "../components/ErrorReportDialog";
 import { logError } from "../lib/errorLog";
+import { t } from "../lib/i18n";
 import { useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { AccountForm } from "../components/AccountForm";
 import { CategoryForm } from "../components/CategoryForm";
@@ -193,14 +194,14 @@ export function UIProvider({ children }: { children: ReactNode }) {
             <>
               {/* Geri alınamaz işlemde odak "Vazgeç"te: Enter yanlışlıkla silmesin */}
               <button className="btn-secondary" data-autofocus={confirmState.danger ? true : undefined} onClick={() => closeConfirm(false)}>
-                Vazgeç
+                {t("Vazgeç")}
               </button>
               <button
                 data-autofocus={confirmState.danger ? undefined : true}
                 className={confirmState.danger ? "btn-danger" : "btn-primary"}
                 onClick={() => closeConfirm(true)}
               >
-                {confirmState.confirmLabel ?? "Onayla"}
+                {confirmState.confirmLabel ?? t("Onayla")}
               </button>
             </>
           }
@@ -211,28 +212,28 @@ export function UIProvider({ children }: { children: ReactNode }) {
 
       {/* Alt ortada: tablolardaki tutar sütununun üstünü kapatmaz; telefonda alt sekme çubuğunun üstünde */}
       <div className="pointer-events-none fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-[60] md:bottom-5 flex flex-col items-center gap-2 px-4">
-        {toasts.map((t) => (
+        {toasts.map((item) => (
           <div
-            key={t.id}
-            role={t.kind === "error" ? "alert" : "status"}
+            key={item.id}
+            role={item.kind === "error" ? "alert" : "status"}
             className="pointer-events-auto flex max-w-md animate-slide-up items-start gap-2.5 rounded-xl border border-zinc-200 bg-white py-3 pl-4 pr-2 text-sm shadow-lg dark:border-zinc-700 dark:bg-zinc-800"
           >
-            {t.kind === "success" && <CheckCircle2 size={18} className="mt-px shrink-0 text-emerald-500" />}
-            {t.kind === "error" && <AlertTriangle size={18} className="mt-px shrink-0 text-rose-500" />}
-            {t.kind === "info" && <Info size={18} className="mt-px shrink-0 text-indigo-500" />}
-            <span className="flex-1">{t.message}</span>
-            {t.action && (
+            {item.kind === "success" && <CheckCircle2 size={18} className="mt-px shrink-0 text-emerald-500" />}
+            {item.kind === "error" && <AlertTriangle size={18} className="mt-px shrink-0 text-rose-500" />}
+            {item.kind === "info" && <Info size={18} className="mt-px shrink-0 text-indigo-500" />}
+            <span className="flex-1">{item.message}</span>
+            {item.action && (
               <button
                 className="shrink-0 rounded-md px-2 py-0.5 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-500/10"
                 onClick={() => {
-                  dismiss(t.id);
-                  void t.action!.run();
+                  dismiss(item.id);
+                  void item.action!.run();
                 }}
               >
-                {t.action.label}
+                {item.action.label}
               </button>
             )}
-            <button className="icon-btn -my-0.5 shrink-0 p-1" aria-label="Bildirimi kapat" onClick={() => dismiss(t.id)}>
+            <button className="icon-btn -my-0.5 shrink-0 p-1" aria-label={t("Bildirimi kapat")} onClick={() => dismiss(item.id)}>
               <X size={14} />
             </button>
           </div>

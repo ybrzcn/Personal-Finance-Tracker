@@ -1,4 +1,5 @@
 import type { Api } from "./api";
+import { t } from "./i18n";
 import type { Account, AccountPreview, AutoPostResult, Backup, CsvMerge, CsvParseResult, CategoryRulePreview, CategorySuggestions, ImportRows, StatementCard, StatementTotals, AccountsReport, AnalysisReport, Budget, BudgetReport, CashPlanReport, Category, CategoryUsageReport, DebtPlanReport, FundHit, Goal, GoalsReport, IncomeStatus, NetWorthReport, OverviewReport, ProjectionReport, ReportsReport, PnlReport, Attachment, ReceiptHint, RateQuote, RecurringItem, RecurringPreview, ResetSeed, Tag, TagsReport, Transaction, TransactionPreview, UpcomingObligations } from "./types";
 
 /** Oturum düşünce (401) yayınlanır; giriş kapısı giriş ekranına döner. */
@@ -35,20 +36,20 @@ export async function httpRequest<T>(method: string, path: string, body?: unknow
       .json()
       .then((d) => (typeof d?.error === "string" ? (d.error as string) : null))
       .catch(() => null);
-    throw msg ?? `Sunucu hatası (${res.status}).`;
+    throw msg ?? t("Sunucu hatası ({status}).", { status: res.status });
   }
   return (res.status === 204 ? undefined : await res.json()) as T;
 }
 
 const desktopOnly = async (): Promise<never> => {
-  throw "Bu işlem yalnızca masaüstü uygulamasında kullanılabilir.";
+  throw t("Bu işlem yalnızca masaüstü uygulamasında kullanılabilir.");
 };
 
 /** `Api` arayüzünün finans-server REST karşılığı. */
 export function createHttpApi(opts: HttpOptions = {}): Api {
   const r = <T>(method: string, path: string, body?: unknown) => httpRequest<T>(method, path, body, opts);
   const id = (x: string) => encodeURIComponent(x);
-  const server = { path: "Sunucu", isDefault: true };
+  const server = { path: t("Sunucu"), isDefault: true };
   return {
     listCategories: () => r<Category[]>("GET", "/api/categories"),
     createCategory: (input) => r<Category>("POST", "/api/categories", input),
@@ -76,7 +77,7 @@ export function createHttpApi(opts: HttpOptions = {}): Api {
     restore: (data) => r<void>("POST", "/api/restore", data),
     getSettings: () => r("GET", "/api/settings"),
     setSetting: (key, value) => r<void>("PUT", `/api/settings/${id(key)}`, value ?? null),
-    dataLocation: async () => "Sunucu",
+    dataLocation: async () => t("Sunucu"),
     backupDatabase: async () => null,
     databaseInfo: async () => server,
     saveDatabaseCopy: desktopOnly,
@@ -125,7 +126,7 @@ export function createHttpApi(opts: HttpOptions = {}): Api {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       }).catch(() => null);
       if (res?.status === 401) window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
-      if (!res?.ok) throw "Belge alınamadı.";
+      if (!res?.ok) throw t("Belge alınamadı.");
       return new Blob([await res.arrayBuffer()], { type: a.mime });
     },
     deleteAttachment: (x) => r<void>("DELETE", `/api/attachments/${id(x)}`),

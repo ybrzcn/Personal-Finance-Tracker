@@ -10,6 +10,8 @@ import { useCategoryUsage } from "../state/overview";
 import { useSettings } from "../state/settings";
 import { useToday } from "../state/today";
 import { useUI } from "../state/ui";
+import { t } from "../lib/i18n";
+import { rich } from "../lib/rich";
 
 interface Usage {
   count: number;
@@ -39,29 +41,31 @@ export function Categories() {
     // Kullanım raporu yoksa (yerel mod, hata) sayı yerine genel uyarı
     const used = usageReport ? (usage.get(c.id)?.count ?? 0) : null;
     const ok = await confirm({
-      title: "Kategoriyi sil",
+      title: t("Kategoriyi sil"),
       message: (
         <>
-          <strong>{c.name}</strong> kategorisi silinecek.
+          {rich(t("{name} kategorisi silinecek."), { name: <strong>{c.name}</strong> })}
           {used === null ? (
-            <> Bu kategorideki işlemler silinmez, &quot;Kategorisiz&quot; kalır.</>
+            <> {t('Bu kategorideki işlemler silinmez, "Kategorisiz" kalır.')}</>
           ) : (
             used > 0 && (
               <>
                 {" "}
-                Bu kategoriye ait <strong>{used} işlem</strong> silinmeyecek, &quot;Kategorisiz&quot; olarak kalacak.
+                {rich(t('Bu kategoriye ait {count} silinmeyecek, "Kategorisiz" olarak kalacak.', { n: used }), {
+                  count: <strong>{t("{n} işlem", { n: used })}</strong>,
+                })}
               </>
             )
           )}
         </>
       ),
-      confirmLabel: "Sil",
+      confirmLabel: t("Sil"),
       danger: true,
     });
     if (!ok) return;
     try {
       await deleteCategory(c.id);
-      toast("Kategori silindi.");
+      toast(t("Kategori silindi."));
     } catch (e) {
       toast(errorMessage(e), "error");
     }
@@ -69,19 +73,19 @@ export function Categories() {
 
   const removeRule = async (r: CategoryRule) => {
     const ok = await confirm({
-      title: "Kuralı sil",
+      title: t("Kuralı sil"),
       message: (
         <>
-          <strong>{r.words.join(", ")}</strong> kuralı silinecek. İşlemlerin kategorisi değişmez.
+          {rich(t("{words} kuralı silinecek. İşlemlerin kategorisi değişmez."), { words: <strong>{r.words.join(", ")}</strong> })}
         </>
       ),
-      confirmLabel: "Sil",
+      confirmLabel: t("Sil"),
       danger: true,
     });
     if (!ok) return;
     try {
       await update({ categoryRules: settings.categoryRules.filter((x) => x.id !== r.id) });
-      toast("Kural silindi.");
+      toast(t("Kural silindi."));
     } catch (e) {
       toast(errorMessage(e), "error");
     }
@@ -98,11 +102,11 @@ export function Categories() {
             <span className="text-xs text-zinc-500">{list.length}</span>
           </div>
           <button className="btn-ghost px-2 py-1 text-xs" onClick={() => openCategoryForm(undefined, type)}>
-            <Plus size={14} /> Ekle
+            <Plus size={14} /> {t("Ekle")}
           </button>
         </div>
         {list.length === 0 ? (
-          <EmptyState icon={Tags} title="Kategori yok" />
+          <EmptyState icon={Tags} title={t("Kategori yok")} />
         ) : (
           <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
             {list.map((c) => {
@@ -114,28 +118,28 @@ export function Categories() {
                     <div className="truncate text-sm font-medium">{c.name}</div>
                     <div className="text-xs text-zinc-500">
                       {u
-                        ? `${u.count} işlem · toplam ${formatMoney(u.total)}`
+                        ? `${t("{n} işlem", { n: u.count })} · ${t("toplam {amount}", { amount: formatMoney(u.total) })}`
                         : usageReport
-                          ? "Henüz kullanılmadı"
+                          ? t("Henüz kullanılmadı")
                           : usageLoading
                             ? "…"
                             : "—"}
                       {type === "expense" && budget && (monthSpent.get(c.id) || limitBy.has(c.id)) && (
                         <>
                           {" · "}
-                          <button className="underline-offset-2 hover:underline" onClick={() => setPage("budget")} title="Bütçe'de aç">
-                            bu ay {formatMoney(monthSpent.get(c.id) ?? 0)}
-                            {limitBy.has(c.id) ? ` / limit ${formatMoney(limitBy.get(c.id)!)}` : ""}
+                          <button className="underline-offset-2 hover:underline" onClick={() => setPage("budget")} title={t("Bütçe'de aç")}>
+                            {t("bu ay {amount}", { amount: formatMoney(monthSpent.get(c.id) ?? 0) })}
+                            {limitBy.has(c.id) ? ` / ${t("limit {amount}", { amount: formatMoney(limitBy.get(c.id)!) })}` : ""}
                           </button>
                         </>
                       )}
                     </div>
                   </div>
                   <div className="flex gap-0.5 opacity-40 transition group-hover:opacity-100 focus-within:opacity-100">
-                    <button className="icon-btn" title="Düzenle" aria-label={`${c.name} düzenle`} onClick={() => openCategoryForm(c)}>
+                    <button className="icon-btn" title={t("Düzenle")} aria-label={t("{name} düzenle", { name: c.name })} onClick={() => openCategoryForm(c)}>
                       <Pencil size={15} />
                     </button>
-                    <button className="icon-btn hover:!text-rose-600" title="Sil" aria-label={`${c.name} sil`} onClick={() => remove(c)}>
+                    <button className="icon-btn hover:!text-rose-600" title={t("Sil")} aria-label={t("{name} sil", { name: c.name })} onClick={() => remove(c)}>
                       <Trash2 size={15} />
                     </button>
                   </div>
@@ -150,10 +154,10 @@ export function Categories() {
 
   return (
     <>
-      <PageHeader title="Kategoriler" subtitle="Gelir ve giderlerinizi gruplandırmak için kategorileri yönetin." />
+      <PageHeader title={t("Kategoriler")} subtitle={t("Gelir ve giderlerinizi gruplandırmak için kategorileri yönetin.")} />
       {loadError && (
         <div role="alert" className="card mb-4 flex items-center justify-between gap-3 px-5 py-4 text-sm">
-          <span className="text-rose-600 dark:text-rose-400">Kategori bilgileri alınamadı: {loadError}</span>
+          <span className="text-rose-600 dark:text-rose-400">{t("Kategori bilgileri alınamadı: {error}", { error: loadError })}</span>
           <button
             className="btn-secondary px-3 py-1.5 text-xs"
             onClick={() => {
@@ -161,34 +165,34 @@ export function Categories() {
               retryBudget();
             }}
           >
-            Tekrar dene
+            {t("Tekrar dene")}
           </button>
         </div>
       )}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Column type="income" title="Gelir Kategorileri" />
-        <Column type="expense" title="Gider Kategorileri" />
+        <Column type="income" title={t("Gelir Kategorileri")} />
+        <Column type="expense" title={t("Gider Kategorileri")} />
       </div>
       <section className="card mt-4 overflow-hidden">
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-3.5 dark:border-zinc-800">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold">Otomatik kategori kuralları</h2>
+              <h2 className="text-sm font-semibold">{t("Otomatik kategori kuralları")}</h2>
               <span className="text-xs text-zinc-500">{settings.categoryRules.length}</span>
             </div>
             <p className="mt-0.5 text-xs text-zinc-500">
-              Açıklamada kelime geçerse kategori kendiliğinden seçilir. Kurallarınız geçmişten öğrenilen önerilerden önce gelir.
+              {t("Açıklamada kelime geçerse kategori kendiliğinden seçilir. Kurallarınız geçmişten öğrenilen önerilerden önce gelir.")}
             </p>
           </div>
           <button className="btn-ghost shrink-0 px-2 py-1 text-xs" onClick={() => setRuleForm(null)}>
-            <Plus size={14} /> Kural ekle
+            <Plus size={14} /> {t("Kural ekle")}
           </button>
         </div>
         {settings.categoryRules.length === 0 ? (
           <EmptyState
             icon={Wand2}
-            title="Henüz kural yok"
-            hint="Örneğin “sinema, konser” geçen giderler Eğlence’ye gitsin. Elle girerken, ekstre aktarırken ve kategorisiz önerilerinde uygulanır."
+            title={t("Henüz kural yok")}
+            hint={t("Örneğin “sinema, konser” geçen giderler Eğlence’ye gitsin. Elle girerken, ekstre aktarırken ve kategorisiz önerilerinde uygulanır.")}
           />
         ) : (
           <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -197,7 +201,7 @@ export function Categories() {
               const missing = !cat || cat.type !== r.type;
               return (
                 <li key={r.id} className="group flex items-center gap-3 px-5 py-3 hover:bg-zinc-50 dark:hover:bg-zinc-800/40">
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${r.type === "income" ? "bg-emerald-500" : "bg-rose-500"}`} title={r.type === "income" ? "Gelir" : "Gider"} />
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${r.type === "income" ? "bg-emerald-500" : "bg-rose-500"}`} title={r.type === "income" ? t("Gelir") : t("Gider")} />
                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                     <span className="flex min-w-0 flex-wrap gap-1">
                       {r.words.map((w) => (
@@ -208,16 +212,16 @@ export function Categories() {
                     </span>
                     <ArrowRight size={14} className="shrink-0 text-zinc-400" />
                     {missing ? (
-                      <span className="text-sm italic text-rose-600 dark:text-rose-400">Kategori silinmiş, kural uygulanmıyor</span>
+                      <span className="text-sm italic text-rose-600 dark:text-rose-400">{t("Kategori silinmiş, kural uygulanmıyor")}</span>
                     ) : (
                       <CategoryLabel category={cat} />
                     )}
                   </div>
                   <div className="flex gap-0.5 opacity-40 transition group-hover:opacity-100 focus-within:opacity-100">
-                    <button className="icon-btn" title="Düzenle" aria-label="Kuralı düzenle" onClick={() => setRuleForm(r)}>
+                    <button className="icon-btn" title={t("Düzenle")} aria-label={t("Kuralı düzenle")} onClick={() => setRuleForm(r)}>
                       <Pencil size={15} />
                     </button>
-                    <button className="icon-btn hover:!text-rose-600" title="Sil" aria-label="Kuralı sil" onClick={() => removeRule(r)}>
+                    <button className="icon-btn hover:!text-rose-600" title={t("Sil")} aria-label={t("Kuralı sil")} onClick={() => removeRule(r)}>
                       <Trash2 size={15} />
                     </button>
                   </div>

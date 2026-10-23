@@ -1,10 +1,11 @@
+import { t } from "../lib/i18n";
 import { ACCOUNT_KIND_LABEL, type Account, type AccountKind } from "../lib/types";
 
 const GROUP_LABEL: Record<AccountKind, string> = {
-  bank: "Vadesiz Hesaplar",
-  cash: "Nakit",
-  credit_card: "Kredi Kartları",
-  loan: "Krediler",
+  bank: t("Vadesiz Hesaplar"),
+  cash: t("Nakit"),
+  credit_card: t("Kredi Kartları"),
+  loan: t("Krediler"),
 };
 const ORDER: AccountKind[] = ["bank", "credit_card", "cash", "loan"];
 
@@ -20,7 +21,7 @@ export function AccountOptions({ accounts }: { accounts: Account[] }) {
             {list.map((a) => (
               <option key={a.id} value={a.id}>
                 {a.name}
-                {a.archived ? " (arşiv)" : ""}
+                {a.archived ? ` (${t("arşiv")})` : ""}
               </option>
             ))}
           </optgroup>

@@ -14,6 +14,7 @@ mod networth;
 mod projection;
 mod pnl;
 mod rates;
+mod sync;
 mod tags;
 mod updater;
 
@@ -82,6 +83,7 @@ pub fn run() {
                 default_db_path,
                 config_path,
                 fallback_from: Mutex::new(fallback_from),
+                sync_lock: Mutex::new(()),
             });
             app.manage(rates::RatesState(finans_core::fx::live::LiveRates::new()));
             app.manage(pnl::CpiState(Default::default()));
@@ -178,6 +180,14 @@ pub fn run() {
             tags::set_transaction_tags,
             commands::evds_key_set,
             commands::set_evds_key,
+            sync::sync_status,
+            sync::sync_remote,
+            sync::sync_enable,
+            sync::sync_link,
+            sync::sync_run,
+            sync::sync_change_passphrase,
+            sync::sync_unlink,
+            sync::sync_delete_remote,
         ])
         .run(tauri::generate_context!())
         .expect("Tauri uygulaması başlatılırken hata oluştu");

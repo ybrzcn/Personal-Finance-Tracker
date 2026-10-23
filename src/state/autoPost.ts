@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { t, tm } from "../lib/i18n";
 import { useData } from "./data";
 import { useToday } from "./today";
 import { useUI } from "./ui";
@@ -36,13 +37,13 @@ export function useAutoPost() {
       .then(async ({ created, failed }) => {
         if (created.length) {
           await reloadTransactions();
-          toast(created.length === 1 ? `${created[0].description} otomatik kaydedildi.` : `${created.length} düzenli kayıt otomatik kaydedildi.`);
+          toast(created.length === 1 ? t("{name} otomatik kaydedildi.", { name: created[0].description }) : t("{n} düzenli kayıt otomatik kaydedildi.", { n: created.length }));
         }
         for (const f of failed) {
           const k = `${f.recurringId}:${f.error}`;
           if (warned.current.has(k)) continue;
           warned.current.add(k);
-          toast(`${f.name} otomatik kaydedilemedi: ${f.error}`, "error");
+          toast(t("{name} otomatik kaydedilemedi: {error}", { name: f.name, error: tm(f.error) }), "error");
         }
       })
       .catch(() => {})

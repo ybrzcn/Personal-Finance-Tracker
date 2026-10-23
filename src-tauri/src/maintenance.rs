@@ -173,16 +173,22 @@ fn quote(p: &Path) -> String {
 /// İşletim sisteminin kendi onay penceresi istenir: arayüzde çalışan kod (ör. ileride bir açık) kullanıcıya sormadan
 /// uygulamayı silemesin. Pencere ana iş parçacığını bekletmesin diye komut async çalışır.
 #[tauri::command(async)]
-pub fn uninstall_app(app: AppHandle, state: State<'_, AppState>, include_custom_database: bool) -> CmdResult<()> {
+pub fn uninstall_app(app: AppHandle, state: State<'_, AppState>, include_custom_database: bool, lang: Option<String>) -> CmdResult<()> {
     #[cfg(desktop)]
     {
         use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+        // Onay penceresi arayüzün dilinde (arayüz "en" gönderirse İngilizce)
+        let (message, title, ok, cancel) = if lang.as_deref() == Some("en") {
+            ("Finans and all its data on this computer will be permanently deleted. Continue?", "Uninstall Finans", "Uninstall", "Cancel")
+        } else {
+            ("Finans ve bu bilgisayardaki tüm verisi kalıcı olarak silinecek. Devam edilsin mi?", "Finans'ı kaldır", "Kaldır", "Vazgeç")
+        };
         let confirmed = app
             .dialog()
-            .message("Finans ve bu bilgisayardaki tüm verisi kalıcı olarak silinecek. Devam edilsin mi?")
-            .title("Finans'ı kaldır")
+            .message(message)
+            .title(title)
             .kind(MessageDialogKind::Warning)
-            .buttons(MessageDialogButtons::OkCancelCustom("Kaldır".into(), "Vazgeç".into()))
+            .buttons(MessageDialogButtons::OkCancelCustom(ok.into(), cancel.into()))
             .blocking_show();
         if !confirmed {
             return Err("Kaldırma iptal edildi.".into());

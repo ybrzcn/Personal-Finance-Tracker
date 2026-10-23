@@ -13,6 +13,7 @@ import { useIncomeStatus } from "../state/incomeStatus";
 import { useNetWorth } from "../state/networth";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
+import { t, tm } from "../lib/i18n";
 
 const NEG = "text-rose-600 dark:text-rose-400";
 const POS = "text-emerald-600 dark:text-emerald-400";
@@ -46,8 +47,8 @@ export function Accounts() {
   const expected = inc.status?.expected ?? null;
   const expectedPlaceholder = inc.loading && !inc.error ? "…" : "—";
   const expectedHint = [
-    expected && expected.regularCents > 0 ? `Maaş ${formatMoney(expected.regularCents / 100)}` : "",
-    expected && expected.otherCents > 0 ? `Diğer ${formatMoney(expected.otherCents / 100)}` : "",
+    expected && expected.regularCents > 0 ? t("Maaş {amount}", { amount: formatMoney(expected.regularCents / 100) }) : "",
+    expected && expected.otherCents > 0 ? t("Diğer {amount}", { amount: formatMoney(expected.otherCents / 100) }) : "",
   ]
     .filter(Boolean)
     .join(" · ");
@@ -64,43 +65,43 @@ export function Accounts() {
   const cardIds = new Set(accounts.filter((a) => a.kind === "credit_card").map((a) => a.id));
   const futureCard = transactions.some((t) => t.date > today && cardIds.has(t.accountId) && t.type !== "income");
   const tiles = [
-    { label: "Varlıklar", cents: pos?.assetsCents ?? null, tone: "", color: "income" as TileTone, hint: "Bugüne kadarki bakiye" },
+    { label: t("Varlıklar"), cents: pos?.assetsCents ?? null, tone: "", color: "income" as TileTone, hint: t("Bugüne kadarki bakiye") },
     {
-      label: `Beklenen gelir · ${monthName(today.slice(0, 7))}`,
+      label: `${t("Beklenen gelir")} · ${monthName(today.slice(0, 7))}`,
       cents: expected?.totalCents ?? null,
       placeholder: expectedPlaceholder,
       tone: (expected?.totalCents ?? 0) > 0 ? POS : "",
-      hint: expected ? expectedHint || "Bu ay beklenen gelir yok" : null,
+      hint: expected ? expectedHint || t("Bu ay beklenen gelir yok") : null,
     },
     {
-      label: "Kart borcu",
+      label: t("Kart borcu"),
       cents: pos?.cardDebtCents ?? null,
       tone: "",
       color: "expense" as TileTone,
-      hint: futureCard ? "İleri tarihli harcamalar tarihinde eklenir" : null,
+      hint: futureCard ? t("İleri tarihli harcamalar tarihinde eklenir") : null,
     },
-    { label: "Kredi borcu", cents: pos?.loanDebtCents ?? null, tone: "", color: "expense" as TileTone },
-    { label: "KMH kullanımı", cents: pos?.overdraftCents ?? null, tone: (pos?.overdraftCents ?? 0) > 0 ? NEG : "" },
-    { label: "Net durum", cents: pos?.netCents ?? null, tone: "", color: "net" as TileTone },
+    { label: t("Kredi borcu"), cents: pos?.loanDebtCents ?? null, tone: "", color: "expense" as TileTone },
+    { label: t("KMH kullanımı"), cents: pos?.overdraftCents ?? null, tone: (pos?.overdraftCents ?? 0) > 0 ? NEG : "" },
+    { label: t("Net durum"), cents: pos?.netCents ?? null, tone: "", color: "net" as TileTone },
   ];
 
   return (
     <>
       <PageHeader
-        title="Hesaplar"
-        subtitle="Vadesiz hesaplar, nakit ve kredi kartları"
+        title={t("Hesaplar")}
+        subtitle={t("Vadesiz hesaplar, nakit ve kredi kartları")}
         actions={
           <>
             {hasArchived && (
               <button className="btn-secondary" onClick={() => setShowArchived((v) => !v)}>
-                {showArchived ? "Arşivlenenleri gizle" : "Arşivlenenleri göster"}
+                {showArchived ? t("Arşivlenenleri gizle") : t("Arşivlenenleri göster")}
               </button>
             )}
             <button className="btn-secondary" onClick={() => openStatementImport()}>
-              <FileUp size={16} /> Ekstre Yükle
+              <FileUp size={16} /> {t("Ekstre Yükle")}
             </button>
             <button className="btn-primary" onClick={() => openAccountForm()}>
-              <Plus size={16} /> Yeni Hesap
+              <Plus size={16} /> {t("Yeni Hesap")}
             </button>
           </>
         }
@@ -108,9 +109,9 @@ export function Accounts() {
 
       {ar.error && (
         <div role="alert" className="card mb-4 flex items-center justify-between gap-3 px-5 py-4 text-sm">
-          <span className="text-rose-600 dark:text-rose-400">Hesap özetleri alınamadı: {ar.error}</span>
+          <span className="text-rose-600 dark:text-rose-400">{t("Hesap özetleri alınamadı: {error}", { error: tm(ar.error) })}</span>
           <button className="btn-secondary px-3 py-1.5 text-xs" onClick={ar.reload}>
-            Tekrar dene
+            {t("Tekrar dene")}
           </button>
         </div>
       )}
@@ -119,10 +120,12 @@ export function Accounts() {
       {nw.error && (
         <div role="alert" className="card mb-4 flex items-center justify-between gap-3 px-5 py-4 text-sm">
           <span className="text-rose-600 dark:text-rose-400">
-            {pos ? `Güncellenemedi; gösterilen değerler eski olabilir (${nw.error})` : `Net servet hesaplanamadı: ${nw.error}`}
+            {pos
+              ? t("Güncellenemedi; gösterilen değerler eski olabilir ({error})", { error: tm(nw.error) })
+              : t("Net servet hesaplanamadı: {error}", { error: tm(nw.error) })}
           </span>
           <button className="btn-secondary px-3 py-1.5 text-xs" onClick={nw.reload}>
-            Tekrar dene
+            {t("Tekrar dene")}
           </button>
         </div>
       )}
@@ -140,7 +143,7 @@ export function Accounts() {
       </div>
       {(pos?.unvaluedCount ?? 0) > 0 && (
         <p className="-mt-4 mb-6 text-xs text-amber-700 dark:text-amber-300">
-          {pos?.unvaluedCount} döviz/altın hesabı kur alınamadığı için toplama katılmadı.
+          {t("{n} döviz/altın hesabı kur alınamadığı için toplama katılmadı.", { n: pos?.unvaluedCount ?? 0 })}
         </p>
       )}
       <div className="mb-6">
@@ -151,11 +154,11 @@ export function Accounts() {
         <div className="card">
           <EmptyState
             icon={Landmark}
-            title="Henüz hesap yok"
-            hint="Vadesiz hesabınızı, nakdinizi ve kredi kartlarınızı ekleyin."
+            title={t("Henüz hesap yok")}
+            hint={t("Vadesiz hesabınızı, nakdinizi ve kredi kartlarınızı ekleyin.")}
             action={
               <button className="btn-primary" onClick={() => openAccountForm()}>
-                <Plus size={16} /> Hesap Ekle
+                <Plus size={16} /> {t("Hesap Ekle")}
               </button>
             }
           />
@@ -164,7 +167,7 @@ export function Accounts() {
         <div className="space-y-6">
           {cards.length > 0 && (
             <div>
-              <h2 className="mb-3 text-sm font-semibold">Kredi Kartları</h2>
+              <h2 className="mb-3 text-sm font-semibold">{t("Kredi Kartları")}</h2>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {cards.map((a) => (
                   <CreditCardCard key={a.id} account={a} />
@@ -174,7 +177,7 @@ export function Accounts() {
           )}
           {loans.length > 0 && (
             <div>
-              <h2 className="mb-3 text-sm font-semibold">Krediler</h2>
+              <h2 className="mb-3 text-sm font-semibold">{t("Krediler")}</h2>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {loans.map((a) => (
                   <LoanCard key={a.id} account={a} />
@@ -184,7 +187,7 @@ export function Accounts() {
           )}
           {banks.length > 0 && (
             <div>
-              <h2 className="mb-3 text-sm font-semibold">Banka ve Nakit</h2>
+              <h2 className="mb-3 text-sm font-semibold">{t("Banka ve Nakit")}</h2>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {banks.map((a) => (
                   <BankAccountCard key={a.id} account={a} />
@@ -194,7 +197,7 @@ export function Accounts() {
           )}
           {savings.length > 0 && (
             <section>
-              <h2 className="mb-3 text-sm font-semibold">Birikim ve Varlıklar</h2>
+              <h2 className="mb-3 text-sm font-semibold">{t("Birikim ve Varlıklar")}</h2>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {savings.map((a) => (
                   <BankAccountCard key={a.id} account={a} />
@@ -204,7 +207,7 @@ export function Accounts() {
           )}
           {funds.length > 0 && (
             <section>
-              <h2 className="mb-3 text-sm font-semibold">Yatırımlar</h2>
+              <h2 className="mb-3 text-sm font-semibold">{t("Yatırımlar")}</h2>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
                 {funds.map((a) => (
                   <FundAccountCard key={a.id} account={a} />

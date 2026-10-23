@@ -1,6 +1,6 @@
 # Finans — Personal Finance Tracker
 
-**English:** Finans is an open-source personal finance app for tracking bank accounts, credit cards, loans, budgets, a payment calendar and a debt payoff plan. It imports bank and card statements (Excel, PDF, CSV), runs as a desktop app (macOS, Windows, Linux) that keeps data on your computer, or as a web app on your own server (Docker), with optional accounts to move your data between them. The interface is in Turkish.
+**English:** Finans is an open-source personal finance app for tracking bank accounts, credit cards, loans, budgets, a payment calendar and a debt payoff plan. It imports bank and card statements (Excel, PDF, CSV), runs as a desktop app (macOS, Windows, Linux) that keeps data on your computer, or as a web app on your own server (Docker), with optional accounts to move your data between them. The interface is available in Turkish and English (Settings → Appearance → Language).
 
 - **Download:** [latest release](https://github.com/ybrzcn/Personal-Finance-Tracker/releases/latest) — macOS (Universal), Windows (x64 / x86 / ARM64, installer or portable), Linux (AppImage, .deb, .rpm, tarball; x86_64 / ARM64). Builds are not code-signed yet: on macOS right-click → Open on first launch; on Windows choose "More info → Run anyway".
 - **Self-host:** see [Self-host](#self-host) below.
@@ -36,6 +36,8 @@ Data is stored in PostgreSQL (one schema, rows isolated per user with row-level 
 
 **Payment calendar:** Which salary pays each card statement, loan installment and recurring payment, plus the period's already paid statements and received income, is computed by the same Rust code on desktop and server. (Requires the server or desktop app.)
 
+**End-to-end encrypted sync:** with data kept on the device, desktop and mobile apps can sync through the server end-to-end encrypted (Settings → Şifreli eşitleme). Data is encrypted on the device with a key protected by a separate sync passphrase (Argon2id, XChaCha20-Poly1305); the server stores only ciphertext and never sees the passphrase. Changes from several devices are merged record by record; attachments are synced as separate encrypted files. The web interface cannot read this data.
+
 **Profit/loss:** the Kâr/Zarar page shows, for each foreign currency and gold account, the weighted average cost, current value and unrealised profit/loss, plus realised profit/loss for every sale or foreign-currency expense with a monthly chart. Buying and selling are entered as transfers. With a free TCMB EVDS API key (evds3.tcmb.gov.tr → sign up → Profile → API key) it also compares returns with consumer price inflation (TÜFE): set `FINANS_EVDS_KEY` in `.env` on the server (Postgres stores the series), or enter the key under Settings in the desktop app (kept only on that device).
 
 Put it behind HTTPS (Cloudflare Tunnel, Caddy, nginx). The server serves the web app and `/api`; the landing page offers the desktop downloads. Configuration (environment variables) is documented in the Turkish section [Sunucu (self-host)](#sunucu-self-host).
@@ -62,6 +64,9 @@ Put it behind HTTPS (Cloudflare Tunnel, Caddy, nginx). The server serves the web
 - **Ödeme takvimi:** Kart ekstreleri, kredi taksitleri ve düzenli ödemelerin hangi maaştan karşılanacağı, dönemin ödenmiş ekstreleri ve yatmış gelirleri masaüstünde ve sunucuda aynı Rust kodunda hesaplanır.
 - **Mevduat, BES ve diğer varlıklar:** Vadeli mevduatta yıllık brüt faiz, stopaj ve vade girilir; kart dönemin brüt/net faizini, işleyen faizi ve vade sonu tutarını gösterir, vade dolunca net faiz tek tıkla "Yatırım" geliri olarak kaydedilip mevduat yenilenir ya da vadesize çevrilir. BES'te katkılar transferle, güncel fon değeri elle girilir; ev, araba gibi varlıklar alış bedeliyle eklenip değeri elle güncellenir. Bunlar net servete ve varlık dağılımına girer, ödeme takviminde harcanabilir nakit sayılmaz.
 - **Belgeler:** İşleme fiş, fatura gibi belgeler (fotoğraf ya da PDF, en çok 10 MB, işlem başına 10) eklenir; telefonda kamerayla çekilebilir. Metni olan PDF'teki genel toplam ve tarih işleme öneri olarak gelir (fotoğraftan metin okunmaz). Belgeler veritabanında saklanır; JSON yedek içermez, masaüstünün veritabanı yedeği içerir.
+- **Giriş güvenliği (sunucu):** Ayarlar → Giriş güvenliği'nden iki aşamalı doğrulama açılır: QR kodu doğrulama uygulamasına (Google Authenticator, 1Password vb.) okutulur, girişte şifreden sonra 6 haneli kod istenir. Web'de passkey eklenip şifre yazmadan parmak izi, yüz ya da cihaz PIN'iyle girilir (passkey sunucunun alan adına bağlıdır; https ve alan adı gerekir, masaüstü ve mobil uygulamada kod kullanılır). Telefon kaybolursa kurtarma koduyla yeni şifre belirlenir; iki aşamalı doğrulama kapanır ve passkey'ler silinir. Passkey isteğin `Host` başlığındaki alan adına bağlanır: Caddy ve Cloudflare Tunnel bunu korur, nginx'te `proxy_set_header Host $host;` gerekir.
+- **Şifreli eşitleme (masaüstü ve mobil):** Veri bu cihazdayken Ayarlar → Şifreli eşitleme'den açılır; veriler cihazda şifrelenip sunucuya öyle gider, sunucu içeriği okuyamaz. Veri anahtarı ayrı bir eşitleme parolasıyla korunur (Argon2id; veri XChaCha20-Poly1305), parola sunucuya gitmez. Öbür cihaz aynı parolayla bağlanır: yerel veri ya sunucudakiyle değiştirilir (önce yedeklenir) ya da birleştirilir. Eşitleme açılışta, pencere öne gelince ve dakikada bir arka planda yapılır; değişiklikler kayıt kayıt birleştirilir (iki cihazda aynı kayıt değiştiyse son eşitleyen cihazınki kalır, bir cihazda silinip öbüründe değiştirilen kayıt korunur). Belge ekleri ayrı şifreli dosyalar olarak eşitlenir. Parola bağlı bir cihazdan değiştirilebilir; unutulur ve hiçbir cihaz bağlı kalmazsa sunucudaki kopya açılamaz (cihazlardaki veri yerinde kalır), hesap şifresiyle silinip yeniden açılır. Web arayüzü bu veriyi göremez.
+- **Dil:** Arayüz Türkçe ve İngilizce; Ayarlar → Görünüm → Dil'den cihaz başına seçilir (varsayılan Türkçe). Tarih ve sayılar seçili dile göre biçimlenir; sunucudan ve hesaplama katmanından gelen hata mesajları da çevrilir. Kullanıcı verisi (kategori, hesap adları) çevrilmez.
 - **Raporlar:** Dönem seç (bu ay, geçen ay, bu yıl, geçen yıl, son 12 ay ya da özel aralık); gider ya da geliri kategori, hesap veya etikete göre kır, önceki dönemle ya da geçen yılın aynı dönemiyle karşılaştır (tutar ve yüzde değişim), aylık seyri ve gelirin giderlere ve birikime akışını (Sankey) gör. Harcama tarihine göre; taksitler kendi aylarına düşer, transferler sayılmaz.
 - **Kâr/Zarar:** Döviz, altın ve fon hesaplarında ağırlıklı ortalama maliyet, güncel değer ve kâğıt üstü kâr/zarar; her satışın ve dövizle yapılan giderin gerçekleşen kâr/zararı, aylık grafikle. Alım ve satım transfer olarak girilir; açılış bakiyesinin maliyeti hesap formunda girilebilir (boşsa açılış günü kuru). TCMB EVDS anahtarı verilirse getiri TÜFE ile karşılaştırılır (reel kâr/zarar): anahtar evds3.tcmb.gov.tr'de ücretsiz üyelikle Profil → API Anahtarı'ndan alınır; sunucuda `.env`'deki `FINANS_EVDS_KEY`'e, masaüstünde Ayarlar'a girilir (yalnız o cihazda saklanır). Faiz, temettü ve fon dağıtımı seçilen gelir kategorilerinden (varsayılan "Yatırım") yatırım geliri olarak sayılır; toplam kazanç kâğıt üstü + gerçekleşen + yatırım gelirini gösterir. Varlık dağılımı TL, döviz, altın/gümüş ve fon paylarını gösterir.
 - **Krediler:** Kalan anapara, aylık faiz, KKDF+BSMV, kalan vade ve sonraki taksit tarihiyle ödeme planı; "Taksit öde" anaparayı krediye transfer, faizi "Faiz ve Masraflar" gideri olarak kaydeder.
@@ -249,6 +254,7 @@ Tablolar sunucu açılırken otomatik oluşturulur ve güncellenir.
 | `FINANS_MAX_USERS` | `0` (sınırsız) | En fazla hesap sayısı |
 | `FINANS_EVDS_KEY` | boş | TCMB EVDS API anahtarı; verilirse TÜFE günde bir çekilir (Postgres'te saklanır, SQLite modunda bellekte), Kâr/Zarar sayfasında enflasyon karşılaştırması açılır |
 | `FINANS_ATTACHMENT_QUOTA_MB` | 1024 | Kullanıcı başına işlem belgeleri (fiş, fatura) kotası, MB; 0 sınırsız |
+| `FINANS_SYNC_QUOTA_MB` | 2048 | Kullanıcı başına şifreli eşitleme verisi (veri + belgeler) kotası, MB; 0 sınırsız |
 
 `FINANS_USER_QUOTA_MB` 1.1.0'da kaldırıldı (kullanıcı başına kota yok); verilirse yok sayılır.
 
@@ -269,6 +275,7 @@ finans.ornek.com {
 ```bash
 docker compose exec finans finans-server users                       # kullanıcıları listeler
 docker compose exec finans finans-server reset-password ad@ornek.com # geçici şifre verir, oturumları kapatır
+docker compose exec finans finans-server disable-2fa ad@ornek.com    # doğrulama kodunu kapatır, passkey'leri siler
 ```
 
 Kullanıcılar şifrelerini unutursa kayıtta verilen kurtarma koduyla kendileri de sıfırlayabilir.
@@ -317,10 +324,18 @@ Tüm yanıtlar JSON; hata biçimi `{"error": "<mesaj>"}`. Kimlik: web'de `finans
 | Uç nokta | Açıklama |
 |---|---|
 | `POST /api/auth/register` `{email, password, device?}` | Hesap açar; `{token, user, recoveryCode}` |
-| `POST /api/auth/login` `{email, password, device?}` | `{token, user}` |
+| `POST /api/auth/login` `{email, password, device?, mfa?}` | `{token, user}`; iki aşamalı doğrulama açıksa `{mfa: "totp", ticket}` (istemci `mfa: true` göndermezse güncelleme uyarısı) |
+| `POST /api/auth/login/totp` `{ticket, code}` | Girişin ikinci adımı (bilet 5 dk, 5 deneme; kullanıcı başına saatte 10, günde 50 yanlış kod); `{token, user}` |
+| `POST /api/auth/passkey/options`, `POST /api/auth/passkey/login` | Passkey ile giriş: sorgu ve imzalı yanıt (`id, clientDataJSON, authenticatorData, signature`) |
+| `GET /api/me/security` | `{totp, passkeys}` |
+| `POST /api/me/totp/setup` `{password}`, `POST /api/me/totp/enable` `{ticket, code}`, `POST /api/me/totp/disable` `{password, code}` | Doğrulama uygulaması kodu (anahtar, `otpauth://` adresi ve QR kodu; ilk doğru kodla açılır, diğer oturumlar kapanır; açıkken yeni anahtar verilmez) |
+| `POST /api/me/passkeys/options` `{password, code?}`, `POST /api/me/passkeys`, `DELETE /api/me/passkeys/{id}` `{password}` | Passkey ekleme (ES256, EdDSA, RS256; doğrulama uygulaması açıksa kod da gerekir, diğer oturumlar kapanır) ve silme (şifreyle) |
+| `GET /api/sync`, `PUT /api/sync/keyring` `{keyring}`, `DELETE /api/sync` `{password}` | Şifreli eşitleme durumu (sürüm, boyut, parolayla sarılmış anahtar), anahtarlık (ilk kurulum ya da aynı anahtarın yeni parolayla sarımı) ve sunucudaki kopyanın silinmesi |
+| `GET/PUT /api/sync/data` (`x-sync-key`, `x-sync-base`) | Şifreli anlık görüntü; yazma yalnız okunan sürümün üzerine (değiştiyse 409) |
+| `GET /api/sync/files`, `GET/PUT/DELETE /api/sync/files/{id}` | Şifreli belge ekleri |
 | `POST /api/auth/logout` | Oturumu kapatır |
 | `POST /api/auth/change-password` `{currentPassword, newPassword}` | Diğer oturumlar kapanır |
-| `POST /api/auth/recover` `{email, recoveryCode, newPassword, device?}` | Yeni şifre + yeni kurtarma kodu |
+| `POST /api/auth/recover` `{email, recoveryCode, newPassword, device?}` | Yeni şifre + yeni kurtarma kodu; doğrulama uygulaması kodu kapanır, passkey'ler silinir (`totpDisabled`, `passkeysRemoved`) |
 | `GET /api/me`, `DELETE /api/me` `{password}` | Hesap bilgisi / hesabı ve tüm veriyi silme |
 | `GET, POST /api/{categories,accounts,transactions,recurring}` | Listele / ekle. Listeler arayüzün gösterdiği sırayla gelir (işlemler tarihe, hesaplar ve kategoriler Türkçe alfabetik ada göre) |
 | `PUT, DELETE /api/{categories,accounts,transactions,recurring}/{id}` | Güncelle / sil |
@@ -386,6 +401,7 @@ Ayarlar → Hesap:
 
 - **Verilerimi sunucuya taşı**: Yerel veri (ayarlarla) sunucudakinin yerine yazılır; yerel dosya yedek olarak kalır.
 - **Bu cihaza indir**: Yerel veritabanı önce yedeklenir (`finans.db.sifirlama-oncesi-….bak`), sonra sunucudaki veri yazılır.
+- **Şifreli eşitleme** (veri bu cihazdayken): cihazlar sunucu üzerinden uçtan uca şifreli eşitlenir; durum ve son ortak sürüm veri klasöründeki `sync.json` ve `sync-base.json`'da (veri anahtarı da `sync.json`'da; veritabanı dosyası kadar korunmalı). Eşitleme seçili veritabanı dosyasına bağlıdır; başka dosyaya geçilince o dosya bağlı sayılmaz.
 - **Çıkış yap / Hesabı sil**: Bu cihazdaki yerel veri silinmez.
 
 Sunucu adresi ve oturum token'ı uygulama veri klasöründeki `config.json`'da saklanır. Sunucu, masaüstü/mobil uygulamaların kökenlerine varsayılan olarak CORS izni verir (`FINANS_ALLOWED_ORIGINS`).

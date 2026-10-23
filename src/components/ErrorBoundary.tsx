@@ -2,6 +2,7 @@ import { AlertTriangle, Bug, RotateCcw } from "lucide-react";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { logError } from "../lib/errorLog";
 import { ErrorReportDialog } from "./ErrorReportDialog";
+import { t } from "../lib/i18n";
 
 interface State {
   error: Error | null;
@@ -29,17 +30,17 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
       <div className="grid h-full place-items-center p-6">
         <div className="card w-full max-w-md p-6 text-center">
           <AlertTriangle className="mx-auto mb-3 text-rose-500" />
-          <p className="font-medium">Beklenmeyen bir hata oluştu</p>
-          <p className="mt-1 text-sm text-zinc-500">Verileriniz güvende; yeniden yükleyerek devam edebilirsiniz.</p>
+          <p className="font-medium">{t("Beklenmeyen bir hata oluştu")}</p>
+          <p className="mt-1 text-sm text-zinc-500">{t("Verileriniz güvende; yeniden yükleyerek devam edebilirsiniz.")}</p>
           <pre className="mt-3 max-h-32 overflow-auto rounded-lg bg-zinc-100 p-2 text-left text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
             {error.message}
           </pre>
           <div className="mt-4 flex justify-center gap-2">
             <button className="btn-secondary" onClick={() => this.setState({ reporting: true })}>
-              <Bug size={16} /> Hatayı bildir
+              <Bug size={16} /> {t("Hatayı bildir")}
             </button>
             <button className="btn-primary" onClick={() => location.reload()}>
-              <RotateCcw size={16} /> Yeniden yükle
+              <RotateCcw size={16} /> {t("Yeniden yükle")}
             </button>
           </div>
           {this.state.reporting && <ErrorReportDialog page="arayüz hatası" onClose={() => this.setState({ reporting: false })} />}

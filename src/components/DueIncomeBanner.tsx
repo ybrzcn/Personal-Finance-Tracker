@@ -4,6 +4,8 @@ import { useData } from "../state/data";
 import { useIncomeStatus } from "../state/incomeStatus";
 import { useSettings } from "../state/settings";
 import { useUI } from "../state/ui";
+import { t } from "../lib/i18n";
+import { rich } from "../lib/rich";
 
 /**
  * Yatış günü gelmiş ama girilmemiş maaş vb. için uyarı (liste Rust'ta hesaplanır): "Yattı, kaydet" formu plan tutarıyla açar.
@@ -31,8 +33,12 @@ export function DueIncomeBanner() {
         >
           <CircleDollarSign size={18} className="shrink-0 text-emerald-600 dark:text-emerald-400" />
           <span className="min-w-0 flex-1">
-            <strong>{item.name}</strong> {date === today ? "bugün" : formatDateShort(date)} yatacaktı ({formatMoney(amount)}). Yattıysa kaydet; bakiyene
-            eklensin.
+            {rich(
+              date === today
+                ? t("{name} bugün yatacaktı ({amount}). Yattıysa kaydet; bakiyene eklensin.")
+                : t("{name} {date} yatacaktı ({amount}). Yattıysa kaydet; bakiyene eklensin."),
+              { name: <strong>{item.name}</strong>, date: formatDateShort(date), amount: formatMoney(amount) },
+            )}
           </span>
           <button
             className="btn-primary px-3 py-1.5 text-xs"
@@ -48,7 +54,7 @@ export function DueIncomeBanner() {
               })
             }
           >
-            Yattı, kaydet
+            {t("Yattı, kaydet")}
           </button>
         </div>
       ))}

@@ -24,32 +24,33 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useSettings, type ThemePref } from "../state/settings";
 import { useUI, type Page } from "../state/ui";
+import { t } from "../lib/i18n";
 
 const TABS: { page: Page; label: string; icon: typeof LayoutDashboard }[] = [
-  { page: "dashboard", label: "Genel", icon: LayoutDashboard },
-  { page: "transactions", label: "İşlemler", icon: ArrowLeftRight },
-  { page: "budget", label: "Bütçe", icon: PiggyBank },
+  { page: "dashboard", label: t("Genel"), icon: LayoutDashboard },
+  { page: "transactions", label: t("İşlemler"), icon: ArrowLeftRight },
+  { page: "budget", label: t("Bütçe"), icon: PiggyBank },
 ];
 
 const MORE: { page: Page; label: string; icon: typeof LayoutDashboard }[] = [
-  { page: "goals", label: "Hedefler", icon: Target },
-  { page: "accounts", label: "Hesaplar", icon: Landmark },
-  { page: "rates", label: "Kurlar", icon: Coins },
-  { page: "pnl", label: "Kâr/Zarar", icon: TrendingUp },
-  { page: "analysis", label: "Analiz", icon: Activity },
-  { page: "reports", label: "Raporlar", icon: ChartColumn },
-  { page: "plan", label: "Ödeme Takvimi", icon: CalendarRange },
-  { page: "debt", label: "Borç Planı", icon: TrendingDown },
-  { page: "projection", label: "Uzun Vade", icon: Telescope },
-  { page: "categories", label: "Kategoriler", icon: Tags },
-  { page: "tags", label: "Etiketler", icon: TagIcon },
-  { page: "settings", label: "Ayarlar", icon: Settings },
+  { page: "goals", label: t("Hedefler"), icon: Target },
+  { page: "accounts", label: t("Hesaplar"), icon: Landmark },
+  { page: "rates", label: t("Kurlar"), icon: Coins },
+  { page: "pnl", label: t("Kâr/Zarar"), icon: TrendingUp },
+  { page: "analysis", label: t("Analiz"), icon: Activity },
+  { page: "reports", label: t("Raporlar"), icon: ChartColumn },
+  { page: "plan", label: t("Ödeme Takvimi"), icon: CalendarRange },
+  { page: "debt", label: t("Borç Planı"), icon: TrendingDown },
+  { page: "projection", label: t("Uzun Vade"), icon: Telescope },
+  { page: "categories", label: t("Kategoriler"), icon: Tags },
+  { page: "tags", label: t("Etiketler"), icon: TagIcon },
+  { page: "settings", label: t("Ayarlar"), icon: Settings },
 ];
 
 const THEMES: { value: ThemePref; icon: typeof Sun; label: string }[] = [
-  { value: "light", icon: Sun, label: "Açık" },
-  { value: "system", icon: Monitor, label: "Sistem" },
-  { value: "dark", icon: Moon, label: "Koyu" },
+  { value: "light", icon: Sun, label: t("Açık") },
+  { value: "system", icon: Monitor, label: t("Sistem") },
+  { value: "dark", icon: Moon, label: t("Koyu") },
 ];
 
 /** Telefon genişliğinde (md altı) kenar çubuğunun yerine alt sekme çubuğu; diğer sayfalar "Daha fazla"da. */
@@ -100,11 +101,11 @@ export function BottomNav() {
             className="absolute inset-x-0 bottom-0 rounded-t-2xl border-t border-zinc-200 bg-white px-4 pb-[calc(5rem+env(safe-area-inset-bottom))] pt-3 dark:border-zinc-800 dark:bg-zinc-900"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
-            aria-label="Diğer sayfalar"
+            aria-label={t("Diğer sayfalar")}
           >
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-sm font-semibold">Diğer sayfalar</span>
-              <button className="icon-btn" aria-label="Kapat" onClick={() => setMoreOpen(false)}>
+              <span className="text-sm font-semibold">{t("Diğer sayfalar")}</span>
+              <button className="icon-btn" aria-label={t("Kapat")} onClick={() => setMoreOpen(false)}>
                 <X size={18} />
               </button>
             </div>
@@ -125,7 +126,7 @@ export function BottomNav() {
                 </button>
               ))}
             </div>
-            <div className="mt-3 flex rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800/60" role="group" aria-label="Tema">
+            <div className="mt-3 flex rounded-lg bg-zinc-100 p-0.5 dark:bg-zinc-800/60" role="group" aria-label={t("Tema")}>
               {THEMES.map(({ value, icon: Icon, label }) => (
                 <button
                   key={value}
@@ -144,7 +145,7 @@ export function BottomNav() {
       )}
       <nav
         className="fixed inset-x-0 bottom-0 z-40 flex border-t border-zinc-200 bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden dark:border-zinc-800 dark:bg-zinc-900/95"
-        aria-label="Sayfalar"
+        aria-label={t("Sayfalar")}
       >
         {TABS.slice(0, 2).map(({ page: p, label, icon: Icon }) => (
           <button key={p} className={tab(page === p && !moreOpen)} onClick={() => go(p)} aria-current={page === p ? "page" : undefined}>
@@ -159,7 +160,7 @@ export function BottomNav() {
               setMoreOpen(false);
               openTransactionForm();
             }}
-            aria-label="Yeni işlem"
+            aria-label={t("Yeni işlem")}
           >
             <Plus size={22} />
           </button>
@@ -172,7 +173,7 @@ export function BottomNav() {
         ))}
         <button ref={moreBtnRef} className={tab(inMore || moreOpen)} onClick={() => setMoreOpen((v) => !v)} aria-expanded={moreOpen}>
           <Menu size={20} />
-          Daha fazla
+          {t("Daha fazla")}
         </button>
       </nav>
     </>

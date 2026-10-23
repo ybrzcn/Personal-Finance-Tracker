@@ -21,6 +21,8 @@ pub struct AppState {
     pub config_path: PathBuf,
     /// Seçili veritabanı açılışta bulunamadı/açılamadı ve varsayılana dönüldüyse o yol (kullanıcı uyarılır)
     pub fallback_from: Mutex<Option<String>>,
+    /// Aynı anda tek eşitleme turu; veritabanı dosyası değiştirilirken de tutulur
+    pub sync_lock: Mutex<()>,
 }
 
 /// Uygulama ayar dosyası (veri klasöründe `config.json`).
@@ -443,6 +445,12 @@ fn check_finans_database(path: &Path) -> CmdResult<()> {
 }
 
 fn switch_to(state: &State<'_, AppState>, path: PathBuf) -> CmdResult<DatabaseInfo> {
+    // Eşitleme sürerken dosya değişirse yeni dosya eski dosyanın tabanıyla birleştirilirdi
+    let _sync = match state.sync_lock.try_lock() {
+        Ok(g) => g,
+        Err(std::sync::TryLockError::Poisoned(p)) => p.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => return Err("Eşitleme sürüyor; biraz sonra tekrar deneyin.".into()),
+    };
     let new_conn = db::open(&path).map_err(|e| format!("Veritabanı açılamadı: {e}"))?;
     let mut conn = lock(state)?;
     *conn = new_conn;

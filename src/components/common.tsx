@@ -4,6 +4,7 @@ import { formatAmountInput, formatDate } from "../lib/format";
 import { UNCATEGORIZED } from "../lib/stats";
 import type { Account, Category, Transaction } from "../lib/types";
 import { useSettings } from "../state/settings";
+import { t } from "../lib/i18n";
 
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
   return (
@@ -41,13 +42,13 @@ export function SummaryTile({
   hint?: string | null;
   valueClass?: string;
 }) {
-  const t = TILE_TONES[tone];
+  const tones = TILE_TONES[tone];
   return (
-    <div className={`min-w-0 rounded-2xl px-5 py-4 ${t.box}`}>
-      <div className={`truncate text-[13px] font-semibold ${t.label}`}>{label}</div>
+    <div className={`min-w-0 rounded-2xl px-5 py-4 ${tones.box}`}>
+      <div className={`truncate text-[13px] font-semibold ${tones.label}`}>{label}</div>
       <div className={`mt-1 whitespace-nowrap text-2xl font-bold tabular-nums tracking-tight ${valueClass}`}>{value}</div>
       {hint && (
-        <div className={`mt-0.5 text-xs ${t.hint}`} title={hint}>
+        <div className={`mt-0.5 text-xs ${tones.hint}`} title={hint}>
           {hint}
         </div>
       )}
@@ -83,9 +84,9 @@ export function CategoryLabel({ category }: { category?: Category }) {
 }
 
 /** "Vadesiz" veya transferde "Vadesiz → Kredi Kartı" */
-export function txAccountLabel(t: Pick<Transaction, "type" | "accountId" | "toAccountId">, accountById: Map<string, Account>): string {
-  const name = (id: string | null) => (id && accountById.get(id)?.name) || "Silinmiş hesap";
-  return t.type === "transfer" ? `${name(t.accountId)} → ${name(t.toAccountId)}` : name(t.accountId);
+export function txAccountLabel(tx: Pick<Transaction, "type" | "accountId" | "toAccountId">, accountById: Map<string, Account>): string {
+  const name = (id: string | null) => (id && accountById.get(id)?.name) || t("Silinmiş hesap");
+  return tx.type === "transfer" ? `${name(tx.accountId)} → ${name(tx.toAccountId)}` : name(tx.accountId);
 }
 
 export function Amount({ tx, className = "" }: { tx: Pick<Transaction, "amount" | "type">; className?: string }) {
@@ -130,7 +131,7 @@ export function TransactionItem({
         <Icon size={16} />
       </span>
       <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{tx.description || (transfer ? "Transfer" : catName)}</span>
+        <span className="block truncate text-sm font-medium">{tx.description || (transfer ? t("Transfer") : catName)}</span>
         <span className="block truncate text-xs text-zinc-500">
           {transfer ? "" : `${catName} · `}
           {accountLabel} · {formatDate(tx.date)}
@@ -163,12 +164,12 @@ export function Segmented<T extends string>({
 
 /** Finans terimlerinin kısa açıklamaları (üzerine gelince görünür). */
 export const TERMS = {
-  KMH: "Kredili Mevduat Hesabı: vadesiz hesabın eksiye düşebildiği limit. Eksi bakiyeye günlük faiz işler.",
-  KKDF: "Kaynak Kullanımını Destekleme Fonu: faizin %15'i kadar alınan yasal kesinti.",
-  BSMV: "Banka ve Sigorta Muameleleri Vergisi: faizin %15'i kadar alınan vergi.",
-  akdi: "Akdi faiz: ekstrenin tamamı ödenmezse kalan borca uygulanan aylık faiz oranı (vergiler hariç).",
-  efektif: "Akdi faize KKDF (%15) ve BSMV (%15) eklenmiş, gerçekte ödenen aylık oran.",
-  asgari: "Asgari ödeme: gecikmeye düşmemek için son ödeme gününe kadar ödenmesi gereken en az tutar. Kalan borca faiz işler.",
+  KMH: t("Kredili Mevduat Hesabı: vadesiz hesabın eksiye düşebildiği limit. Eksi bakiyeye günlük faiz işler."),
+  KKDF: t("Kaynak Kullanımını Destekleme Fonu: faizin %15'i kadar alınan yasal kesinti."),
+  BSMV: t("Banka ve Sigorta Muameleleri Vergisi: faizin %15'i kadar alınan vergi."),
+  akdi: t("Akdi faiz: ekstrenin tamamı ödenmezse kalan borca uygulanan aylık faiz oranı (vergiler hariç)."),
+  efektif: t("Akdi faize KKDF (%15) ve BSMV (%15) eklenmiş, gerçekte ödenen aylık oran."),
+  asgari: t("Asgari ödeme: gecikmeye düşmemek için son ödeme gününe kadar ödenmesi gereken en az tutar. Kalan borca faiz işler."),
 } as const;
 
 /** Noktalı altı çizili terim; üzerine gelince açıklaması görünür. */

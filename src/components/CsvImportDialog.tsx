@@ -1,5 +1,6 @@
 import { isForeign } from "../lib/fx";
 import { useState } from "react";
+import { t, tm } from "../lib/i18n";
 import type { Account } from "../lib/types";
 import { AccountOptions } from "./AccountOptions";
 import { Modal } from "./Modal";
@@ -21,22 +22,32 @@ export function CsvImportDialog({ fileName, rowCount, skipped, hasAccountColumn,
 
   return (
     <Modal
-      title="CSV içe aktar"
+      title={t("CSV içe aktar")}
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose}>
-            Vazgeç
+            {t("Vazgeç")}
           </button>
           <button type="button" className="btn-primary" disabled={!accountId} onClick={() => onConfirm(accountId)}>
-            İçe aktar
+            {t("İçe aktar")}
           </button>
         </>
       }
     >
       <div className="space-y-3 text-sm text-zinc-600 dark:text-zinc-300">
         <p>
-          <strong>{fileName}</strong> dosyasından <strong>{rowCount} işlem</strong> mevcut verilerin üzerine eklenecek.
+          {t("{file} dosyasından {rows} mevcut verilerin üzerine eklenecek.")
+            .split(/(\{file\}|\{rows\})/)
+            .map((part, i) =>
+              part === "{file}" ? (
+                <strong key={i}>{fileName}</strong>
+              ) : part === "{rows}" ? (
+                <strong key={i}>{t("{n} işlem", { n: rowCount })}</strong>
+              ) : (
+                part
+              ),
+            )}
         </p>
         <div>
           <label className="label" htmlFor="csv-account">
@@ -47,13 +58,13 @@ export function CsvImportDialog({ fileName, rowCount, skipped, hasAccountColumn,
           </select>
           {hasAccountColumn && (
             <p className="mt-1 text-xs text-zinc-500">
-              Dosyada "Hesap" sütunu var: adı eşleşen satırlar o hesaba, eşleşmeyenler seçilen hesaba eklenir.
+              {t(`Dosyada "Hesap" sütunu var: adı eşleşen satırlar o hesaba, eşleşmeyenler seçilen hesaba eklenir.`)}
             </p>
           )}
         </div>
         {skipped.length > 0 && (
           <p className="text-amber-600 dark:text-amber-400">
-            {skipped.length} satır atlanacak (ör. satır {skipped[0].line}: {skipped[0].reason}).
+            {t("{n} satır atlanacak (ör. satır {line}: {reason}).", { n: skipped.length, line: skipped[0].line, reason: tm(skipped[0].reason) })}
           </p>
         )}
       </div>

@@ -2,6 +2,7 @@ import { Check } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { errorMessage } from "../lib/api";
 import { amountToInput, parseAmount } from "../lib/format";
+import { t } from "../lib/i18n";
 import type { Tag } from "../lib/types";
 import { useData } from "../state/data";
 import { PALETTE } from "./CategoryForm";
@@ -18,16 +19,16 @@ export function TagForm({ tag, onClose, onSaved }: { tag?: Tag; onClose(): void;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const b = budget.trim() ? parseAmount(budget) : null;
-    if (budget.trim() && (b === null || b <= 0)) return setError("Geçerli bir bütçe girin.");
+    if (budget.trim() && (b === null || b <= 0)) return setError(t("Geçerli bir bütçe girin."));
     setSaving(true);
     setError(null);
     try {
       if (tag) {
         await updateTag({ ...tag, name, color, budget: b });
-        onSaved("Etiket güncellendi.");
+        onSaved(t("Etiket güncellendi."));
       } else {
         await addTag({ name, color, budget: b, archived: false });
-        onSaved("Etiket eklendi.");
+        onSaved(t("Etiket eklendi."));
       }
       onClose();
     } catch (err) {
@@ -39,15 +40,15 @@ export function TagForm({ tag, onClose, onSaved }: { tag?: Tag; onClose(): void;
 
   return (
     <Modal
-      title={tag ? "Etiketi Düzenle" : "Yeni Etiket"}
+      title={tag ? t("Etiketi Düzenle") : t("Yeni Etiket")}
       onClose={onClose}
       footer={
         <>
           <button type="button" className="btn-secondary" onClick={onClose}>
-            Vazgeç
+            {t("Vazgeç")}
           </button>
           <button type="submit" form="tag-form" className="btn-primary" disabled={saving}>
-            {tag ? "Kaydet" : "Ekle"}
+            {tag ? t("Kaydet") : t("Ekle")}
           </button>
         </>
       }
@@ -55,18 +56,18 @@ export function TagForm({ tag, onClose, onSaved }: { tag?: Tag; onClose(): void;
       <form id="tag-form" onSubmit={submit} className="space-y-4">
         <div>
           <label className="label" htmlFor="tag-name">
-            Ad
+            {t("Ad")}
           </label>
-          <input id="tag-name" data-autofocus className="input" maxLength={40} placeholder="Örn. Tatil 2026" value={name} onChange={(e) => setName(e.target.value)} />
+          <input id="tag-name" data-autofocus className="input" maxLength={40} placeholder={t("Örn. Tatil 2026")} value={name} onChange={(e) => setName(e.target.value)} />
         </div>
         <div>
           <label className="label" htmlFor="tag-budget">
-            Bütçe <span className="font-normal text-zinc-500">(isteğe bağlı, toplam)</span>
+            {t("Bütçe")} <span className="font-normal text-zinc-500">{t("(isteğe bağlı, toplam)")}</span>
           </label>
-          <input id="tag-budget" className="input" inputMode="decimal" placeholder="Örn. 30.000" value={budget} onChange={(e) => setBudget(e.target.value)} />
+          <input id="tag-budget" className="input" inputMode="decimal" placeholder={t("Örn. 30.000")} value={budget} onChange={(e) => setBudget(e.target.value)} />
         </div>
         <div>
-          <span className="label">Renk</span>
+          <span className="label">{t("Renk")}</span>
           <div className="flex flex-wrap items-center gap-2">
             {PALETTE.map((c) => (
               <button

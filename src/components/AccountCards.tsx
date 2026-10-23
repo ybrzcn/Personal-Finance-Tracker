@@ -11,13 +11,14 @@ import { useRates } from "../state/rates";
 import { useSettings } from "../state/settings";
 import { useUI, type AmountHint } from "../state/ui";
 import { MoneyInput, Term, TERMS } from "./common";
+import { locale, t } from "../lib/i18n";
 
 const STATUS: Record<CardStatementStatus, { label: string; cls: string }> = {
-  none: { label: "Borç yok", cls: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400" },
-  paid: { label: "Ödendi", cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400" },
-  minPaid: { label: "Asgari ödendi", cls: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400" },
-  pending: { label: "Bekliyor", cls: "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400" },
-  overdue: { label: "Gecikti", cls: "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400" },
+  none: { label: t("Borç yok"), cls: "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400" },
+  paid: { label: t("Ödendi"), cls: "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400" },
+  minPaid: { label: t("Asgari ödendi"), cls: "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400" },
+  pending: { label: t("Bekliyor"), cls: "bg-indigo-50 text-indigo-700 dark:bg-indigo-500/10 dark:text-indigo-400" },
+  overdue: { label: t("Gecikti"), cls: "bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400" },
 };
 
 export function StatusBadge({ status }: { status: CardStatementStatus }) {
@@ -30,8 +31,8 @@ export function StatusBadge({ status }: { status: CardStatementStatus }) {
 
 /** Rust'ın gün sayısından (son ödemeye kalan) metin */
 export function dueText(d: number): string {
-  if (d === 0) return "Bugün";
-  return d > 0 ? `${d} gün kaldı` : `${-d} gün gecikti`;
+  if (d === 0) return t("Bugün");
+  return d > 0 ? t("{n} gün kaldı", { n: d }) : t("{n} gün gecikti", { n: -d });
 }
 
 /** Rapordaki kart ödeme ipuçları → ödeme formunun hazır tutarları (TL). */
@@ -82,11 +83,11 @@ function CardShell({ account, icon, children, footer }: { account: Account; icon
         <div className="min-w-0 flex-1">
           <div className="truncate font-semibold">{account.name}</div>
           <div className="text-xs text-zinc-500">
-            {isFund(account.currency) ? "Yatırım fonu" : account.subtype ? SUBTYPE_LABEL[account.subtype] : ACCOUNT_KIND_LABEL[account.kind]}
-            {account.archived && " · Arşivlendi"}
+            {isFund(account.currency) ? t("Yatırım fonu") : account.subtype ? SUBTYPE_LABEL[account.subtype] : ACCOUNT_KIND_LABEL[account.kind]}
+            {account.archived && ` · ${t("Arşivlendi")}`}
           </div>
         </div>
-        <button className="icon-btn" title="Düzenle" onClick={() => openAccountForm(account)}>
+        <button className="icon-btn" title={t("Düzenle")} aria-label={t("Düzenle")} onClick={() => openAccountForm(account)}>
           <Pencil size={15} />
         </button>
       </div>
@@ -96,7 +97,7 @@ function CardShell({ account, icon, children, footer }: { account: Account; icon
   );
 }
 
-const rate = (r: number) => `%${r.toLocaleString("tr-TR")}`;
+const rate = (r: number) => t("%{v}", { v: r.toLocaleString(locale) });
 
 /** Fon hesabı: değer ve kâr/zarar Rust'taki rapordan (kartta hesap yok). */
 export function FundAccountCard({ account }: { account: Account }) {
@@ -111,7 +112,7 @@ export function FundAccountCard({ account }: { account: Account }) {
       footer={
         <>
           <span className="ml-auto" />
-          <IconAction title="İşlemler" onClick={() => showAccountTransactions(account.id)} icon={<List size={16} />} />
+          <IconAction title={t("İşlemler")} onClick={() => showAccountTransactions(account.id)} icon={<List size={16} />} />
         </>
       }
     >
@@ -120,23 +121,23 @@ export function FundAccountCard({ account }: { account: Account }) {
         <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-500 tabular-nums">
           {p && p.valueCents !== null && p.rateMicros !== null ? (
             <>
-              ≈ {formatMoney(p.valueCents / 100)} · fiyat {formatRate(p.rateMicros / 1_000_000)}
+              ≈ {formatMoney(p.valueCents / 100)} · {t("fiyat {rate}", { rate: formatRate(p.rateMicros / 1_000_000) })}
               {p.rateObservedAt && ` · ${formatDateShort(p.rateObservedAt.slice(0, 10))}`}
               {p.rateStale && (
-                <span title="Fiyat eski: TEFAS'a ulaşılamıyor olabilir" className="text-amber-600 dark:text-amber-400">
+                <span title={t("Fiyat eski: TEFAS'a ulaşılamıyor olabilir")} className="text-amber-600 dark:text-amber-400">
                   <AlertTriangle size={12} />
                 </span>
               )}
             </>
           ) : (
-            (error ?? "TL karşılığı: — (fiyat alınamadı)")
+            (error ?? t("TL karşılığı: — (fiyat alınamadı)"))
           )}
         </div>
         {p && p.qtyMinor > 0 && p.unrealizedCents !== null && (
           <div className={`mt-0.5 text-xs tabular-nums ${p.unrealizedCents >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-            k/z {p.unrealizedCents > 0 ? "+" : ""}
+            {t("k/z")} {p.unrealizedCents > 0 ? "+" : ""}
             {formatMoney(p.unrealizedCents / 100)}
-            {p.unrealizedBp !== null && ` (%${(p.unrealizedBp / 100).toLocaleString("tr-TR", { maximumFractionDigits: 1 })})`}
+            {p.unrealizedBp !== null && ` (${t("%{v}", { v: (p.unrealizedBp / 100).toLocaleString(locale, { maximumFractionDigits: 1 }) })})`}
           </div>
         )}
       </div>
@@ -164,9 +165,9 @@ export function BankAccountCard({ account }: { account: Account }) {
       footer={
         <>
           <span className="ml-auto" />
-          <IconAction title="İşlemler" onClick={() => showAccountTransactions(account.id)} icon={<List size={16} />} />
+          <IconAction title={t("İşlemler")} onClick={() => showAccountTransactions(account.id)} icon={<List size={16} />} />
           {!foreign && !account.subtype && (
-            <IconAction title="Ekstre yükle (Excel, PDF, CSV)" onClick={() => openStatementImport(account.id)} icon={<FileUp size={16} />} />
+            <IconAction title={t("Ekstre yükle (Excel, PDF, CSV)")} onClick={() => openStatementImport(account.id)} icon={<FileUp size={16} />} />
           )}
         </>
       }
@@ -178,26 +179,26 @@ export function BankAccountCard({ account }: { account: Account }) {
           </div>
           <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-500 tabular-nums">
             {r === null ? (
-              `TL karşılığı: ${placeholder}`
+              t("TL karşılığı: {value}", { value: placeholder })
             ) : quote && valueCents !== null ? (
               <>
-                ≈ {formatMoney(valueCents / 100)} · alış {formatRate(quote.buy)} ·{" "}
-                {new Date(quote.observedAt).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" })}
+                ≈ {formatMoney(valueCents / 100)} · {t("alış {rate}", { rate: formatRate(quote.buy) })} ·{" "}
+                {new Date(quote.observedAt).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}
                 {quote.stale && (
-                  <span title="Kur eski: kaynağa ulaşılamıyor olabilir" className="text-amber-600 dark:text-amber-400">
+                  <span title={t("Kur eski: kaynağa ulaşılamıyor olabilir")} className="text-amber-600 dark:text-amber-400">
                     <AlertTriangle size={12} />
                   </span>
                 )}
               </>
             ) : (
-              "TL karşılığı: — (kur alınamadı)"
+              t("TL karşılığı: — (kur alınamadı)")
             )}
           </div>
           {pnl && pnl.qtyMinor > 0 && pnl.unrealizedCents !== null && (
             <div className={`mt-0.5 text-xs tabular-nums ${pnl.unrealizedCents >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}`}>
-              k/z {pnl.unrealizedCents > 0 ? "+" : ""}
+              {t("k/z")} {pnl.unrealizedCents > 0 ? "+" : ""}
               {formatMoney(pnl.unrealizedCents / 100)}
-              {pnl.unrealizedBp !== null && ` (%${(pnl.unrealizedBp / 100).toLocaleString("tr-TR", { maximumFractionDigits: 1 })})`}
+              {pnl.unrealizedBp !== null && ` (${t("%{v}", { v: (pnl.unrealizedBp / 100).toLocaleString(locale, { maximumFractionDigits: 1 }) })})`}
             </div>
           )}
         </div>
@@ -211,19 +212,19 @@ export function BankAccountCard({ account }: { account: Account }) {
       {account.subtype === "deposit" && <DepositBlock account={account} s={s} placeholder={placeholder} />}
       {account.kind === "cash" && (foreign ? native !== null && native < 0 : s !== null && s.balanceCents < 0) && (
         <p className="rounded-lg bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800 dark:bg-amber-500/10 dark:text-amber-300">
-          Nakit eksiye düşemez; bir gider fazla ya da yanlış hesaba girilmiş olabilir.
+          {t("Nakit eksiye düşemez; bir gider fazla ya da yanlış hesaba girilmiş olabilir.")}
         </p>
       )}
       {account.kind === "bank" && !foreign && limit !== null && limit > 0 && (
         <>
           <UsageBar used={(s?.overdraftUsedCents ?? 0) / 100} limit={limit} />
-          <Row label={<Term hint={TERMS.KMH}>KMH kullanımı</Term>}>
+          <Row label={<Term hint={TERMS.KMH}>{t("KMH kullanımı")}</Term>}>
             {s ? formatMoney(s.overdraftUsedCents / 100) : placeholder} / {formatMoney(limit)}
           </Row>
-          {s?.availableCents != null && <Row label="Kullanılabilir">{formatMoney(s.availableCents / 100)}</Row>}
+          {s?.availableCents != null && <Row label={t("Kullanılabilir")}>{formatMoney(s.availableCents / 100)}</Row>}
         </>
       )}
-      {account.kind === "bank" && !foreign && account.interestRate !== null && <Row label={<Term hint={TERMS.KMH}>Aylık KMH faizi</Term>}>{rate(account.interestRate)}</Row>}
+      {account.kind === "bank" && !foreign && account.interestRate !== null && <Row label={<Term hint={TERMS.KMH}>{t("Aylık KMH faizi")}</Term>}>{rate(account.interestRate)}</Row>}
     </CardShell>
   );
 }
@@ -242,7 +243,7 @@ function DepositBlock({ account, s, placeholder }: { account: Account; s: BankSu
     setBusy(true);
     try {
       await depositMature(account.id, renew);
-      toast(renew ? "Faiz kaydedildi, mevduat yenilendi." : "Faiz kaydedildi, hesap vadesize çevrildi.");
+      toast(renew ? t("Faiz kaydedildi, mevduat yenilendi.") : t("Faiz kaydedildi, hesap vadesize çevrildi."));
     } catch (e) {
       toast(errorMessage(e), "error");
     } finally {
@@ -251,24 +252,24 @@ function DepositBlock({ account, s, placeholder }: { account: Account; s: BankSu
   };
   return (
     <>
-      <Row label="Vade">
+      <Row label={t("Vade")}>
         {formatDate(terms.maturity)}
-        {d && <span className="ml-1 text-xs text-zinc-500">{d.matured ? "· doldu" : `· ${d.daysLeft} gün`}</span>}
+        {d && <span className="ml-1 text-xs text-zinc-500">{d.matured ? `· ${t("doldu")}` : `· ${t("{n} gün", { n: d.daysLeft })}`}</span>}
       </Row>
-      <Row label="Faiz">
-        %{terms.rate.toLocaleString("tr-TR")} brüt · %{terms.taxRate.toLocaleString("tr-TR")} stopaj
+      <Row label={t("Faiz")}>
+        {t("%{rate} brüt · %{tax} stopaj", { rate: terms.rate.toLocaleString(locale), tax: terms.taxRate.toLocaleString(locale) })}
       </Row>
-      <Row label="İşleyen net faiz">{money(d?.accruedNetCents)}</Row>
-      <Row label="Vade sonu">
+      <Row label={t("İşleyen net faiz")}>{money(d?.accruedNetCents)}</Row>
+      <Row label={t("Vade sonu")}>
         {money(d?.maturityValueCents)} <span className="text-xs text-emerald-600 dark:text-emerald-400">(+{money(d?.netCents)})</span>
       </Row>
       {d?.matured && !account.archived && (
         <div className="flex flex-wrap gap-2 pt-1">
           <button className="btn-primary px-3 py-1.5 text-xs" disabled={busy} onClick={() => void mature(true)}>
-            Faizi kaydet, yenile
+            {t("Faizi kaydet, yenile")}
           </button>
           <button className="btn-secondary px-3 py-1.5 text-xs" disabled={busy} onClick={() => void mature(false)}>
-            Faizi kaydet, vadesize çevir
+            {t("Faizi kaydet, vadesize çevir")}
           </button>
         </div>
       )}
@@ -288,51 +289,51 @@ function ValuationBlock({ account, s, placeholder }: { account: Account; s: Bank
   const v = s?.valuation ?? null;
   const save = async () => {
     const n = parseAmount(value);
-    if (n === null || n < 0) return toast("Geçerli bir değer girin.", "error");
+    if (n === null || n < 0) return toast(t("Geçerli bir değer girin."), "error");
     setBusy(true);
     try {
       const valuations = [...(account.details?.valuations ?? []).filter((x) => x.date !== date), { date, value: n }];
       await updateAccount({ ...account, details: { valuations } });
       setOpen(false);
       setValue("");
-      toast("Değer kaydedildi.");
+      toast(t("Değer kaydedildi."));
     } catch (e) {
       toast(errorMessage(e), "error");
     } finally {
       setBusy(false);
     }
   };
-  const base = account.subtype === "pension" ? "Katkılar" : "Alış bedeli";
+  const base = account.subtype === "pension" ? t("Katkılar") : t("Alış bedeli");
   return (
     <div>
       <div className="text-2xl font-semibold tracking-tight tabular-nums">{s ? formatMoney((v ? v.valueCents : s.balanceCents) / 100) : placeholder}</div>
       <div className="mt-0.5 text-xs text-zinc-500 tabular-nums">
         {v ? (
           <>
-            {formatDateShort(v.date)} değeri · {base.toLocaleLowerCase("tr")} {s ? formatMoney(s.balanceCents / 100) : placeholder} ·{" "}
+            {t("{date} değeri", { date: formatDateShort(v.date) })} · {base.toLocaleLowerCase(locale)} {s ? formatMoney(s.balanceCents / 100) : placeholder} ·{" "}
             <span className={v.gainCents >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"}>
               {v.gainCents > 0 ? "+" : ""}
               {formatMoney(v.gainCents / 100)}
             </span>
           </>
         ) : (
-          `${base}; güncel değer girilmedi`
+          t("{base}; güncel değer girilmedi", { base })
         )}
       </div>
       {open ? (
         <div className="mt-2 grid grid-cols-2 gap-2">
-          <MoneyInput aria-label="Güncel değer" placeholder="Güncel değer" value={value} onValueChange={setValue} />
-          <input type="date" aria-label="Değer tarihi" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+          <MoneyInput aria-label={t("Güncel değer")} placeholder={t("Güncel değer")} value={value} onValueChange={setValue} />
+          <input type="date" aria-label={t("Değer tarihi")} className="input" value={date} onChange={(e) => setDate(e.target.value)} />
           <button className="btn-primary px-3 py-1.5 text-xs" disabled={busy} onClick={() => void save()}>
-            Kaydet
+            {t("Kaydet")}
           </button>
           <button className="btn-secondary px-3 py-1.5 text-xs" onClick={() => setOpen(false)}>
-            Vazgeç
+            {t("Vazgeç")}
           </button>
         </div>
       ) : (
         <button className="btn-secondary mt-2 px-3 py-1.5 text-xs" onClick={() => setOpen(true)}>
-          Değer gir
+          {t("Değer gir")}
         </button>
       )}
     </div>
@@ -361,7 +362,7 @@ export function CreditCardCard({ account }: { account: Account }) {
               className={`${st?.status === "overdue" ? "btn-danger" : "btn-primary"} px-3 py-1.5 text-xs`}
               onClick={() => openTransactionForm(undefined, { type: "transfer", toAccountId: account.id, amount: hints[0].amount }, hints)}
             >
-              Ödeme yap
+              {t("Ödeme yap")}
             </button>
           )}
           {/* Arşivlenmiş karta yeni harcama eklenemez */}
@@ -369,24 +370,24 @@ export function CreditCardCard({ account }: { account: Account }) {
             <>
               <button
                 className="btn-ghost px-2 py-1.5 text-xs"
-                title="Bu karta harcama ekle (eski taksitli alışverişler dahil)"
+                title={t("Bu karta harcama ekle (eski taksitli alışverişler dahil)")}
                 onClick={() => openTransactionForm(undefined, { type: "expense", accountId: account.id })}
               >
-                <Plus size={14} /> Harcama
+                <Plus size={14} /> {t("Harcama")}
               </button>
               <button
                 className="btn-ghost px-2 py-1.5 text-xs"
-                title="Bu karttan nakit avans çek (tek çekim veya taksitli)"
+                title={t("Bu karttan nakit avans çek (tek çekim veya taksitli)")}
                 onClick={() => openTransactionForm(undefined, { type: "expense", accountId: account.id, cashAdvance: true })}
               >
-                <Banknote size={14} /> Nakit avans
+                <Banknote size={14} /> {t("Nakit avans")}
               </button>
             </>
           )}
           <span className="ml-auto" />
-          <IconAction title="İşlemler" onClick={() => showAccountTransactions(account.id)} icon={<List size={16} />} />
+          <IconAction title={t("İşlemler")} onClick={() => showAccountTransactions(account.id)} icon={<List size={16} />} />
           <IconAction
-            title={history ? "Ekstre geçmişini gizle" : "Ekstre geçmişi"}
+            title={history ? t("Ekstre geçmişini gizle") : t("Ekstre geçmişi")}
             active={history}
             onClick={() => setHistory((h) => !h)}
             icon={<CalendarClock size={16} />}
@@ -395,57 +396,58 @@ export function CreditCardCard({ account }: { account: Account }) {
       }
     >
       <div>
-        <div className="text-xs text-zinc-500">Toplam borç</div>
+        <div className="text-xs text-zinc-500">{t("Toplam borç")}</div>
         <div className="text-2xl font-semibold tracking-tight tabular-nums">{money(summary?.totalDebtCents)}</div>
       </div>
       {account.creditLimit !== null && account.creditLimit > 0 && (
         <>
           <UsageBar used={(summary?.totalDebtCents ?? 0) / 100} limit={account.creditLimit} />
-          {summary?.availableCents != null && <Row label="Kullanılabilir limit">{money(summary.availableCents)}</Row>}
+          {summary?.availableCents != null && <Row label={t("Kullanılabilir limit")}>{money(summary.availableCents)}</Row>}
         </>
       )}
       {st ? (
         <div className="space-y-2 rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/50">
           <div className="flex items-center justify-between gap-2">
             <span className="whitespace-nowrap text-xs font-medium uppercase tracking-wide text-zinc-500">
-              Son ekstre · {formatDateShort(st.closingDate)}
+              {t("Son ekstre")} · {formatDateShort(st.closingDate)}
             </span>
             <StatusBadge status={st.status} />
           </div>
-          <Row label="Ekstre borcu">{money(st.statementCents)}</Row>
-          <Row label="Son ödeme">
+          <Row label={t("Ekstre borcu")}>{money(st.statementCents)}</Row>
+          <Row label={t("Son ödeme")}>
             {formatDateShort(st.dueDate)}
             {st.remainingCents > 0 && (
               <span className={`ml-1 text-xs font-normal ${st.status === "overdue" ? "text-rose-600 dark:text-rose-400" : "text-zinc-500"}`}>
                 {/* Asgarisi ödenmişse "gecikti" denmez: kalan borç gecikme değil, faize girer */}
-                · {st.status === "minPaid" && st.dueInDays < 0 ? "kalan faize girer" : dueText(st.dueInDays)}
+                · {st.status === "minPaid" && st.dueInDays < 0 ? t("kalan faize girer") : dueText(st.dueInDays)}
               </span>
             )}
           </Row>
-          <Row label={<Term hint={TERMS.asgari}>Asgari ödeme</Term>}>{money(st.minPaymentCents)}</Row>
-          <Row label="Kalan">{money(st.remainingCents)}</Row>
+          <Row label={<Term hint={TERMS.asgari}>{t("Asgari ödeme")}</Term>}>{money(st.minPaymentCents)}</Row>
+          <Row label={t("Kalan")}>{money(st.remainingCents)}</Row>
         </div>
       ) : summary?.totalDebtCents === 0 ? (
         <p className="rounded-xl bg-zinc-50 p-3 text-xs text-zinc-500 dark:bg-zinc-800/50">
-          Karttaki harcamaları "Harcama" ile ekleyin veya ekstreyi yükleyin. Eski taksitli alışverişleri alış tarihi ve toplam taksit
-          sayısıyla girin; ödenmiş taksitler otomatik düşülür.
+          {t(
+            'Karttaki harcamaları "Harcama" ile ekleyin veya ekstreyi yükleyin. Eski taksitli alışverişleri alış tarihi ve toplam taksit sayısıyla girin; ödenmiş taksitler otomatik düşülür.',
+          )}
         </p>
       ) : (
-        <p className="text-sm text-zinc-500">{summary ? "Henüz kesilmiş ekstre yok." : placeholder}</p>
+        <p className="text-sm text-zinc-500">{summary ? t("Henüz kesilmiş ekstre yok.") : placeholder}</p>
       )}
-      <Row label="Gelecek ekstreye">{money(summary?.currentPeriodCents)}</Row>
-      {summary && summary.laterInstallmentsCents > 0 && <Row label="Sonraki aylara taksit">{money(summary.laterInstallmentsCents)}</Row>}
-      <Row label="Sonraki kesim">
+      <Row label={t("Gelecek ekstreye")}>{money(summary?.currentPeriodCents)}</Row>
+      {summary && summary.laterInstallmentsCents > 0 && <Row label={t("Sonraki aylara taksit")}>{money(summary.laterInstallmentsCents)}</Row>}
+      <Row label={t("Sonraki kesim")}>
         {summary ? (
           <>
             {formatDateShort(summary.nextClosingDate)}
-            <span className="ml-1 text-xs font-normal text-zinc-500">· ödeme {formatDateShort(summary.nextDueDate)}</span>
+            <span className="ml-1 text-xs font-normal text-zinc-500">· {t("ödeme {date}", { date: formatDateShort(summary.nextDueDate) })}</span>
           </>
         ) : (
           placeholder
         )}
       </Row>
-      {account.interestRate !== null && <Row label={<Term hint={TERMS.akdi}>Aylık akdi faiz</Term>}>{rate(account.interestRate)}</Row>}
+      {account.interestRate !== null && <Row label={<Term hint={TERMS.akdi}>{t("Aylık akdi faiz")}</Term>}>{rate(account.interestRate)}</Row>}
       {history && summary && <StatementTable statements={summary.statements} money={(c) => formatMoney(c / 100)} />}
     </CardShell>
   );
@@ -469,53 +471,53 @@ export function LoanCard({ account }: { account: Account }) {
         <>
           {s && s.remainingCents > 0 && (
             <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => openLoanPayment(account)}>
-              Taksit öde
+              {t("Taksit öde")}
             </button>
           )}
           <span className="ml-auto" />
-          <IconAction title="İşlemler" onClick={() => showAccountTransactions(account.id)} icon={<List size={16} />} />
-          <IconAction title={plan ? "Ödeme planını gizle" : "Ödeme planı"} active={plan} onClick={() => setPlan((p) => !p)} icon={<CalendarClock size={16} />} />
+          <IconAction title={t("İşlemler")} onClick={() => showAccountTransactions(account.id)} icon={<List size={16} />} />
+          <IconAction title={plan ? t("Ödeme planını gizle") : t("Ödeme planı")} active={plan} onClick={() => setPlan((p) => !p)} icon={<CalendarClock size={16} />} />
         </>
       }
     >
       <div>
-        <div className="text-xs text-zinc-500">Kalan anapara</div>
+        <div className="text-xs text-zinc-500">{t("Kalan anapara")}</div>
         <div className="text-2xl font-semibold tracking-tight tabular-nums">{money(s?.remainingCents)}</div>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full bg-zinc-100 dark:bg-zinc-800">
         <div className="h-full rounded-full bg-emerald-500" style={{ width: `${paidPct}%` }} />
       </div>
-      <Row label="Taksit">
-        {s ? `${s.paidCount}/${s.schedule.length} ödendi` : placeholder}
+      <Row label={t("Taksit")}>
+        {s ? t("{paid}/{total} ödendi", { paid: s.paidCount, total: s.schedule.length }) : placeholder}
       </Row>
       {s?.next ? (
         <div className="space-y-2 rounded-xl bg-zinc-50 p-3 dark:bg-zinc-800/50">
-          <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">Sıradaki taksit · {s.next.index}.</div>
-          <Row label="Tarih">
+          <div className="text-xs font-medium uppercase tracking-wide text-zinc-500">{t("Sıradaki taksit · {i}.", { i: s.next.index })}</div>
+          <Row label={t("Tarih")}>
             {formatDateShort(s.next.date)}
             <span className={`ml-1 text-xs font-normal ${(s.nextDueInDays ?? 0) < 0 ? "text-rose-600 dark:text-rose-400" : "text-zinc-500"}`}>
               · {s.nextDueInDays !== null && dueText(s.nextDueInDays)}
             </span>
           </Row>
-          <Row label="Tutar">{money(s.next.paymentCents)}</Row>
-          <Row label="Faiz + vergi">{money(s.next.interestCents)}</Row>
-          <Row label="Anapara">{money(s.next.principalCents)}</Row>
+          <Row label={t("Tutar")}>{money(s.next.paymentCents)}</Row>
+          <Row label={t("Faiz + vergi")}>{money(s.next.interestCents)}</Row>
+          <Row label={t("Anapara")}>{money(s.next.principalCents)}</Row>
         </div>
       ) : s ? (
-        <p className="text-sm text-emerald-600 dark:text-emerald-400">Kredi kapandı.</p>
+        <p className="text-sm text-emerald-600 dark:text-emerald-400">{t("Kredi kapandı.")}</p>
       ) : null}
-      <Row label="Kalan faiz (tahmini)">{money(s?.remainingInterestCents)}</Row>
-      {account.interestRate !== null && <Row label={<Term hint={TERMS.akdi}>Aylık akdi faiz</Term>}>{rate(account.interestRate)}</Row>}
+      <Row label={t("Kalan faiz (tahmini)")}>{money(s?.remainingInterestCents)}</Row>
+      {account.interestRate !== null && <Row label={<Term hint={TERMS.akdi}>{t("Aylık akdi faiz")}</Term>}>{rate(account.interestRate)}</Row>}
       {plan && s && (
         <div className="max-h-64 overflow-auto">
           <table className="w-full text-xs">
             <thead>
               <tr className="text-left text-zinc-500">
                 <th className="py-1 font-medium">#</th>
-                <th className="py-1 font-medium">Tarih</th>
-                <th className="py-1 text-right font-medium">Taksit</th>
-                <th className="py-1 text-right font-medium">Faiz</th>
-                <th className="py-1 text-right font-medium">Kalan</th>
+                <th className="py-1 font-medium">{t("Tarih")}</th>
+                <th className="py-1 text-right font-medium">{t("Taksit")}</th>
+                <th className="py-1 text-right font-medium">{t("Faiz")}</th>
+                <th className="py-1 text-right font-medium">{t("Kalan")}</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
@@ -537,15 +539,15 @@ export function LoanCard({ account }: { account: Account }) {
 }
 
 function StatementTable({ statements, money }: { statements: CardStatement[]; money(c: number): string }) {
-  if (!statements.length) return <p className="text-sm text-zinc-500">Ekstre yok.</p>;
+  if (!statements.length) return <p className="text-sm text-zinc-500">{t("Ekstre yok.")}</p>;
   return (
     <table className="w-full text-xs">
       <thead>
         <tr className="text-left text-zinc-500">
-          <th className="py-1 font-medium">Dönem</th>
-          <th className="py-1 text-right font-medium">Ekstre</th>
-          <th className="py-1 text-right font-medium">Ödenen</th>
-          <th className="py-1 text-right font-medium">Durum</th>
+          <th className="py-1 font-medium">{t("Dönem")}</th>
+          <th className="py-1 text-right font-medium">{t("Ekstre")}</th>
+          <th className="py-1 text-right font-medium">{t("Ödenen")}</th>
+          <th className="py-1 text-right font-medium">{t("Durum")}</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">

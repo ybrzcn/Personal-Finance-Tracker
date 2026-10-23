@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { httpRequest } from "./httpApi";
+import { t } from "./i18n";
 import { backend, isMobile, isTauri } from "./platform";
 import type { StatementRead } from "./types";
 
@@ -97,12 +98,12 @@ export async function openStatementFile(): Promise<{ name: string; file: Stateme
     const path = await open({
       multiple: false,
       directory: false,
-      filters: [{ name: "Ekstre (Excel, PDF, CSV)", extensions: STATEMENT_EXTENSIONS }],
+      filters: [{ name: t("Ekstre (Excel, PDF, CSV)"), extensions: STATEMENT_EXTENSIONS }],
     });
     if (!path || Array.isArray(path)) return null;
     // Dosya pencerede seçilen yoldan fs eklentisiyle okunur, baytlar ham IPC ile Rust'ta ayrıştırılır
     const { readFile, stat } = await import("@tauri-apps/plugin-fs");
-    if ((await stat(path)).size > MAX_STATEMENT_BYTES) throw "Dosya çok büyük (en fazla 25 MB).";
+    if ((await stat(path)).size > MAX_STATEMENT_BYTES) throw t("Dosya çok büyük (en fazla 25 MB).");
     const name = path.split(/[\\/]/).pop() ?? path;
     const file = await invoke<StatementRead>("parse_statement_bytes", await readFile(path), {
       headers: { "x-file-name": encodeURIComponent(name) },
@@ -113,7 +114,7 @@ export async function openStatementFile(): Promise<{ name: string; file: Stateme
     // Mobil: seçilen dosyanın içeriği Rust'ta okunur (Android content:// adresleri yol olarak okunamaz)
     const file = await pickFile(STATEMENT_EXTENSIONS);
     if (!file) return null;
-    if (file.size > MAX_STATEMENT_BYTES) throw "Dosya çok büyük (en fazla 25 MB).";
+    if (file.size > MAX_STATEMENT_BYTES) throw t("Dosya çok büyük (en fazla 25 MB).");
     // Baytlar IPC'ye ham gövde olarak gider (base64/JSON kopyası yok)
     const parsed = await invoke<StatementRead>("parse_statement_bytes", new Uint8Array(await file.arrayBuffer()), {
       headers: { "x-file-name": encodeURIComponent(file.name) },
@@ -124,7 +125,7 @@ export async function openStatementFile(): Promise<{ name: string; file: Stateme
     // Web: dosya sunucuda okunur (Excel ve PDF dahil)
     const file = await pickFile(STATEMENT_EXTENSIONS);
     if (!file) return null;
-    if (file.size > MAX_STATEMENT_BYTES) throw "Dosya çok büyük (en fazla 25 MB).";
+    if (file.size > MAX_STATEMENT_BYTES) throw t("Dosya çok büyük (en fazla 25 MB).");
     const parsed = await httpRequest<StatementRead>("POST", `/api/statements/parse?name=${encodeURIComponent(file.name)}`, file);
     return { name: file.name, file: parsed };
   }
@@ -133,7 +134,7 @@ export async function openStatementFile(): Promise<{ name: string; file: Stateme
 
 /** Dışa aktarılan dosyanın nereye kaydedildiği (mobilde kullanıcıya söylenir). */
 
-export const SAVED_HINT = isIOS ? " Dosyalar uygulamasında Finans klasörüne kaydedildi." : "";
+export const SAVED_HINT = isIOS ? " " + t("Dosyalar uygulamasında Finans klasörüne kaydedildi.") : "";
 
 /** Sunucunun kabul ettiği en büyük ekstre dosyası. */
 const MAX_STATEMENT_BYTES = 25 * 1024 * 1024;
@@ -160,11 +161,11 @@ function pickFile(extensions: string[]): Promise<File | null> {
   });
 }
 
-const DB_FILTER = { name: "Finans veritabanı", extensions: ["db", "sqlite", "sqlite3"] };
+const DB_FILTER = { name: t("Finans veritabanı"), extensions: ["db", "sqlite", "sqlite3"] };
 
 /** Veritabanı dosyası için kaydet penceresi (yedek veya yeni veritabanı). İptalde null. */
 export async function pickDatabaseSavePath(defaultName: string): Promise<string | null> {
-  if (!isTauri) throw "Veritabanı dosyası işlemleri yalnızca masaüstü uygulamasında kullanılabilir.";
+  if (!isTauri) throw t("Veritabanı dosyası işlemleri yalnızca masaüstü uygulamasında kullanılabilir.");
   const { save } = await import("@tauri-apps/plugin-dialog");
   const path = await save({ defaultPath: defaultName, filters: [DB_FILTER] });
   if (!path) return null;
@@ -173,7 +174,7 @@ export async function pickDatabaseSavePath(defaultName: string): Promise<string 
 
 /** Var olan veritabanı dosyasını seçtirir. İptalde null. */
 export async function pickDatabaseFile(): Promise<string | null> {
-  if (!isTauri) throw "Veritabanı dosyası işlemleri yalnızca masaüstü uygulamasında kullanılabilir.";
+  if (!isTauri) throw t("Veritabanı dosyası işlemleri yalnızca masaüstü uygulamasında kullanılabilir.");
   const { open } = await import("@tauri-apps/plugin-dialog");
   const path = await open({ multiple: false, directory: false, filters: [DB_FILTER] });
   return !path || Array.isArray(path) ? null : path;

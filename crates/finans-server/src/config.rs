@@ -38,6 +38,8 @@ pub struct Config {
     pub evds_key: Option<String>,
     /// Kullanıcı başına belge (fiş, fatura) kotası, MB; 0 sınırsız
     pub attachment_quota_mb: u64,
+    /// Kullanıcı başına şifreli eşitleme verisi kotası (MB; 0 sınırsız)
+    pub sync_quota_mb: u64,
 }
 
 impl Config {
@@ -64,6 +66,7 @@ impl Config {
             db_pool: var("FINANS_DB_POOL").and_then(|v| v.parse().ok()).filter(|n| *n > 0).unwrap_or(8),
             evds_key: var("FINANS_EVDS_KEY"),
             attachment_quota_mb: var("FINANS_ATTACHMENT_QUOTA_MB").and_then(|v| v.parse().ok()).unwrap_or(1024),
+            sync_quota_mb: var("FINANS_SYNC_QUOTA_MB").and_then(|v| v.parse().ok()).unwrap_or(2048),
         }
     }
 }
