@@ -29,10 +29,11 @@ struct ReportsQuery {
 async fn report(State(s): State<Arc<AppState>>, user: AuthUser, Query(q): Query<ReportsQuery>) -> Result<Json<ReportsReport>, ApiError> {
     let today = ymd(istanbul_today(unix_now()));
     let out = with_user_db(&s, &user, move |c| {
-        let (txs, cats) = (store::list_transactions(c)?, store::list_categories(c)?);
+        let (txs, cats, rec) = (store::list_transactions(c)?, store::list_categories(c)?, store::list_recurring(c)?);
         reports::report(&ReportsInput {
             transactions: &txs,
             categories: &cats,
+            recurring: &rec,
             preset: q.preset.as_deref().unwrap_or("thisMonth"),
             from: q.from.as_deref(),
             to: q.to.as_deref(),

@@ -176,15 +176,17 @@ export function ProjectionPage() {
   ];
 
   const base = report?.base;
+  const avgNote = base ? (base.irregularMonths > 0 ? t("son {n} ayın ortalaması", { n: base.irregularMonths }) : t("geçmiş yok")) : undefined;
   const flow: { label: string; cents: number | undefined; sign: 1 | -1; note?: string }[] = [
     { label: t("Düzenli gelir"), cents: base?.incomeCents, sign: 1 },
+    { label: t("Düzensiz gelir"), cents: base?.irregularIncomeCents, sign: 1, note: avgNote },
     { label: t("Düzenli gider"), cents: base?.regularExpenseCents, sign: -1 },
     { label: t("Kategori limitleri"), cents: base?.budgetCents, sign: -1 },
     {
       label: t("Düzensiz gider"),
       cents: base?.irregularExpenseCents,
       sign: -1,
-      note: base ? (base.irregularMonths > 0 ? t("son {n} ayın ortalaması", { n: base.irregularMonths }) : t("geçmiş yok")) : undefined,
+      note: avgNote,
     },
     { label: t("Kredi taksitleri"), cents: base?.loanCents, sign: -1, note: t("önümüzdeki ay") },
   ];
@@ -267,7 +269,7 @@ export function ProjectionPage() {
               <NumberField label={t("Yıllık zam")} hint={t("Gelirler her Ocak artar")} value={used.incomeGrowthPct} pct onCommit={(v) => set({ incomeGrowthPct: v })} />
               <NumberField
                 label={t("Yıllık enflasyon")}
-                hint={t("Giderler her Ocak artar")}
+                hint={t("Giderler her ay artar")}
                 value={used.expenseGrowthPct}
                 pct
                 onCommit={(v) => set({ expenseGrowthPct: v })}
@@ -302,13 +304,18 @@ export function ProjectionPage() {
                 <span className={`font-semibold tabular-nums ${(base?.netCents ?? 0) < 0 ? "text-rose-600 dark:text-rose-400" : ""}`}>{money(base?.netCents)}</span>
               </div>
             </div>
+            {base && base.irregularMonths > 0 && base.irregularMonths < 3 && (
+              <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+                {t("Düzensiz gelir ve gider yalnız {n} aya dayanıyor; tek seferlik bir harcama tahmini çok etkiler. Birkaç ay veri biriktikçe tahmin güvenilir olur.", { n: base.irregularMonths })}
+              </p>
+            )}
             <details className="mt-3 text-xs text-zinc-500">
               <summary className="cursor-pointer font-medium">{t("Nasıl hesaplanır?")}</summary>
               <ul className="mt-1.5 list-disc space-y-1 pl-4">
                 <li>{t("Başlangıç bugünkü net servet. Kart ve KMH borcu ilk ay nakitten ödenmiş sayılır; kredi borcu taksit tablosuyla azalır.")}</li>
                 <li>{t("Düzenli gelir ve giderler bugünkü tutarlarıyla, başlangıç tarihleri gelince girer; aya özel istisnalar sayılmaz.")}</li>
-                <li>{t("Kategori limitleri ve son ayların düzensiz gider ortalaması her ay harcanmış sayılır; düzensiz gelir sayılmaz.")}</li>
-                <li>{t("Zam ve enflasyon her Ocak uygulanır; getiri yalnız artıdaki nakde aylık işler. Kredi taksitleri artmaz.")}</li>
+                <li>{t("Kategori limitleri her ay harcanmış sayılır. Düzensiz gelir ve gider son 12 tamamlanmış ayın (bütçe ayına göre) ortalamasıyla her ay tekrarlanır; yılda bir gelen giderler de böylece aylara yayılır. Tek seferlik harcamalar ayıklanmaz: ayıklanınca tahmin gerçekten düşük çıkar.")}</li>
+                <li>{t("Zam her Ocak uygulanır; enflasyon giderlere her ay (aylık bileşik, 12 ayda yıllık orana ulaşır) işler. Getiri yalnız artıdaki nakde aylık işler. Kredi taksitleri artmaz.")}</li>
                 <li>{t("Ev, araba gibi varlıklar bugünkü değeriyle sabit kalır; getiri ve nakit hesabına girmez.")}</li>
                 <li>{t("Bir krediyi ayrıca düzenli gider olarak da girdiyseniz iki kez düşülür.")}</li>
               </ul>

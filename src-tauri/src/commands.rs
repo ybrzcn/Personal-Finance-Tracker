@@ -222,10 +222,12 @@ pub fn reports_report(
     group: String,
 ) -> CmdResult<finans_core::reports::ReportsReport> {
     let today = ymd(istanbul_today(unix_now()));
-    let (txs, cats) = sqlite::run(&mut *lock(&state)?, |s| Ok((store::list_transactions(s)?, store::list_categories(s)?)))?;
+    let (txs, cats, rec) =
+        sqlite::run(&mut *lock(&state)?, |s| Ok((store::list_transactions(s)?, store::list_categories(s)?, store::list_recurring(s)?)))?;
     Ok(finans_core::reports::report(&finans_core::reports::ReportsInput {
         transactions: &txs,
         categories: &cats,
+        recurring: &rec,
         preset: &preset,
         from: from.as_deref().filter(|s| !s.is_empty()),
         to: to.as_deref().filter(|s| !s.is_empty()),

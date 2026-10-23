@@ -242,6 +242,7 @@ export interface ProjectionBase {
   regularExpenseCents: number;
   budgetCents: number;
   irregularExpenseCents: number;
+  irregularIncomeCents: number;
   irregularMonths: number;
   loanCents: number;
   extraCents: number;

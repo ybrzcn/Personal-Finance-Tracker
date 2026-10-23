@@ -93,6 +93,11 @@ fn income_index<'a>(txs: &'a [Transaction], recurring: &'a [RecurringItem]) -> V
         .collect()
 }
 
+/// Gelir işlemi kimliği → bütçe ayı (elle seçilen ay ya da önceki ayı karşılayan düzenli gelir; Raporlar da bunu izler)
+pub fn income_budget_months<'a>(txs: &'a [Transaction], recurring: &'a [RecurringItem]) -> HashMap<&'a str, String> {
+    income_index(txs, recurring).into_iter().map(|x| (x.t.id.as_str(), x.month)).collect()
+}
+
 pub struct MonthIncome<'a> {
     pub regular_cents: i64,
     /// Düzenli bir gelirle eşleşmeyen gelirler, tutar büyükten küçüğe

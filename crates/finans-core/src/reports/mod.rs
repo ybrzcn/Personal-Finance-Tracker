@@ -1,14 +1,16 @@
 //! Dönemsel raporlar: seçilen dönemde kategori / hesap / etiket kırılımı, önceki dönemle ya da geçen yılla karşılaştırma,
 //! aylık seyir ve gelir akışı (gelir kaynakları → giderler ve birikim). Harcama tarihine göre; taksitler kendi aylarına
-//! dağıtılır, transferler sayılmaz. Tutarlar kuruş.
+//! dağıtılır, transferler sayılmaz. Gelirler Bütçe'deki gibi bütçe ayında sayılır (10 Ekim'de yatan Eylül maaşı Eylül'de).
+//! Tutarlar kuruş.
 
 use std::collections::{BTreeMap, HashMap};
 
 use serde::Serialize;
 
 use crate::accounts::cards::{add_days, clamped_date, spread_installments};
-use crate::budget::recurring::shift_month;
-use crate::db::{Category, Transaction};
+use crate::budget::income::income_budget_months;
+use crate::budget::recurring::{month_of, shift_month};
+use crate::db::{Category, RecurringItem, Transaction};
 use crate::fx::time::{days_between, parse_ymd};
 use crate::CoreResult;
 
@@ -18,6 +20,8 @@ const FLOW_TOP: usize = 7;
 pub struct ReportsInput<'a> {
     pub transactions: &'a [Transaction],
     pub categories: &'a [Category],
+    /// Gelirin bütçe ayı için (önceki ayı karşılayan maaş)
+    pub recurring: &'a [RecurringItem],
     /// "thisMonth" | "lastMonth" | "thisYear" | "lastYear" | "last12" | "custom"
     pub preset: &'a str,
     /// Yalnız "custom": YYYY-MM-DD (dahil)
@@ -118,10 +122,26 @@ struct Part<'a> {
     cents: i64,
 }
 
-fn parts(txs: &[Transaction]) -> Vec<Part<'_>> {
+fn parts<'a>(txs: &'a [Transaction], recurring: &'a [RecurringItem], today: &str) -> Vec<Part<'a>> {
+    let budget = income_budget_months(txs, recurring);
     txs.iter()
         .filter(|t| t.kind == "income" || t.kind == "expense")
-        .flat_map(|t| spread_installments(t).into_iter().map(move |p| Part { t, date: p.date, cents: p.cents }))
+        .flat_map(|t| {
+            // Bütçe ayı farklı gelir o aya aynı günle taşınır (ay sonuna sıkıştırılarak). İleri tarihli gelir yatana kadar
+            // kendi tarihinde kalır: rapor gerçekleşeni gösterir, bütçe ayı planı değil
+            let shift = budget.get(t.id.as_str()).filter(|m| m.as_str() != month_of(&t.date) && t.date.as_str() <= today).map(|m| {
+                let (by, bm, _) = ym0(&format!("{m}-01"));
+                let (y, mo, _) = ym0(&t.date);
+                (by * 12 + bm) - (y * 12 + mo)
+            });
+            spread_installments(t).into_iter().map(move |p| {
+                let date = match shift {
+                    Some(n) => shift_date(&p.date, n),
+                    None => p.date,
+                };
+                Part { t, date, cents: p.cents }
+            })
+        })
         .collect()
 }
 
@@ -305,7 +325,7 @@ pub fn report(input: &ReportsInput) -> CoreResult<ReportsReport> {
         return Err(format!("Geçersiz kırılım: {}", input.group));
     }
     let (range, compare_range) = ranges(input.preset, input.from, input.to, input.compare, input.today)?;
-    let parts = parts(input.transactions);
+    let parts = parts(input.transactions, input.recurring, input.today);
     let totals_now = totals(&parts, &range);
     let compare_totals = compare_range.as_ref().map(|c| totals(&parts, c));
 

@@ -1,6 +1,8 @@
 //! Uzun vadeli tahmin: bugünkü net servetten başlayıp aylık nakit akışını yıllarca ileri yürütür.
-//! Akış: düzenli gelirler − (düzenli giderler + kategori limitleri + son ayların düzensiz gider ortalaması) − kredi taksitleri.
-//! Gelir ve giderler her Ocak'ta yıllık oranla artar; artı nakit aylık getiri kazanır. Kredi borcu taksit tablosuyla azalır;
+//! Akış: düzenli gelirler + düzensiz gelir ortalaması − (düzenli giderler + kategori limitleri + düzensiz gider ortalaması)
+//! − kredi taksitleri. Ortalamalar son 12 tamamlanmış ayın (yılda bir gelen giderler de girsin; tek seferlikler ayıklanmaz,
+//! ayıklanınca tahmin düşük kalır). Gelirler her Ocak zam oranıyla, giderler her ay enflasyonla (aylık bileşik) artar;
+//! artı nakit aylık getiri kazanır. Kredi borcu taksit tablosuyla azalır;
 //! kart ve KMH borcu başlangıçta nakitten düşülmüş sayılır (net servet aynı). Tutarlar kuruş.
 
 use serde::{Deserialize, Serialize};
@@ -9,11 +11,12 @@ use crate::accounts::bank::tl_value;
 use crate::accounts::cards::js_cents;
 use crate::accounts::loans::{liability_at, loan_schedule};
 use crate::budget::expenses::{budget_expenses, month_expenses};
+use crate::budget::income::split_month_income;
 use crate::budget::recurring::{amount_at, has_started, month_of, occurrence_in, shift_month};
 use crate::db::{Account, Budget, RecurringItem, Transaction};
 
-/// Düzensiz gider ortalamasının bakıldığı tamamlanmış ay sayısı
-const IRREGULAR_MONTHS: i64 = 6;
+/// Düzensiz gelir ve gider ortalamasının bakıldığı tamamlanmış ay sayısı (yıllık giderler de girsin)
+const IRREGULAR_MONTHS: i64 = 12;
 pub const MAX_YEARS: i64 = 30;
 
 /// Kullanıcının varsayımları (Uzun Vade sayfası; `projection` ayarında saklanır). Oranlar yüzde, yıllık.
@@ -70,8 +73,10 @@ pub struct MonthlyBase {
     pub income_cents: i64,
     pub regular_expense_cents: i64,
     pub budget_cents: i64,
-    /// Son tamamlanmış ayların (en çok 6) bütçesiz, düzenli kayda uymayan giderlerinin ortalaması
+    /// Son tamamlanmış ayların (en çok 12) bütçesiz, düzenli kayda uymayan giderlerinin ortalaması
     pub irregular_expense_cents: i64,
+    /// Aynı aylarda düzenli gelirle eşleşmeyen gelirlerin ortalaması
+    pub irregular_income_cents: i64,
     pub irregular_months: i64,
     /// Önümüzdeki ayın kredi taksitleri
     pub loan_cents: i64,
@@ -171,21 +176,24 @@ fn loans(accounts: &[Account], txs: &[Transaction], today: &str) -> Vec<Loan> {
         .collect()
 }
 
-/// Son tamamlanmış aylarda (bütçe ayına göre) bütçesiz ve düzenli kayda uymayan giderlerin ortalaması: (kuruş, ay sayısı)
-fn irregular_average(input: &ProjectionInput, today_month: &str) -> (i64, i64) {
+/// Son tamamlanmış aylarda (bütçe ayına göre) bütçesiz ve düzenli kayda uymayan giderlerin ve düzenli gelirle eşleşmeyen
+/// gelirlerin ortalaması: (gider kuruş, gelir kuruş, ay sayısı). Verisi olmayan ay sıfır sayılır.
+fn irregular_average(input: &ProjectionInput, today_month: &str) -> (i64, i64, i64) {
     let all = budget_expenses(input.transactions, input.accounts, input.recurring);
     // İlk gider bütçe ayından önceki aylar sayılmaz (kart harcaması sonraki bütçe ayına düşebilir)
     let Some(first) = all.iter().map(|e| e.month.as_str()).min() else {
-        return (0, 0);
+        return (0, 0, 0);
     };
     let no_carry = Default::default();
     let months: Vec<String> =
         (1..=IRREGULAR_MONTHS).map(|k| shift_month(today_month, -k)).filter(|m| m.as_str() >= first).collect();
     if months.is_empty() {
-        return (0, 0);
+        return (0, 0, 0);
     }
-    let total: i64 = months.iter().map(|m| month_expenses(&all, input.recurring, input.budgets, &no_carry, m).irregular_cents).sum();
-    (total / months.len() as i64, months.len() as i64)
+    let n = months.len() as i64;
+    let expense: i64 = months.iter().map(|m| month_expenses(&all, input.recurring, input.budgets, &no_carry, m).irregular_cents).sum();
+    let income: i64 = months.iter().map(|m| split_month_income(input.transactions, input.recurring, m).irregular_cents).sum();
+    (expense / n, income / n, n)
 }
 
 /// Ayın düzenli tutarları (başlamış, etkin kayıtlar; bugünkü tutarla, ay istisnaları uygulanmaz): (gelir, gider)
@@ -215,7 +223,7 @@ pub fn report(input: &ProjectionInput) -> ProjectionReport {
     let loans = loans(input.accounts, input.transactions, input.today);
     let start_loan: i64 = loans.iter().map(|l| l.remaining_cents).sum();
     let budget_cents: i64 = input.budgets.iter().map(|b| js_cents(b.amount)).sum();
-    let (irregular, irregular_months) = irregular_average(input, &today_month);
+    let (irregular, irregular_income, irregular_months) = irregular_average(input, &today_month);
     let extra = js_cents(a.monthly_extra);
 
     let loan_in = |m: &str| -> i64 { loans.iter().flat_map(|l| &l.rows).filter(|r| r.month == m).map(|r| r.payment_cents).sum() };
@@ -235,13 +243,16 @@ pub fn report(input: &ProjectionInput) -> ProjectionReport {
         regular_expense_cents: exp0,
         budget_cents,
         irregular_expense_cents: irregular,
+        irregular_income_cents: irregular_income,
         irregular_months,
         loan_cents: base_loan,
         extra_cents: extra,
-        net_cents: inc0 + extra - exp0 - budget_cents - irregular - base_loan,
+        net_cents: inc0 + irregular_income + extra - exp0 - budget_cents - irregular - base_loan,
     };
 
     let monthly_return = (1.0 + a.return_pct / 100.0).powf(1.0 / 12.0) - 1.0;
+    // Fiyatlar her ay artar: yıllık enflasyonun aylık bileşik karşılığı (12 ayda yıllık orana ulaşır)
+    let monthly_inflation = (1.0 + a.expense_growth_pct / 100.0).powf(1.0 / 12.0);
     // Ev, araba gibi varlıklar bugünkü değeriyle sabit taşınır (getiri kazanmaz, nakit sayılmaz)
     let fixed: i64 = input.accounts.iter().filter(|a| a.subtype() == "asset").map(|a| tl_value(a, input.transactions, input.today)).sum();
     // Kart/KMH borcu başlangıçta nakitten düşülür: nakit = net servet + kalan kredi anaparası − sabit varlıklar
@@ -269,13 +280,13 @@ pub fn report(input: &ProjectionInput) -> ProjectionReport {
     };
     let mut m = first;
     for k in 1..=a.years * 12 {
-        // Zam ve enflasyon her Ocak'ta (ilk ay Ocak'sa o aydan)
+        // Zam her Ocak'ta (ilk ay Ocak'sa o aydan); enflasyon her ay
         if m.ends_with("-01") {
             income_factor *= 1.0 + a.income_growth_pct / 100.0;
-            expense_factor *= 1.0 + a.expense_growth_pct / 100.0;
         }
+        expense_factor *= monthly_inflation;
         let (inc, exp) = regular_for(input.recurring, &m, input.today);
-        let income = scale(inc, income_factor);
+        let income = scale(inc + irregular_income, income_factor);
         let extra_m = scale(extra, income_factor);
         let expense = scale(exp + budget_cents + irregular, expense_factor);
         let loan = loan_in(&m);
