@@ -9,10 +9,11 @@ use std::collections::{HashMap, HashSet};
 use serde::Serialize;
 
 use self::breakdown::{by_account, by_category, spread, top_merchants, AccountSlice, CategorySlice, MerchantRow, Part};
-use self::income::{cash_income_for_month, planned_regular_income_in_range};
+use self::income::planned_regular_income_in_range;
 pub use self::period::Period;
 use self::period::{month_end, previous, range};
 use crate::accounts::cards::{js_cents, js_round};
+use crate::budget::income::income_budget_dates;
 use crate::budget::recurring::{month_of, shift_month};
 use crate::db::{Account, Category, RecurringItem, Transaction};
 
@@ -86,8 +87,18 @@ pub fn overview(input: &OverviewInput) -> OverviewReport {
     // Takip başlangıcı: en eski hesap açılışı veya işlem; öncesine plan maaşı yazılmaz
     let tracking_start: Option<&str> =
         input.accounts.iter().map(|a| a.opening_date.as_str()).chain(txs.iter().map(|t| t.date.as_str())).filter(|d| !d.is_empty()).min();
-    // İstatistiklerde taksitli harcamalar aylara bölünür
-    let parts = spread(txs);
+    // İstatistiklerde taksitli harcamalar aylara bölünür; gelir Bütçe ve Raporlar'daki gibi bütçe ayında (10 Ekim'de yatan
+    // Eylül maaşı Eylül'de)
+    let moved = income_budget_dates(txs, rec, today);
+    let parts: Vec<Part> = spread(txs)
+        .into_iter()
+        .map(|mut p| {
+            if let Some(d) = moved.get(p.tx.id.as_str()) {
+                p.date = d.clone();
+            }
+            p
+        })
+        .collect();
     let r = range(input.period, today);
     let in_period: Vec<Part> = parts.iter().filter(|p| r.contains(&p.date)).cloned().collect();
 
@@ -100,8 +111,11 @@ pub fn overview(input: &OverviewInput) -> OverviewReport {
             _ => {}
         }
     }
-    // Maaş gibi düzenli gelirler İşlemler'e girilmese de plan tutarıyla sayılır (ayın sonuna kadar)
+    // Maaş gibi düzenli gelirler İşlemler'e girilmese de plan tutarıyla sayılır: yalnız bu ayın başından ay sonuna kadar
+    // (geçmiş ayda girilmemiş maaş yatmış varsayılmaz)
     let end = month_end(today);
+    let this_month = month_of(today);
+    let month_start = format!("{this_month}-01");
     let from = match &r.from {
         Some(f) => f.clone(),
         None => txs
@@ -111,6 +125,7 @@ pub fn overview(input: &OverviewInput) -> OverviewReport {
             .min()
             .unwrap_or_else(|| end.clone()),
     };
+    let from = from.max(month_start.clone());
     let to = match &r.to {
         Some(t) if *t < end => t.clone(),
         _ => end.clone(),
@@ -129,14 +144,14 @@ pub fn overview(input: &OverviewInput) -> OverviewReport {
         by_category(&before, &existing)
     });
 
-    // Gelir: düzenli gelirler yatış tarihlerine göre (girilmediyse plan) ve diğer gelir işlemleri; gider: bölünmüş giderler
-    let this_month = month_of(today);
+    // Gelir: bütçe ayındaki gelir işlemleri, bu ay girilmemiş düzenli gelirin planı; gider: bölünmüş giderler
     let mut monthly: Vec<MonthRow> = (0..MONTHS)
         .rev()
         .map(|i| {
             let month = shift_month(this_month, -i);
-            let expense = parts.iter().filter(|p| p.tx.kind == "expense" && month_of(&p.date) == month).fold(0.0, |s, p| s + p.amount);
-            MonthRow { income_cents: cash_income_for_month(txs, rec, &month, tracking_start), expense_cents: js_round(expense * 100.0), month }
+            let sum = |kind: &str| parts.iter().filter(|p| p.tx.kind == kind && month_of(&p.date) == month).fold(0.0, |s, p| s + p.amount);
+            let planned = if month == this_month { planned_regular_income_in_range(txs, rec, &month_start, &end, tracking_start) } else { 0 };
+            MonthRow { income_cents: js_round(sum("income") * 100.0) + planned, expense_cents: js_round(sum("expense") * 100.0), month }
         })
         .collect();
     // Takip başlamadan önceki boş aylar gösterilmez

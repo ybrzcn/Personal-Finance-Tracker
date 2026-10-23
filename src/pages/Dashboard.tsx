@@ -271,8 +271,11 @@ export function Dashboard() {
       ? `${t("Tasarruf oranı: %{v}", { v: totals.savingsRatePct })} · ${t("{n} işlem", { n: totals.count })}`
       : t("{n} işlem", { n: totals.count })
     : undefined;
+  // Gelir bütçe ayında (10 Ekim'de yatan Eylül maaşı Eylül'de); plan tutarı yalnız bu ayın girilmemiş düzenli geliri
   const incomeHint =
-    totals && totals.plannedCents > 0 ? `${periodLabel} · ${t("{amount} düzenli gelir (plan) dahil", { amount: formatMoney(totals.plannedCents / 100) })}` : periodLabel;
+    totals && totals.plannedCents > 0
+      ? `${periodLabel} · ${t("{amount} düzenli gelir (plan) dahil", { amount: formatMoney(totals.plannedCents / 100) })}`
+      : `${periodLabel} · ${t("bütçe ayına göre")}`;
 
   return (
     <>

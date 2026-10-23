@@ -1,4 +1,4 @@
-//! Genel Bakış gelirleri (TS `cashIncomeForMonth`, `plannedRegularIncomeInRange`)
+//! Genel Bakış gelirleri: henüz girilmemiş düzenli gelirin plan tutarı (gerçekleşen gelirler bütçe ayında, `mod.rs`)
 
 use crate::accounts::cards::js_round;
 use crate::budget::income::{active_incomes, assign_regular};
@@ -9,32 +9,9 @@ fn month_income_txs<'a>(txs: &'a [Transaction], month: &str) -> Vec<&'a Transact
     txs.iter().filter(|t| t.kind == "income" && month_of(&t.date) == month).collect()
 }
 
-/// Ayın nakit geliri (o ay hesaba giren): düzenli gelirler o aydaki yatış tarihiyle (yattıysa yatan, yatmadıysa plan;
-/// başlangıç, zam ve istisnalar dahil) + düzenli gelirle eşleşmeyen gelir işlemleri. `since` öncesine plan yazılmaz.
-pub fn cash_income_for_month(txs: &[Transaction], recurring: &[RecurringItem], month: &str, since: Option<&str>) -> i64 {
-    let month_txs = month_income_txs(txs, month);
-    let items = active_incomes(recurring);
-    let assigned = assign_regular(&month_txs, &items);
-    let mut cents = 0;
-    for item in &items {
-        let date = occurrence_in(item, month);
-        let received: i64 = month_txs.iter().filter(|t| assigned.get(&t.id).is_some_and(|id| *id == item.id)).map(|t| js_round(t.amount * 100.0)).sum();
-        if received > 0 {
-            cents += received;
-        } else if has_started(item, &date) && since.is_none_or(|s| date.as_str() >= s) {
-            cents += js_round(amount_for_occurrence(item, &date) * 100.0);
-        }
-    }
-    // Nakit akışı: düzensiz gelirler bütçe ayına değil, hesaba girdiği tarihe göre sayılır
-    for t in &month_txs {
-        if !assigned.contains_key(&t.id) {
-            cents += js_round(t.amount * 100.0);
-        }
-    }
-    cents
-}
-
-/// [from, to] aralığındaki düzenli gelir yatışları: o ayki karşılığı İşlemler'e girilmediyse plan tutarı
+/// [from, to] aralığındaki düzenli gelir yatışları: o ayki karşılığı İşlemler'e girilmediyse plan tutarı. Önceki ayı
+/// karşılayan gelir sayılmaz: yatışı bir sonraki aya düşer, bütçe ayının planı yatış ayında görünmez (yatınca gerçekleşen
+/// olarak kendi bütçe ayına girer). Çağıran geçmiş aylar için çağırmaz (girilmemiş eski maaş gelir sayılmaz).
 pub fn planned_regular_income_in_range(txs: &[Transaction], recurring: &[RecurringItem], from: &str, to: &str, since: Option<&str>) -> i64 {
     let from = match since {
         Some(s) if s > from => s,
@@ -48,7 +25,7 @@ pub fn planned_regular_income_in_range(txs: &[Transaction], recurring: &[Recurri
     while month.len() == 7 && month <= last {
         let month_txs = month_income_txs(txs, &month);
         let assigned = assign_regular(&month_txs, &items);
-        for item in &items {
+        for item in items.iter().filter(|r| !r.covers_previous_month) {
             let date = occurrence_in(item, &month);
             if date.as_str() < from || date.as_str() > to || !has_started(item, &date) {
                 continue;

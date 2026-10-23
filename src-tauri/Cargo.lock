@@ -1274,7 +1274,7 @@ dependencies = [
 
 [[package]]
 name = "finans"
-version = "1.25.1"
+version = "1.25.2"
 dependencies = [
  "finans-core",
  "rusqlite",
@@ -1291,7 +1291,7 @@ dependencies = [
 
 [[package]]
 name = "finans-core"
-version = "1.25.1"
+version = "1.25.2"
 dependencies = [
  "argon2",
  "base64 0.22.1",

@@ -8,8 +8,8 @@ use std::collections::{BTreeMap, HashMap};
 use serde::Serialize;
 
 use crate::accounts::cards::{add_days, clamped_date, spread_installments};
-use crate::budget::income::income_budget_months;
-use crate::budget::recurring::{month_of, shift_month};
+use crate::budget::income::income_budget_dates;
+use crate::budget::recurring::shift_month;
 use crate::db::{Category, RecurringItem, Transaction};
 use crate::fx::time::{days_between, parse_ymd};
 use crate::CoreResult;
@@ -123,24 +123,13 @@ struct Part<'a> {
 }
 
 fn parts<'a>(txs: &'a [Transaction], recurring: &'a [RecurringItem], today: &str) -> Vec<Part<'a>> {
-    let budget = income_budget_months(txs, recurring);
+    // Gelir bütçe ayında (taksit yalnız giderde; gelir tek parça)
+    let moved = income_budget_dates(txs, recurring, today);
     txs.iter()
         .filter(|t| t.kind == "income" || t.kind == "expense")
         .flat_map(|t| {
-            // Bütçe ayı farklı gelir o aya aynı günle taşınır (ay sonuna sıkıştırılarak). İleri tarihli gelir yatana kadar
-            // kendi tarihinde kalır: rapor gerçekleşeni gösterir, bütçe ayı planı değil
-            let shift = budget.get(t.id.as_str()).filter(|m| m.as_str() != month_of(&t.date) && t.date.as_str() <= today).map(|m| {
-                let (by, bm, _) = ym0(&format!("{m}-01"));
-                let (y, mo, _) = ym0(&t.date);
-                (by * 12 + bm) - (y * 12 + mo)
-            });
-            spread_installments(t).into_iter().map(move |p| {
-                let date = match shift {
-                    Some(n) => shift_date(&p.date, n),
-                    None => p.date,
-                };
-                Part { t, date, cents: p.cents }
-            })
+            let moved = moved.get(t.id.as_str()).cloned();
+            spread_installments(t).into_iter().map(move |p| Part { t, date: moved.clone().unwrap_or(p.date), cents: p.cents })
         })
         .collect()
 }

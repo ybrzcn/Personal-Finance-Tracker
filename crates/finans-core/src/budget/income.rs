@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use super::recurring::{amount_at, amount_for_occurrence, exception_for, has_started, month_of, occurrence_in, scheduled_month, shift_month};
-use crate::accounts::cards::js_cents;
+use crate::accounts::cards::{clamped_date, js_cents};
 use crate::db::{MonthException, RecurringItem, Transaction};
 
 /// İşlem düzenli kaydın karşılığı olabilir mi (TS `matchesRegular`)
@@ -93,9 +93,16 @@ fn income_index<'a>(txs: &'a [Transaction], recurring: &'a [RecurringItem]) -> V
         .collect()
 }
 
-/// Gelir işlemi kimliği → bütçe ayı (elle seçilen ay ya da önceki ayı karşılayan düzenli gelir; Raporlar da bunu izler)
-pub fn income_budget_months<'a>(txs: &'a [Transaction], recurring: &'a [RecurringItem]) -> HashMap<&'a str, String> {
-    income_index(txs, recurring).into_iter().map(|x| (x.t.id.as_str(), x.month)).collect()
+/// Raporlarda ve Genel Bakış'ta gelirin sayıldığı tarih: bütçe ayı (elle seçilen ay ya da önceki ayı karşılayan düzenli
+/// gelir) takvim ayından farklıysa o aya aynı günle taşınır (ay sonuna sıkıştırılarak). İleri tarihli gelir yatana kadar
+/// kendi tarihinde kalır (gerçekleşen sayılır, bütçe planı değil). Yalnız taşınanlar: işlem kimliği → tarih
+pub fn income_budget_dates<'a>(txs: &'a [Transaction], recurring: &'a [RecurringItem], today: &str) -> HashMap<&'a str, String> {
+    let num = |s: &str, r: std::ops::Range<usize>| s.get(r).and_then(|x| x.parse::<i64>().ok()).unwrap_or(1);
+    income_index(txs, recurring)
+        .into_iter()
+        .filter(|x| x.month != month_of(&x.t.date) && x.t.date.as_str() <= today)
+        .map(|x| (x.t.id.as_str(), clamped_date(num(&x.month, 0..4), num(&x.month, 5..7) - 1, num(&x.t.date, 8..10))))
+        .collect()
 }
 
 pub struct MonthIncome<'a> {

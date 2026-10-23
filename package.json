@@ -1,7 +1,7 @@
 {
   "name": "finans",
   "private": true,
-  "version": "1.25.1",
+  "version": "1.25.2",
   "license": "MIT",
   "repository": "github:ybrzcn/Personal-Finance-Tracker",
   "type": "module",
