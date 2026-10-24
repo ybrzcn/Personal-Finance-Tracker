@@ -69,9 +69,15 @@ fn tr_date(iso: &str) -> String {
     format!("{}.{}.{}", part(8, 10), part(5, 7), part(0, 4))
 }
 
+/// Puanla/bonusla ödenen kısım (Garanti BBVA "BONUS BEDAVA ALIŞVERİŞ"): ekstre tutarına ve borca girmez
+fn looks_like_reward_use(description: &str) -> bool {
+    let w = words(description);
+    w.contains(" bonus bedava ") || w.contains(" bonus kullanimi ")
+}
+
 fn looks_like_card_payment(description: &str) -> bool {
     let w = words(description);
-    [" odeme ", " odemesi ", " kart odeme ", " hesaptan odeme "].iter().any(|k| w.contains(k))
+    [" odeme ", " odemesi ", " odemeniz ", " kart odeme ", " hesaptan odeme "].iter().any(|k| w.contains(k))
 }
 
 /// JS `Number.parseInt(s, 10)`: baştaki boşluk ve işaretten sonraki rakamlar; yoksa None
@@ -210,7 +216,10 @@ pub fn build_import_rows(input: &RowsInput) -> CoreResult<ImportRows> {
             _ => 1,
         };
 
-        if card && kind == "income" && looks_like_card_payment(&description) {
+        if card && looks_like_reward_use(&description) {
+            include = false;
+            note = "Bonus kullanımı: ekstre borcuna girmez".to_string();
+        } else if card && kind == "income" && looks_like_card_payment(&description) {
             include = false;
             note = "Kart ödemesi: vadesiz hesap tarafında transfer olarak girin".to_string();
         } else if !card && kind == "expense" && looks_like_card_payment(&description) && !cards.is_empty() {

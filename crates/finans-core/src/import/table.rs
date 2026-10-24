@@ -5,6 +5,7 @@ use std::sync::LazyLock;
 use fancy_regex::Regex;
 
 use super::{detect_delimiter, js_re, js_trim, parse_csv, parse_date};
+use crate::analysis::norm;
 use crate::statement::StatementFile;
 
 /// Boşlukla ayrılmış tutar: 1.250,75 · 1250,75 · 1,250.75 · sonda/başta işaret, isteğe bağlı TL
@@ -19,6 +20,11 @@ static GLUED_CITY: LazyLock<Regex> =
     LazyLock::new(|| js_re(r"^([^\n\r\x{2028}\x{2029}]*\S)(İSTANBUL|ISTANBUL|ANKARA|İZMİR|IZMIR|BURSA|ANTALYA|KOCAELİ|KOCAELI)$"));
 /// İşlemin altındaki taksit açıklaması ("… işlemin 6 / 6 taksidi")
 static INSTALLMENT_LINE: LazyLock<Regex> = LazyLock::new(|| js_re(r"(?i)(\d{1,2})\s*/\s*(\d{1,2})\s*taksid"));
+/// Satır içi taksit (Garanti BBVA/Bonus): "337,25x6=2.023,50 6.Taksit" → 6/6
+static INLINE_INSTALLMENT: LazyLock<Regex> =
+    LazyLock::new(|| js_re(r"(?i)x\s*(\d{1,2})\s*=\s*[\d.,]+\s+(\d{1,2})\s*\.\s*taksit"));
+/// İşlem tablosunun başlığı: tutar ve puan/bonus sütunlarının sırası buradan anlaşılır
+static TABLE_HEADER: LazyLock<Regex> = LazyLock::new(|| js_re(r"islem tarihi[^\n]*tutar"));
 static MULTI_SPACE: LazyLock<Regex> = LazyLock::new(|| js_re(r"\s{2,}"));
 static SPACES: LazyLock<Regex> = LazyLock::new(|| js_re(r"\s+"));
 static CURRENCY: LazyLock<Regex> = LazyLock::new(|| js_re(r"\s?(TL|TRY)"));
@@ -72,10 +78,21 @@ fn merchant_name(raw: &str) -> String {
     }
 }
 
-/// TS `pdfTextToTable`: tarihle başlayan her satır bir işlem; sondan ikinci tutar işlem tutarıdır
+/// Puan/bonus sütunu tutardan önce mi (Garanti BBVA/Bonus: "Bonus (TL) Tutar (TL)");
+/// öyleyse satırın son tutarı işlem tutarıdır, değilse (World, Axess…) sondan ikincisi
+fn amount_is_last(lines: &[&str]) -> bool {
+    lines.iter().map(|l| norm(l)).find(|l| TABLE_HEADER.is_match(l).unwrap_or(false)).is_some_and(|h| {
+        let tutar = h.find("tutar").unwrap_or(usize::MAX);
+        ["bonus", "puan"].iter().filter_map(|w| h.find(w)).any(|i| i < tutar)
+    })
+}
+
+/// TS `pdfTextToTable`: tarihle başlayan her satır bir işlem; tutar sondan ikinci (ya da puan sütunu
+/// önce geliyorsa son) tutardır
 fn pdf_text_to_table(text: &str) -> Vec<Vec<String>> {
     let mut rows = vec![vec!["Tarih".to_string(), "Açıklama".to_string(), "Tutar".to_string(), "Taksit".to_string()]];
     let lines = split_lines(text);
+    let last = amount_is_last(&lines);
     for (i, raw) in lines.iter().enumerate() {
         let line = raw.replace('\t', " ");
         let line = js_trim(&line);
@@ -93,17 +110,20 @@ fn pdf_text_to_table(text: &str) -> Vec<Vec<String>> {
         if amounts.is_empty() {
             continue;
         }
-        let pick = if amounts.len() >= 2 { &amounts[amounts.len() - 2] } else { &amounts[0] };
+        let pick = if amounts.len() >= 2 && !last { &amounts[amounts.len() - 2] } else { &amounts[amounts.len() - 1] };
         let start = amounts[0].get(0).map_or(0, |x| x.start());
         let description = merchant_name(&rest[..start]);
         let next = js_trim(lines.get(i + 1).copied().unwrap_or(""));
         let inst = if DATE_START.is_match(next).unwrap_or(false) { None } else { INSTALLMENT_LINE.captures(next).ok().flatten() };
+        let inst = inst
+            .map(|c| format!("{}/{}", &c[1], &c[2]))
+            .or_else(|| INLINE_INSTALLMENT.captures(rest).ok().flatten().map(|c| format!("{}/{}", &c[2], &c[1])));
         let token = format!("{}{}", &pick[1], pick.get(2).map_or("", |x| js_trim(x.as_str())));
         rows.push(vec![
             SPACES.replace_all(&m[1], " ").into_owned(),
             description,
             normalize_amount_token(&token),
-            inst.map_or(String::new(), |c| format!("{}/{}", &c[1], &c[2])),
+            inst.unwrap_or_default(),
         ]);
     }
     rows

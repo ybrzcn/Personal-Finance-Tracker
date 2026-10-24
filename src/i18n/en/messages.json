@@ -106,6 +106,7 @@
   "Bulunamadı.": "Not found.",
   "İlk işlem {date}": "First transaction {date}",
   "Kart ödemesi: vadesiz hesap tarafında transfer olarak girin": "Card payment: enter it as a transfer on the current account side",
+  "Bonus kullanımı: ekstre borcuna girmez": "Reward points used: not part of the statement balance",
   "Kart ödemesi olarak algılandı": "Detected as a card payment",
   "Aynı tarih ve tutarda kayıt zaten var": "A record with the same date and amount already exists",
   "{note}. Aynı tutarda {date} tarihli kayıt var; o kaydı silin": "{note}. A record with the same amount dated {date} exists; delete that record",
